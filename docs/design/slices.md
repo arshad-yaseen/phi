@@ -97,34 +97,6 @@ conversions to and from what they already are. A default type for
 literals, which decides silently what the program should decide
 visibly, and then needs widening to stay usable.
 
-### A literal that names what it builds
-
-A struct literal is the one literal that can say what it is, so it may.
-`Point.{ x: 1 }` names the type at the site, and `.{ x: 1 }` leaves it to
-where it lands, which is an annotation, an argument, a return, a field, or
-an element:
-
-```phi
-let origin: Point = .{ x: 0, y: 0 }
-let corners: [2]Point = [.{ x: 0, y: 0 }, .{ x: 1, y: 1 }]
-```
-
-Two places say nothing, and both are refused. Where nothing lands the
-literal there is no type to take. Where what lands it is a union, the
-union lists several types and nothing says which was meant, so the member
-is named:
-
-```phi
-fn find() Point | none {
-    return Point.{ x: 1, y: 2 }         // the member, named
-}
-```
-
-Refused: a bare literal matched against a union's members by its field
-names, which decides silently what the program should say, and changes
-its mind when a second member grows the same fields. A literal that seals
-unnamed, which would need storage before anything has said what it is.
-
 ### A constant that becomes a view
 
 A number needs no address to exist. It is written into the instruction
