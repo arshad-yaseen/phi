@@ -70,6 +70,10 @@ fn an_array_field_sits_inline() u64 {
     return intrinsic.size_of[Header]()
 }
 
+fn an_array_member_leaves_no_niche() u64 {
+    return intrinsic.size_of[[2]u32 | none]()
+}
+
 fn alignments() u64 {
     return intrinsic.align_of[u8]() + intrinsic.align_of[Node]()
 }

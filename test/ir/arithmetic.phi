@@ -1,0 +1,42 @@
+// every arithmetic and comparison operator, on operands the checker cannot
+// fold, so each one lowers to its own instruction rather than to a constant
+
+fn divide(a: i64, b: i64) i64 {
+    return a / b
+}
+
+fn remainder(a: i64, b: i64) i64 {
+    return a % b
+}
+
+fn negated(a: i64) i64 {
+    return -a
+}
+
+fn negated_float(a: f64) f64 {
+    return -a
+}
+
+fn float_arithmetic(a: f64, b: f64) f64 {
+    return a / b
+}
+
+fn equal(a: i64, b: i64) bool {
+    return a == b
+}
+
+fn not_equal(a: i64, b: i64) bool {
+    return a != b
+}
+
+fn ordered(a: i64, b: i64) bool {
+    let below = a < b
+    let at_most = a <= b
+    let above = a > b
+    let at_least = a >= b
+    return below and at_most and above and at_least
+}
+
+fn unsigned_edges(a: u8, b: u8) u8 {
+    return a / b % a
+}

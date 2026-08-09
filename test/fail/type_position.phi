@@ -1,0 +1,21 @@
+type Box[T] = {
+    item: T
+}
+
+let count = 5
+
+fn value_as_a_type_argument(b: Box[5]) i64 {
+    return 1
+}
+
+fn expression_as_a_type_argument(b: Box[1 + 2]) i64 {
+    return 1
+}
+
+fn reaching_through_a_value(a: count.x) i64 {
+    return 1
+}
+
+fn arguments_on_a_value(a: count[i64]) i64 {
+    return 1
+}

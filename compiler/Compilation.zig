@@ -1180,6 +1180,25 @@ test "a diagnostic names the unit that produced it" {
     try testing.expectEqual(Unit.Kind.body, entry.unit.?.kind);
 }
 
+test "a program built without the standard library says where std would be" {
+    const gpa = testing.allocator;
+
+    var comp: Compilation = undefined;
+    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    defer comp.deinit();
+
+    try comp.compile(try testSource(gpa, "import std.mem\n"));
+
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try comp.renderAll(&out.writer, .off);
+    try testing.expect(std.mem.indexOf(
+        u8,
+        out.written(),
+        "the standard library was not found",
+    ) != null);
+}
+
 test "a file with a parse error is still checked" {
     const gpa = testing.allocator;
 

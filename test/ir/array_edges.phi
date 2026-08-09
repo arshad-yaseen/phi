@@ -1,0 +1,59 @@
+type Point = {
+    x: u32
+    y: u32
+}
+
+// an array is a member of a union like any other type
+type Slot = [2]u32 | none
+
+fn hold(f: bool) Slot {
+    if f {
+        return [1, 2]
+    }
+    return none
+}
+
+// and is tested and matched like any other member
+fn tested(s: Slot) u32 {
+    if s is [2]u32 {
+        return 1
+    }
+    return 0
+}
+
+fn matched(s: Slot) u32 {
+    return match s {
+        [2]u32 => 2
+        none => 0
+    }
+}
+
+// an array is a value, so assigning one copies it
+fn copies(a: [3]u32) [3]u32 {
+    var b: [3]u32 = [0, 0, 0]
+    b = a
+    return b
+}
+
+// a struct constant enters a union by membership, unwrapped
+fn maybe_point(f: bool) Point | none {
+    if f {
+        return Point.{ x: 1, y: 2 }
+    }
+    return none
+}
+
+// aggregates nest, and one runtime part at any depth emits the whole level
+fn nested(n: u32) [2]Point {
+    return [Point.{ x: 1, y: 2 }, Point.{ x: n, y: 4 }]
+}
+
+// a folded struct constant still serves as a receiver
+fn receiver() u32 {
+    return Point.{ x: 6, y: 7 }.x
+}
+
+// an array of arrays with a runtime element
+fn deep(n: u32) [2][2]u32 {
+    return [[1, 2], [n, 4]]
+}

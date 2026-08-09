@@ -1,0 +1,22 @@
+fn nothing() {}
+
+fn returns_a_value_from_nothing() {
+    return 1
+}
+
+fn binds_nothing() {
+    let x = nothing()
+}
+
+fn deref_a_number() {
+    let n: i64 = 5
+    let x = n.*
+}
+
+fn or_handler_on_a_number() {
+    let n: i64 = 5
+    let x = n or e {
+        _ = e
+        0
+    }
+}

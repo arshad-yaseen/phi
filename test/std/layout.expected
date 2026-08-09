@@ -46,6 +46,10 @@ fn an_array_field_sits_inline() u64
 b0:
   return 8:u64
 
+fn an_array_member_leaves_no_niche() u64
+b0:
+  return 12:u64
+
 fn alignments() u64
 b0:
   return 9:u64

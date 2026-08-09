@@ -1,0 +1,37 @@
+type Counter = {
+    hits: i64
+
+    fn bump(self: *var Counter) {
+        self.hits = self.hits + 1
+    }
+}
+
+fn make() Counter {
+    return Counter.{ hits: 0 }
+}
+
+fn a_let_cannot_change() {
+    let n: i64 = 1
+    n = 2
+}
+
+fn a_temporary_has_no_home() {
+    make().hits = 1
+}
+
+fn receiver_was_let() {
+    let c = Counter.{ hits: 0 }
+    c.bump()
+}
+
+fn receiver_is_a_parameter(c: Counter) {
+    c.bump()
+}
+
+fn receiver_behind_a_read_only_pointer(p: *Counter) {
+    p.*.bump()
+}
+
+fn receiver_is_a_temporary() {
+    make().bump()
+}

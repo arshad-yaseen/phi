@@ -1,0 +1,37 @@
+import std.mem
+
+type Box[T] = {
+    item: T
+
+    fn get(self: Box[T]) T {
+        return self.item
+    }
+}
+
+fn helper() i64 {
+    return 1
+}
+
+fn function_as_value() {
+    let f = helper
+}
+
+fn function_has_no_fields() {
+    let n = helper.field
+}
+
+fn module_as_value() {
+    let m = mem
+}
+
+fn module_called() {
+    let n = mem()
+}
+
+fn type_called() {
+    let n = i64()
+}
+
+fn generic_reached_into() {
+    let n = Box.get()
+}
