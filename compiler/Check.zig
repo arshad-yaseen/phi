@@ -3300,37 +3300,25 @@ fn valueField(
 ) Allocator.Error!Value {
     const comp = check.comp;
 
-    // one pointer is followed, so `p.x` reaches into what `p` points at
-    const pointer: ?Pool.Key.Pointer = switch (comp.pool.keyOf(found)) {
-        .type_pointer => |it| it,
-        else => null,
-    };
-    const owner = if (pointer) |it| it.child else found;
-
-    const row = row: {
-        if (try check.memberOf(owner, check.tree.tokenSlice(view.name_token))) |member| {
-            switch (member) {
-                .field => |found_row| break :row found_row,
-                .length => |count| return .{ .constant = try check.lengthValue(count) },
-                .method => {},
-            }
-        }
-        try check.reportNoMember(owner, view.name_token, .field);
-        return .poison;
+    const reached = try check.reachField(found, view.name_token);
+    const row = switch (reached.what) {
+        .field => |found_row| found_row,
+        .length => |count| return .{ .constant = try check.lengthValue(count) },
+        .reported => return .poison,
     };
     const row_type = comp.rowAt(row).type;
 
     // a field of a constant struct is a constant, so it needs no instruction
-    if (pointer == null and base == .constant and
+    if (reached.pointer == null and base == .constant and
         comp.pool.keyOf(base.constant) == .value_aggregate)
     {
-        const rows = comp.instanceAt(comp.pool.keyOf(owner).type_struct).rows;
+        const rows = comp.instanceAt(comp.pool.keyOf(reached.owner).type_struct).rows;
         return .{ .constant = comp.pool.aggregateAt(base.constant, row.int() - rows.start) };
     }
 
     const operand: IR.Inst.Data = .{ .field = .{ .base = refOf(base), .row = row } };
 
-    if (pointer) |it| {
+    if (reached.pointer) |it| {
         const field_pointer = try check.pointerTo(row_type, it.mutable);
         const place = try check.emit(.field_ptr, field_pointer, operand);
         return runtimeValue(try check.emitOne(.load, row_type, place), row_type);
@@ -3401,20 +3389,43 @@ fn lengthValue(check: *Check, count: u64) Allocator.Error!Pool.Index {
     return comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = .u64_type, .value = count } });
 }
 
-/// The field a site needs, or null once reported.
-fn fieldOf(
-    check: *Check,
+/// What a `.name` reaches for a read or a place, with one pointer already
+/// followed. Every such site asks through here, so the question has one answer.
+const Reach = struct {
+    /// The pointer that was followed, where there was one.
+    pointer: ?Pool.Key.Pointer,
+    /// The type the name was asked of.
     owner: Pool.Index,
-    name_token: Token.Index,
-) Allocator.Error!?Compilation.Row.Index {
-    if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
-        switch (member) {
-            .field => |row| return row,
-            .length, .method => {},
+    what: What,
+
+    const What = union(enum) {
+        field: Compilation.Row.Index,
+        length: u64,
+        /// Nothing readable, and the report is already out.
+        reported,
+    };
+};
+
+fn reachField(check: *Check, from: Pool.Index, name_token: Token.Index) Allocator.Error!Reach {
+    // one pointer is followed, so `p.x` reaches into what `p` points at
+    const pointer: ?Pool.Key.Pointer = switch (check.comp.pool.keyOf(from)) {
+        .type_pointer => |it| it,
+        else => null,
+    };
+    const owner = if (pointer) |it| it.child else from;
+
+    const what: Reach.What = what: {
+        if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
+            switch (member) {
+                .field => |row| break :what .{ .field = row },
+                .length => |count| break :what .{ .length = count },
+                .method => {},
+            }
         }
-    }
-    try check.reportNoMember(owner, name_token, .field);
-    return null;
+        try check.reportNoMember(owner, name_token, .field);
+        break :what .reported;
+    };
+    return .{ .pointer = pointer, .owner = owner, .what = what };
 }
 
 /// The method a site needs, or null once reported.
@@ -3609,10 +3620,15 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
         if (check.tree.nodeTag(init_node) != .struct_field_init) continue;
         const field_init = check.tree.viewOf(init_node).struct_field_init;
 
-        const row = try check.fieldOf(wanted, field_init.name_token) orelse {
-            _ = try check.checkExpr(field_init.value, null);
-            clean = false;
-            continue;
+        const row = switch ((try check.reachField(wanted, field_init.name_token)).what) {
+            .field => |found| found,
+            // the type was settled a struct above, and a struct has no length
+            .length => unreachable,
+            .reported => {
+                _ = try check.checkExpr(field_init.value, null);
+                clean = false;
+                continue;
+            },
         };
         const position: u32 = row.int() - rows.start;
 
@@ -3697,16 +3713,16 @@ fn internAggregate(
 ) Allocator.Error!Value {
     const comp = check.comp;
 
-    const mark = comp.values_scratch.items.len;
-    defer comp.values_scratch.shrinkRetainingCapacity(mark);
-    try comp.values_scratch.ensureUnusedCapacity(comp.gpa, operands.len);
+    const mark = comp.pool.scratch.items.len;
+    defer comp.pool.scratch.shrinkRetainingCapacity(mark);
+    try comp.pool.scratch.ensureUnusedCapacity(comp.gpa, operands.len);
     for (operands) |operand| {
-        comp.values_scratch.appendAssumeCapacity(operand.value.constant);
+        comp.pool.scratch.appendAssumeCapacity(operand.value.constant);
     }
 
     return .{ .constant = try comp.pool.intern(comp.gpa, .{ .value_aggregate = .{
         .type = type_index,
-        .elems = comp.values_scratch.items[mark..],
+        .elems = comp.pool.scratch.items[mark..],
     } }) };
 }
 
@@ -4781,24 +4797,14 @@ fn placeField(
 ) Allocator.Error!?Place {
     const comp = check.comp;
 
-    const pointer: ?Pool.Key.Pointer = switch (comp.pool.keyOf(base.type)) {
-        .type_pointer => |it| it,
-        else => null,
-    };
-    const owner = if (pointer) |it| it.child else base.type;
-
-    const row = row: {
-        if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
-            switch (member) {
-                .field => |found| break :row found,
-                .length => return check.failLengthPlace(name_token),
-                .method => {},
-            }
-        }
-        try check.reportNoMember(owner, name_token, .field);
-        return null;
+    const reached = try check.reachField(base.type, name_token);
+    const row = switch (reached.what) {
+        .field => |found| found,
+        .length => return check.failLengthPlace(name_token),
+        .reported => return null,
     };
     const row_type = comp.rowAt(row).type;
+    const pointer = reached.pointer;
 
     // through a pointer the reach is the pointer's own, otherwise the base's address
     var from: Ref = undefined;
