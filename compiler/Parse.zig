@@ -1222,7 +1222,7 @@ fn parseSelector(self: *Parse, base: Node.Index) Allocator.Error!?Node.Index {
     assert(self.at(.dot));
     const dot = self.nextToken();
     if (self.eatToken(.ident) != null) return try self.addUnary(.field_access, dot, base);
-    if (self.at(.l_brace)) return try self.parseStructLiteral(base, dot);
+    if (self.at(.l_brace)) return try self.parseStructLiteral(base.toOptional(), dot);
 
     try self.errExpected(.expected_token, Token.Tag.ident.symbol(), null);
     // an operator cannot follow a `.`, so it is the mistake itself
@@ -1297,19 +1297,25 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
         .ident => return self.addLeaf(.ident),
         .number => return self.addLeaf(.number_literal),
         .l_bracket => return self.parseArrayLiteral(),
-        // a literal with no type in front of it, which the checker cannot place
+        // `.{ ... }` builds the struct that wherever it lands asks for
         .dot => {
+            const dot = self.nextToken();
+            if (self.at(.l_brace)) return self.parseStructLiteral(.none, dot);
+
             try self.err(.{
                 .code = .expected_expression,
                 .span = self.here(),
-                .message = "a struct literal names the type it builds",
-                .label = "nothing here says which struct",
-                .help = "write it as 'Point.{ field: value }'",
+                .message = try self.fmt("expected '{{' after '.', found {s}", .{
+                    self.current().symbol(),
+                }),
+                .label = "not a struct literal",
+                .help = "'.{ field: value }' builds the struct its context asks for",
             });
-            const dot = self.nextToken();
-            if (self.at(.l_brace) == false) return self.hole();
-            // read the body anyway, so the mistake reports once
-            return self.parseStructLiteral(try self.hole(), dot);
+
+            // a name after the dot is part of the same mistake, so it reports once
+            if (self.at(.ident)) _ = self.nextToken();
+
+            return self.hole();
         },
         // parentheses group, and the tree already holds the grouping
         .l_paren => {
@@ -1363,10 +1369,10 @@ fn parseArrayLiteral(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// `Point.{ x: 1 }`. The type is written, so nothing infers it.
+/// `Point.{ x: 1 }`, or `.{ x: 1 }` where the type is left to the context.
 fn parseStructLiteral(
     self: *Parse,
-    type_expr: Node.Index,
+    type_expr: Node.OptionalIndex,
     dot: Token.Index,
 ) Allocator.Error!Node.Index {
     assert(self.at(.l_brace));
@@ -1385,7 +1391,7 @@ fn parseStructLiteral(
     });
 
     const start = self.extraStart();
-    try self.extraNode(type_expr);
+    try self.extraOpt(type_expr);
     try self.extraList(self.scratch.items[top..]);
     return self.addNode(.{
         .tag = .struct_literal,

@@ -108,7 +108,13 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
     const view = check.tree.viewOf(check.declNode(decl_index)).var_decl;
     // a top-level 'var' was already refused by the parser, and checks as 'let'
 
-    const value = try check.checkExpr(view.init_expr, null);
+    // resolved before the value, so a literal can land on what it says
+    const annotation: ?Pool.Index = if (view.type_expr.unwrap()) |type_expr|
+        try check.resolveType(type_expr)
+    else
+        null;
+
+    const value = try check.checkExpr(view.init_expr, annotation);
     const constant = switch (value) {
         .constant => |index| index,
         .poison => Pool.Index.poison,
@@ -120,9 +126,8 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
     };
 
     var met = constant;
-    if (view.type_expr.unwrap()) |type_expr| {
-        const annotation = try check.resolveType(type_expr);
-        met = switch (try check.fitValue(constant, annotation, view.init_expr)) {
+    if (annotation) |wanted| {
+        met = switch (try check.fitValue(constant, wanted, view.init_expr)) {
             .constant => |final| final,
             else => .poison,
         };
@@ -2644,7 +2649,7 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
         .deref => return check.checkDeref(node),
         .call => return check.checkCall(node, hint),
         .bracket => |view| return check.checkBracketExpr(node, view),
-        .struct_literal => return check.checkStructLiteral(node),
+        .struct_literal => return check.checkStructLiteral(node, hint),
         .array_literal => return check.checkArrayLiteral(node, hint),
         .err => return .poison,
         // the parser keeps statements out of expression position
@@ -3455,6 +3460,10 @@ fn reportNoMember(
     const comp = check.comp;
     const name_text = check.tree.tokenSlice(name_token);
 
+    // whatever broke the owner was reported already, and '<broken>' names
+    // nothing a reader can act on
+    if (owner == .poison) return;
+
     // a constant that has not landed has no members because it has no type,
     // which is a different mistake from a member that is missing
     if (owner == .untyped_aggregate_type) {
@@ -3788,18 +3797,23 @@ fn failIndexOutOfRange(
     });
 }
 
-/// The literal names its type. Every field named, every field present.
-fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
+/// The literal names the type it builds, or takes it from where it lands.
+/// Every field named, every field present.
+fn checkStructLiteral(
+    check: *Check,
+    node: Node.Index,
+    hint: ?Pool.Index,
+) Allocator.Error!Value {
     const comp = check.comp;
     const view = check.tree.viewOf(node).struct_literal;
 
-    const wanted = try check.resolveType(view.type_expr);
-    if (wanted == .poison) return .poison;
+    const wanted = try check.structLiteralType(node, view, hint) orelse return .poison;
 
     const instance = switch (comp.pool.keyOf(wanted)) {
         .type_struct => |instance| instance,
         else => {
-            try check.fail(view.type_expr, .{
+            // the written type where there is one, the literal itself otherwise
+            try check.fail(view.type_expr.unwrap() orelse node, .{
                 .code = .not_a_type,
                 .message = try comp.fmt("{s} has no fields to give", .{
                     try comp.typeName(wanted),
@@ -3883,6 +3897,51 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
     if (clean == false) return .poison;
 
     return check.settleAggregate(node, wanted, comp.operands.items[start..]);
+}
+
+/// What the literal builds: the type it writes, or the one it lands on where
+/// that says which struct on its own. Null once reported.
+fn structLiteralType(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.StructLiteral,
+    hint: ?Pool.Index,
+) Allocator.Error!?Pool.Index {
+    if (view.type_expr.unwrap()) |written| {
+        const resolved = try check.resolveType(written);
+        return if (resolved == .poison) null else resolved;
+    }
+
+    // nothing asked for a value, so nothing says which struct to build
+    const landing = hint orelse .void_type;
+    if (landing == .poison) return null;
+    if (landing != .void_type and check.comp.pool.isUnion(landing) == false) return landing;
+
+    try check.failUnnamedLiteral(node, landing);
+    return null;
+}
+
+fn failUnnamedLiteral(check: *Check, node: Node.Index, landing: Pool.Index) Allocator.Error!void {
+    @branchHint(.cold);
+    const comp = check.comp;
+
+    if (landing == .void_type) {
+        return check.fail(node, .{
+            .code = .var_needs_type,
+            .message = "nothing here says which struct this builds",
+            .label = "no type in sight",
+            .help = "name it, as in 'Point.{ x: 1 }', or annotate what it feeds",
+        });
+    }
+    try check.fail(node, .{
+        .code = .var_needs_type,
+        .message = try comp.fmt(
+            "this lands on '{s}', which lists several types, and nothing says which is built",
+            .{try comp.typeName(landing)},
+        ),
+        .label = "which member?",
+        .help = "name the struct, as in 'Point.{ x: 1 }'",
+    });
 }
 
 /// A literal folds when every part is a constant and emits when one is not.

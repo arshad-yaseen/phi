@@ -4,16 +4,16 @@ type Point = {
 }
 
 // every part constant, so the literal is one, and a top-level binding takes it
-let origin: Point = Point.{ x: 0, y: 0 }
+let origin: Point = .{ x: 0, y: 0 }
 
 // an array of struct constants, which each form used to refuse from its own side
 fn corners() [2]Point {
-    return [Point.{ x: 0, y: 0 }, Point.{ x: 1, y: 1 }]
+    return [.{ x: 0, y: 0 }, .{ x: 1, y: 1 }]
 }
 
 // one runtime part is enough to emit, and the constant parts stay constant
 fn mixed(n: u32) Point {
-    return Point.{ x: 1, y: n }
+    return .{ x: 1, y: n }
 }
 
 // an array literal names no type, so a runtime one takes the type it lands on

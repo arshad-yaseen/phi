@@ -57,7 +57,7 @@ fn through_a_field(c: Cell) u32 {
 }
 
 fn into_a_field() u32 {
-    var c: Cell = Cell.{ slot: [1, 2] }
+    var c: Cell = .{ slot: [1, 2] }
     c.slot[0] = 3
     return c.slot[0]
 }

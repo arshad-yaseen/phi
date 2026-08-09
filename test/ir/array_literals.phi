@@ -31,7 +31,7 @@ fn stored() u64 {
 
 // a field takes one the way any other value does
 fn header() Header {
-    return Header.{ magic: [1, 2, 3, 4], version: 1 }
+    return .{ magic: [1, 2, 3, 4], version: 1 }
 }
 
 // no elements is a length like any other

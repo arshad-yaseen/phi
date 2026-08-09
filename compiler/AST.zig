@@ -145,7 +145,7 @@ pub const Node = struct {
         /// `a[x, y]`. Type arguments where `a` is generic, an index otherwise.
         bracket,
         call,
-        /// `Point.{ ... }`, which names the struct it builds.
+        /// `Point.{ ... }`, or `.{ ... }` where what it lands on says the type.
         struct_literal,
         /// `[a, b, c]`, which states its own length.
         array_literal,
@@ -440,7 +440,8 @@ pub const View = union(enum) {
     /// `label` is `.none` for the `else` arm.
     pub const MatchArm = struct { label: Node.OptionalIndex, body: Node.Index };
     pub const StructLiteral = struct {
-        type_expr: Node.Index,
+        /// `.none` where the literal takes the type from where it lands.
+        type_expr: Node.OptionalIndex,
         fields: []const Node.Index,
     };
     pub const Bracket = struct { base: Node.Index, args: []const Node.Index };
@@ -580,7 +581,7 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         .struct_literal => blk: {
             var payload = tree.fields(data.extra);
             break :blk .{ .struct_literal = .{
-                .type_expr = payload.node(),
+                .type_expr = payload.optNode(),
                 .fields = payload.list(),
             } };
         },
@@ -893,7 +894,8 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
                 },
             },
             .struct_literal => |it| switch (side) {
-                .leftmost => current = it.type_expr,
+                // an unnamed literal begins at its own '.'
+                .leftmost => current = it.type_expr.unwrap() orelse return main,
                 .rightmost => {
                     if (it.fields.len > 0) {
                         current = it.fields[it.fields.len - 1];

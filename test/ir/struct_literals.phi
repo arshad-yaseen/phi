@@ -10,9 +10,9 @@ type Frame = {
 }
 
 fn framed(width: i64) Frame {
-    return Frame.{
-        origin: Point.{ x: 0, y: 0 },
-        size: Point.{ x: width, y: width * 2 },
+    return .{
+        origin: .{ x: 0, y: 0 },
+        size: .{ x: width, y: width * 2 },
         label: 7,
     }
 }

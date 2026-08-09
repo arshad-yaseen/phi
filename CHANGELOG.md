@@ -31,6 +31,10 @@
   one written once fits wherever its value fits. `a[i]` names an element, which
   is read, written, and pointed at the way a field is, and a constant index past
   the end is refused before anything runs.
+- A struct literal may leave out the type where what it lands on says it, so
+  `let p: Point = .{ x: 1, y: 2 }` reads once instead of twice, as do an
+  argument, a return, a field, and an element. It still names the type where
+  nothing lands it, and where what lands it is a union.
 - A literal folds where its parts are constant, whether it builds an array or a
   struct, so `Point.{ x: 1, y: 2 }` binds at the top level, sits inside an
   array, and costs no instruction, while one with a runtime part is built where

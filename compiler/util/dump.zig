@@ -163,7 +163,7 @@ fn node(
         },
         .struct_literal => |it| {
             try writer.writeByte('\n');
-            try node(ast, writer, it.type_expr, below, "type");
+            if (it.type_expr.unwrap()) |written| try node(ast, writer, written, below, "type");
             for (it.fields) |field| try node(ast, writer, field, below, "");
         },
         .array_literal => |elements| {

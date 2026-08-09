@@ -45,7 +45,7 @@ fn maybe_point(f: bool) Point | none {
 
 // aggregates nest, and one runtime part at any depth emits the whole level
 fn nested(n: u32) [2]Point {
-    return [Point.{ x: 1, y: 2 }, Point.{ x: n, y: 4 }]
+    return [.{ x: 1, y: 2 }, .{ x: n, y: 4 }]
 }
 
 // a folded struct constant still serves as a receiver

@@ -7,7 +7,7 @@ type Box[T] = {
 type Held = Box[u32 | none]
 
 fn wrap(value: u32 | none) Held {
-    return Held.{ item: value }
+    return .{ item: value }
 }
 
 fn read(box: Held) u32 | none {
