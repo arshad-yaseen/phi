@@ -7,14 +7,14 @@ slice, spelled as an expression, never as a coercion, because a view
 that secretly owns is the trap every neighbor documented.
 
 Text is not a fourth thing. A string is bytes and a character is a
-number, both spelled as constants that fit where they land. The compiler
+number, both written as constants that fit where they land. The compiler
 carries no string type and no character type.
 
 Three rules carry all of it, and each is a rule the language already
 needed:
 
 - A name after a dot is a **member**, asked the same way of every type.
-- A literal is an **untyped constant**, placed by the one fitting rule.
+- A literal is a **constant**, which fits where its value fits.
 - An index yields a **place**, the same as a field does.
 
 ## Members, one question
@@ -51,47 +51,77 @@ by a rule of its own, which is how a language grows a table of
 exceptions no reader can find. A length whose type follows the thing
 measured, which makes every comparison a question.
 
-## Constants, one family
+## Constants, and where they land
 
-A literal that has not met a type yet is an untyped constant, and one
-rule places every one of them: it fits where its value fits.
+A literal has no type until it meets one. Five things are written as
+literals, and one sentence places all five: **a constant fits where its
+value fits.**
 
 ```phi
-let count = 42                          // an untyped number
-let ratio = 1.5                         // an untyped float
-let letter = 'a'                        // an untyped number, 97
-let name = "arshad"                     // untyped bytes
-let table = [2, 3, 5, 7]                // an untyped array
+let count = 42                          // a number
+let ratio = 1.5                         // a float
+let letter = 'a'                        // a number, 97
+let name = "arshad"                     // bytes
+let table = [2, 3, 5, 7]                // an array
 ```
 
-Each adapts to the type it meets and is refused when it cannot fit,
-whatever its shape:
+Each of those bindings holds a constant that has still not chosen. It
+chooses where it is used, and is refused where it cannot fit:
 
 ```phi
 let small: u8 = 200                     // fits
 let big: u8 = 300                       // refused, does not fit
 let crab: u32 = '🦀'                    // fits, 129408
+let magic: [2]u8 = "hi"                 // fits storage, length checked
 let four: [4]u32 = [1, 2, 3, 4]         // fits, the count checked
 let three: [3]u32 = [1, 2, 3, 4]        // refused, four elements
-let magic: [2]u8 = "hi"                 // fits storage, length checked
 ```
 
-An annotation seals a constant, and the sealed type travels with it. An
-untyped constant that meets no type is refused where it is bound,
-because a binding must know what it holds.
+An annotation seals a constant, and the sealed type travels with it
+everywhere afterwards. Storage must know its type, so a `var` with
+nothing but a constant is refused, exactly as it is for a number:
 
 ```phi
 let sealed: u64 = 2                     // a u64 everywhere it goes
-var loose = 5                           // refused, nothing says the type
+var loose = 5                           // refused, storage needs a type
+var bytes = "hi"                        // refused, for the same reason
 ```
 
 This is what keeps text from needing types of its own. A character
 literal is a number, so comparing it to a byte compares two numbers. A
 string literal is bytes, so passing it where bytes are asked is not a
-conversion.
+conversion. Text needs no rule the numbers did not already have.
 
-Refused: per-literal-kind fitting rules, which multiply the one thing a
-reader must learn by the number of ways to write a value.
+Refused: a `char` type and a `str` type, which would each need
+conversions to and from what they already are. A default type for
+literals, which decides silently what the program should decide
+visibly, and then needs widening to stay usable.
+
+### A constant that becomes a view
+
+A number needs no address to exist. It is written into the instruction
+that uses it, and nothing points at it. A view *is* an address, so a
+constant that lands where a view is asked for needs bytes something can
+point at, and those bytes belong to the program rather than to the call
+that mentioned them:
+
+```phi
+fn kind() []u8 {
+    return "text/plain"                 // outlives the call
+}
+```
+
+They live as long as the program runs and are shared by every mention of
+the same constant, which is what makes handing one back sound. Nothing
+here is particular to text: `[2, 3, 5, 7]` landing on a `[]u32` is the
+same constant meeting the same rule, and a constant landing on `[N]T`
+instead is written into that storage and needs no address at all. What a
+constant costs follows from what it became, and both outcomes are on the
+page.
+
+Refused: a constant view borrowed from the frame that mentioned it,
+which dangles the moment it is returned and copies the same bytes at
+every mention besides.
 
 ## Arrays
 
@@ -166,8 +196,9 @@ one value and gets both wrong.
 
 ## Where a view comes from
 
-`arr[a..b]` is the ordinary way and the only way a program writes. The
-standard library reaches one more, because a block that came from the
+`arr[a..b]` is the ordinary way and the only way a program writes. A
+constant that lands on a view is the second, described above. The
+standard library reaches a third, because a block that came from the
 operating system is not yet anything a program can slice, and everything
 that grows begins there:
 
@@ -190,28 +221,6 @@ type List[T] = {
 The seam stays a seam. It sits where every unsafe primitive sits, a
 program that never writes an allocator never meets it, and no view
 anywhere gives its pointer back.
-
-A constant is the third source. A number is a value and needs no address
-to exist, but a view *is* an address, so a constant that lands where a
-view is asked for needs bytes something can point at. Those bytes belong
-to the program rather than to a call, live as long as it runs, and are
-shared by every mention of the same constant, which is what makes
-handing one back sound:
-
-```phi
-fn kind() []u8 {
-    return "text/plain"                 // outlives the call, by construction
-}
-```
-
-Nothing here is particular to text. `[2, 3, 5, 7]` landing on a `[]u32`
-is the same constant meeting the same rule, and a literal that lands on
-`[N]u8` instead is copied into that storage and needs no address at all.
-The rule is not about what was written but about what it became.
-
-Refused: a constant view borrowed from the frame that mentioned it,
-which is a dangling view the moment it is returned, and which copies the
-same bytes at every mention besides.
 
 ## Slicing, and ranges
 
@@ -288,21 +297,21 @@ let bad = arr[9]                        // refused, before anything runs
 
 ## Text
 
-A string is bytes. A string literal fits where bytes are asked, by
-construction rather than conversion, and a character literal is the
-codepoint's number.
+A string is bytes and a character is a number. Both are constants, so
+both were already placed by the rule above, and neither needs anything
+written here except what a reader would ask.
 
 ```phi
 fn greet(who: []u8) { }
 
-greet("arshad")                         // fits a view
-let magic: [2]u8 = "hi"                 // fits storage, length checked
-if s[i] == 'a' { }                      // compares two numbers, no cast
+greet("arshad")                         // a view of the program's own bytes
+let magic: [2]u8 = "hi"                 // storage, the length checked
+if s[i] == 'a' { }                      // two numbers, no cast
 ```
 
-A literal fits `[]u8` and never `[]var u8`: constant data is read-only,
-and the view's own mutability is what enforces it, so read views share
-safely by construction.
+A literal fits `[]u8` and never `[]var u8`: the program's own bytes are
+read-only, and the view's own mutability is what enforces it, so read
+views share safely by construction.
 
 The prelude names the convention in one line, and an alias is not a new
 type, so there is nothing to convert between:
@@ -342,10 +351,9 @@ type Codepoint = { value: u32 }
 ```
 
 Refused: a string type carrying a UTF-8 invariant, which makes every
-byte view a conversion and every conversion a check. A character type,
-which needs conversions to and from the integers it already is. A null
-terminator in the language, which is a calling convention and belongs in
-the function that calls out.
+byte view a conversion and every conversion a check. A null terminator
+in the language, which is a calling convention and belongs in the
+function that calls out.
 
 ## Equality, and where the library begins
 
