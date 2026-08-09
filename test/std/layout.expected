@@ -22,6 +22,10 @@ fn an_empty_struct_is_nothing() u64
 b0:
   return 0:u64
 
+fn a_field_pads_up_to_its_alignment() u64
+b0:
+  return 12:u64
+
 fn alignments() u64
 b0:
   return 9:u64

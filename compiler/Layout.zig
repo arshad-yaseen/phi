@@ -95,8 +95,7 @@ fn ofStruct(
     var size: u64 = 0;
     var alignment: u32 = 1;
     const rows = comp.instanceAt(instance).rows;
-    // fields lie in falling alignment, and every size is a multiple of its
-    // own alignment, so no field needs padding before it and the sum is exact
+
     for (rows.start..rows.end()) |raw| {
         // by index, because a field's own layout can grow the rows table
         const row = comp.rowAt(.from(raw));
@@ -105,6 +104,7 @@ fn ofStruct(
             .poison => return .poison,
             .too_large => return .too_large,
         };
+        size = std.mem.alignForward(u64, size, field.alignment);
         size += field.size;
         if (size > size_max) return .too_large;
         alignment = @max(alignment, field.alignment);

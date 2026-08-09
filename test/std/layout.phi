@@ -11,6 +11,12 @@ type Node = {
     next: *Node | none
 }
 
+type Sandwich = {
+    small: u8
+    wide: u32
+    after: u8
+}
+
 fn bool_is_the_tag_alone() u64 {
     return intrinsic.size_of[bool]()
 }
@@ -33,6 +39,10 @@ fn a_wide_payload_pads_its_tag() u64 {
 
 fn an_empty_struct_is_nothing() u64 {
     return intrinsic.size_of[Empty]()
+}
+
+fn a_field_pads_up_to_its_alignment() u64 {
+    return intrinsic.size_of[Sandwich]()
 }
 
 fn alignments() u64 {
