@@ -3782,9 +3782,11 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
         return .poison;
     }
 
-    for (comp.operands.items[start..], elements) |*operand, element| {
-        operand.value = try check.coerce(operand.value, array.child, element);
-        if (operand.value == .poison) clean = false;
+    for (elements, 0..) |element, position| {
+        const at = start + position;
+        const met = try check.coerce(comp.operands.items[at].value, array.child, element);
+        comp.operands.items[at].value = met;
+        if (met == .poison) clean = false;
     }
     if (clean == false) return .poison;
 
