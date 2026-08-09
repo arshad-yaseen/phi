@@ -1,0 +1,30 @@
+// Brackets mean type arguments after a name that resolves to a generic
+// declaration, and subscript a value everywhere else. What the base
+// resolves to decides, never what it looks like, so a top-level binding
+// subscripts exactly as a local does.
+
+type Box[T] = { item: T }
+type Plain = { item: u32 }
+
+let top: u32 = 7
+
+fn a_generic_takes_arguments() u32 {
+    let b: Box[u32] = Box[u32].{ item: 1 }
+    return b.item
+}
+
+fn a_local_is_subscripted(n: u32) u32 {
+    return n[0]
+}
+
+fn a_top_level_binding_is_subscripted() u32 {
+    return top[0]
+}
+
+fn a_plain_type_takes_no_arguments() u32 {
+    return Plain[0]
+}
+
+fn a_function_is_not_a_type() u32 {
+    return a_generic_takes_arguments[0]
+}

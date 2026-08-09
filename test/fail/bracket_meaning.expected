@@ -1,0 +1,28 @@
+error[E0252]: u32 cannot be indexed
+  --> test/fail/bracket_meaning.phi:17:12
+   |
+17 |     return n[0]
+   |            ^^^ not something to index
+   |
+   = help: no type holds more than one value yet, so nothing can be indexed
+
+error[E0252]: u32 cannot be indexed
+  --> test/fail/bracket_meaning.phi:21:12
+   |
+21 |     return top[0]
+   |            ^^^^^ not something to index
+   |
+   = help: no type holds more than one value yet, so nothing can be indexed
+
+error[E0246]: only a generic struct or function takes type arguments
+  --> test/fail/bracket_meaning.phi:25:12
+   |
+25 |     return Plain[0]
+   |            ^^^^^^^ arguments on the wrong thing
+
+error[E0212]: a function with its type arguments is still not a value, so call it
+  --> test/fail/bracket_meaning.phi:29:12
+   |
+29 |     return a_generic_takes_arguments[0]
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing the call
+
