@@ -36,6 +36,12 @@
 - A `var` no longer asks a sealed constant for the type it already carries:
   `let n: u64 = 2` followed by `var c = n` used to be refused.
 
+### Compiler
+
+- `E0248` retires. It named a byte a number cannot contain, which the
+  tokenizer never puts inside one, so no program could reach it. What it
+  described is `E0247` along with every other malformed number.
+
 ## [0.2.0] - 2026-08-08
 
 The language is now Phi: the binary is `phi`, and a source file ends in

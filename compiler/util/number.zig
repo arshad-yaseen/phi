@@ -162,7 +162,7 @@ fn refusalOf(
             .label = "'.' in an exponent",
         },
         .invalid_character => .{
-            .code = .not_a_number,
+            .code = .bad_number,
             .message = try std.fmt.allocPrint(arena, "'{s}' is not a number the language knows", .{
                 text,
             }),
@@ -200,5 +200,5 @@ test "every malformed shape is refused, the edges by their width" {
     try testing.expectEqual(Diagnostic.Code.bad_number, (try decode(arena, "09")).refused.code);
     try testing.expectEqual(Diagnostic.Code.bad_number, (try decode(arena, "1__0")).refused.code);
     try testing.expectEqual(Diagnostic.Code.bad_number, (try decode(arena, "0X1")).refused.code);
-    try testing.expectEqual(Diagnostic.Code.not_a_number, (try decode(arena, "1$")).refused.code);
+    try testing.expectEqual(Diagnostic.Code.bad_number, (try decode(arena, "1$")).refused.code);
 }
