@@ -30,6 +30,10 @@ pub fn writeType(comp: *const Compilation, writer: *Writer, index: Pool.Index) W
                 try writer.print("[{d}]", .{array.len});
                 current = array.child;
             },
+            .type_slice => |slice| {
+                try writer.writeAll(if (slice.mutable) "[]var " else "[]");
+                current = slice.child;
+            },
             .type_struct => |instance| return writeInstance(comp, writer, instance),
             .type_unit => |decl| {
                 return writer.writeAll(comp.pool.stringText(comp.declAt(decl).name));
@@ -173,7 +177,7 @@ pub fn writeConstant(
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
         // the member the union holds, which the context types
         .value_union => |it| try writeConstant(comp, writer, it.value),
-        .type_pointer, .type_array => unreachable,
+        .type_pointer, .type_array, .type_slice => unreachable,
         .type_struct, .type_unit, .type_union => unreachable,
     }
 }

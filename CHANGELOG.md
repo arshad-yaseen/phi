@@ -31,6 +31,11 @@
   one written once fits wherever its value fits. `a[i]` names an element, which
   is read, written, and pointed at the way a field is, and a constant index past
   the end is refused before anything runs.
+- `[]T` is a view of elements it does not own, two words wide, and `[]var T`
+  also writes through and fits wherever a `[]T` is asked. It answers `len` and
+  indexes the way an array does, holds no elements so a type may hold a view of
+  itself, and `[]T | none` costs no more than the view alone. A parameter is so
+  far the only way to come by one.
 - A struct literal may leave out the type where what it lands on says it, so
   `let p: Point = .{ x: 1, y: 2 }` reads once instead of twice, as do an
   argument, a return, a field, and an element. It still names the type where

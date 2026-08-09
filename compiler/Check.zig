@@ -215,7 +215,7 @@ fn walkEmbedded(
                 try walkEmbedded(comp, member, from, depth + 1);
             }
         },
-        .type_simple, .type_unit, .type_pointer => {},
+        .type_simple, .type_unit, .type_pointer, .type_slice => {},
         .value_int, .value_float, .value_aggregate => unreachable,
         .value_unit, .value_union => unreachable,
     }
@@ -375,6 +375,11 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
         },
         .bracket => return check.resolveBracketType(node),
         .array_type => |array| return check.resolveArrayType(array),
+        .slice_type => |slice| {
+            const child = try check.resolveType(slice.child);
+            if (child == .poison) return .poison;
+            return check.sliceOf(child, slice.is_mutable);
+        },
         .pointer_type => |pointer| {
             const child = try check.resolveType(pointer.child);
             if (child == .poison) return .poison;
@@ -407,6 +412,11 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
 fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
     const comp = check.comp;
     return comp.pool.intern(comp.gpa, .{ .type_pointer = .{ .child = child, .mutable = mutable } });
+}
+
+fn sliceOf(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
+    const comp = check.comp;
+    return comp.pool.intern(comp.gpa, .{ .type_slice = .{ .child = child, .mutable = mutable } });
 }
 
 fn resolveArrayType(check: *Check, view: AST.View.ArrayType) Allocator.Error!Pool.Index {
@@ -3308,7 +3318,7 @@ fn valueField(
     const reached = try check.reachField(found, view.name_token);
     const row = switch (reached.what) {
         .field => |found_row| found_row,
-        .length => |count| return .{ .constant = try check.lengthValue(count) },
+        .length => |length| return check.lengthValue(base, reached, length),
         .reported => return .poison,
     };
     const row_type = comp.rowAt(row).type;
@@ -3337,8 +3347,15 @@ const Member = union(enum) {
     field: Compilation.Row.Index,
     /// A function declared in the type, by its declaration.
     method: Decl.Index,
-    /// How many elements the type holds, which the type itself knows.
-    length: u64,
+    /// How many elements there are.
+    length: Length,
+
+    /// An array's length is in its type, so it is settled before anything
+    /// runs. A view's is data, so it is read. Either way it reads as `u64`.
+    const Length = union(enum) {
+        known: u64,
+        read,
+    };
 
     /// What a site was looking for, and how a message names it.
     const Kind = enum {
@@ -3360,7 +3377,11 @@ fn memberOf(check: *Check, owner: Pool.Index, name: []const u8) Allocator.Error!
     switch (check.comp.pool.keyOf(owner)) {
         .type_array => |array| {
             if (std.mem.eql(u8, name, length_name) == false) return null;
-            return .{ .length = array.len };
+            return .{ .length = .{ .known = array.len } };
+        },
+        .type_slice => {
+            if (std.mem.eql(u8, name, length_name) == false) return null;
+            return .{ .length = .read };
         },
         .type_struct => |instance| return check.structMember(instance, name),
         else => return null,
@@ -3389,9 +3410,28 @@ fn structMember(
     return null;
 }
 
-fn lengthValue(check: *Check, count: u64) Allocator.Error!Pool.Index {
+/// A length is a constant where the type carries it and a read where the value
+/// does, and it reads as `u64` either way.
+fn lengthValue(
+    check: *Check,
+    base: Value,
+    reached: Reach,
+    length: Member.Length,
+) Allocator.Error!Value {
     const comp = check.comp;
-    return comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = .u64_type, .value = count } });
+    switch (length) {
+        .known => |count| return .{ .constant = try comp.pool.intern(comp.gpa, .{
+            .value_int = .{ .type = .u64_type, .value = count },
+        }) },
+        .read => {
+            var held = refOf(base);
+            // one pointer was followed to reach the view, so it is read first
+            if (reached.pointer != null) {
+                held = try check.emitOne(.load, reached.owner, held);
+            }
+            return runtimeValue(try check.emitOne(.slice_len, .u64_type, held), .u64_type);
+        },
+    }
 }
 
 /// What a `.name` reaches for a read or a place, with one pointer already
@@ -3405,7 +3445,7 @@ const Reach = struct {
 
     const What = union(enum) {
         field: Compilation.Row.Index,
-        length: u64,
+        length: Member.Length,
         /// Nothing readable, and the report is already out.
         reported,
     };
@@ -3513,7 +3553,7 @@ fn suggestMember(
     var closest: edit_distance.Closest = .{ .target = name_text };
 
     switch (comp.pool.keyOf(owner)) {
-        .type_array => closest.consider(length_name),
+        .type_array, .type_slice => closest.consider(length_name),
         .type_struct => |instance| {
             for (comp.instanceRows(instance)) |row| {
                 closest.consider(comp.pool.stringText(row.name));
@@ -3598,7 +3638,11 @@ const Indexed = struct {
     base: Place,
     /// The pointer that was followed, where there was one.
     pointer: ?Pool.Key.Pointer,
+    /// The type the elements were asked of, past any pointer.
+    owner: Pool.Index,
     element: Pool.Index,
+    /// The view the elements belong to, where they belong to one.
+    slice: ?Pool.Key.Slice,
     index: Index,
 
     /// A bracket's one value, as the index it is.
@@ -3607,6 +3651,14 @@ const Indexed = struct {
         /// The element it names, where the index is known before anything runs.
         at: ?u64,
     };
+};
+
+/// Where the elements are. An array settles its length in its type, and a view
+/// carries the address itself, and with it what may be written through it.
+const Holds = struct {
+    element: Pool.Index,
+    length: ?u64,
+    slice: ?Pool.Key.Slice,
 };
 
 /// `a[i]` names a place, so reading one is a load from it. An element of a
@@ -3656,8 +3708,9 @@ fn checkIndex(
     const owner = if (pointer) |it| it.child else base.type;
     if (owner == .poison) return null;
 
-    const array = switch (comp.pool.keyOf(owner)) {
-        .type_array => |it| it,
+    const holds: Holds = switch (comp.pool.keyOf(owner)) {
+        .type_array => |it| .{ .element = it.child, .length = it.len, .slice = null },
+        .type_slice => |it| .{ .element = it.child, .length = null, .slice = it },
         else => {
             // the base is the mistake, and what stands inside the brackets is
             // still a program
@@ -3667,11 +3720,14 @@ fn checkIndex(
         },
     };
 
-    const index = try check.checkIndexOperand(node, view, owner, array) orelse return null;
+    const index = try check.checkIndexOperand(node, view, owner, holds.length) orelse
+        return null;
     return .{
         .base = base,
         .pointer = pointer,
-        .element = array.child,
+        .owner = owner,
+        .element = holds.element,
+        .slice = holds.slice,
         .index = index,
     };
 }
@@ -3684,7 +3740,7 @@ fn checkIndexOperand(
     node: Node.Index,
     view: AST.View.Bracket,
     owner: Pool.Index,
-    array: Pool.Key.Array,
+    length: ?u64,
 ) Allocator.Error!?Indexed.Index {
     const comp = check.comp;
 
@@ -3721,9 +3777,11 @@ fn checkIndexOperand(
     if (value != .constant) return .{ .ref = refOf(value), .at = null };
 
     const written = comp.pool.keyOf(value.constant).value_int.value;
-    const length: i128 = array.len;
-    if (written < 0 or written >= length) {
-        try check.failIndexOutOfRange(argument, written, owner, array.len);
+
+    // a view carries its length as data, so only the near edge is settled here
+    const past_end = if (length) |count| written >= @as(i128, count) else false;
+    if (written < 0 or past_end) {
+        try check.failIndexOutOfRange(argument, written, owner, length);
         return null;
     }
 
@@ -3738,7 +3796,7 @@ fn checkIndexOperand(
 
     const at: u64 = @intCast(written);
     // the pair of the bounds assertion `Pool.aggregateAt` makes on the way out
-    assert(at < array.len);
+    if (length) |count| assert(at < count);
     return .{ .ref = ref, .at = at };
 }
 
@@ -3772,7 +3830,7 @@ fn failIndexOutOfRange(
     node: Node.Index,
     written: i128,
     owner: Pool.Index,
-    length: u64,
+    length: ?u64,
 ) Allocator.Error!void {
     @branchHint(.cold);
     const comp = check.comp;
@@ -3785,13 +3843,15 @@ fn failIndexOutOfRange(
         });
         return;
     }
+    // an index with no length to answer to is refused only for counting down
+    const count = length.?;
     try check.fail(node, .{
         .code = .index_out_of_range,
         .message = try comp.fmt("this index is {d}, and {s} holds {d} element{s}", .{
             written,
             try comp.typeName(owner),
-            length,
-            plural(length),
+            count,
+            plural(count),
         }),
         .label = "past the last element",
     });
@@ -4852,7 +4912,9 @@ fn reportReceiverImmutable(
         .mutable => unreachable,
         .let_bound => "was bound with 'let'",
         .param_bound => "is a parameter, a copy that dies with the call",
-        .const_pointer => "sits behind a read-only pointer",
+        .read_only => |crossed| try check.comp.fmt("sits behind a '{s}', which is read-only", .{
+            try check.comp.typeName(crossed),
+        }),
         .temporary => "is a temporary that no one else can see",
     };
     try check.fail(node, .{
@@ -4902,8 +4964,8 @@ const Place = struct {
         mutable,
         let_bound,
         param_bound,
-        /// The read-only pointer type the chain crossed, for the message.
-        const_pointer: Pool.Index,
+        /// The read-only pointer or view the chain crossed, for the message.
+        read_only: Pool.Index,
         temporary,
     };
 };
@@ -5057,7 +5119,7 @@ fn placeThroughPointer(
         .ref = refOf(value),
         .type = pointer.child,
         .mutable = pointer.mutable,
-        .reason = if (pointer.mutable) .mutable else .{ .const_pointer = found },
+        .reason = if (pointer.mutable) .mutable else .{ .read_only = found },
         .root_name = "this pointer",
         .root_node = operand,
     };
@@ -5099,16 +5161,41 @@ fn placeIndex(
 
 /// The place an index names, as mutable as whatever it reached through.
 fn elementPlace(check: *Check, indexed: Indexed) Allocator.Error!?Place {
-    // an array type never holds a broken element, so an element always has one
+    // neither carrier ever holds a broken element, so an element always has one
     assert(indexed.element != .poison);
     assert(indexed.index.ref != .none);
 
-    const through = try check.placeThrough(indexed.base, indexed.pointer) orelse return null;
+    const through = if (indexed.slice) |slice|
+        try check.viewThrough(indexed, slice)
+    else
+        try check.placeThrough(indexed.base, indexed.pointer) orelse return null;
+
     const element_pointer = try check.pointerTo(indexed.element, through.mutable);
     const place = try check.emit(.elem_ptr, element_pointer, .{
         .bin = .{ .lhs = through.ref, .rhs = indexed.index.ref },
     });
     return through.reaching(place, indexed.element);
+}
+
+/// A view leads with the address itself, so the elements are reached through
+/// the view's own value and what may be written through it is its own business
+/// rather than that of whatever place happens to hold it.
+fn viewThrough(
+    check: *Check,
+    indexed: Indexed,
+    slice: Pool.Key.Slice,
+) Allocator.Error!Through {
+    var held = try check.placeValue(indexed.base);
+    // one pointer was followed to reach the view, so the view is read first
+    if (indexed.pointer != null) {
+        held = try check.emitOne(.load, indexed.owner, held);
+    }
+    return .{
+        .ref = held,
+        .mutable = slice.mutable,
+        .reason = if (slice.mutable) .mutable else .{ .read_only = indexed.owner },
+        .root = indexed.base,
+    };
 }
 
 /// Where one step into a place starts, and what it may do once it arrives.
@@ -5143,7 +5230,7 @@ fn placeThrough(
         return .{
             .ref = try check.placeValue(base),
             .mutable = it.mutable,
-            .reason = if (it.mutable) .mutable else .{ .const_pointer = base.type },
+            .reason = if (it.mutable) .mutable else .{ .read_only = base.type },
             .root = base,
         };
     }
@@ -5170,9 +5257,11 @@ fn placeConstant(check: *const Check, place: Place) ?Pool.Index {
 fn failLengthPlace(check: *Check, name_token: Token.Index) Allocator.Error!?Place {
     try check.failToken(name_token, .{
         .code = .not_assignable,
-        .message = try check.comp.fmt("'{s}' comes from the type, so it is a value and " ++
-            "not a place", .{check.tree.tokenSlice(name_token)}),
+        .message = try check.comp.fmt("'{s}' is a value and not a place", .{
+            check.tree.tokenSlice(name_token),
+        }),
         .label = "nothing to write to or point at",
+        .help = "an array's length is in its type, and a view keeps its own",
     });
     return null;
 }
@@ -5229,17 +5318,19 @@ fn reportImmutable(check: *Check, node: Node.Index, place: Place) Allocator.Erro
             .label = "immutable",
             .help = "take '*var T' to write the caller's value, or copy it into a 'var' first",
         },
-        .const_pointer => |crossed| report: {
-            const child = comp.pool.keyOf(crossed).type_pointer.child;
+        .read_only => |crossed| report: {
+            const writable = switch (comp.pool.keyOf(crossed)) {
+                .type_pointer => |it| try comp.fmt("*var {s}", .{try comp.typeName(it.child)}),
+                .type_slice => |it| try comp.fmt("[]var {s}", .{try comp.typeName(it.child)}),
+                else => unreachable,
+            };
             break :report .{
                 .code = .write_through_pointer,
                 .message = try comp.fmt("this writes through a '{s}', which is read-only", .{
                     try comp.typeName(crossed),
                 }),
-                .label = "read-only pointer",
-                .help = try comp.fmt("take '*var {s}' to write through it", .{
-                    try comp.typeName(child),
-                }),
+                .label = "read-only",
+                .help = try comp.fmt("take '{s}' to write through it", .{writable}),
             };
         },
         .temporary => .{
@@ -5334,25 +5425,11 @@ fn coerce(
             const have = comp.pool.keyOf(runtime.type);
             const want = comp.pool.keyOf(wanted);
 
-            // the one subtyping edge
-            if (have == .type_pointer and want == .type_pointer) {
-                const compatible = have.type_pointer.child == want.type_pointer.child and
-                    have.type_pointer.mutable and want.type_pointer.mutable == false;
-                if (compatible) {
-                    return runtimeValue(runtime.ref, wanted);
-                }
-                if (have.type_pointer.child == want.type_pointer.child) {
-                    try check.fail(node, .{
-                        .code = .write_through_pointer,
-                        .message = try comp.fmt("this is {s}, and {s} is needed to write", .{
-                            try comp.typeName(runtime.type),
-                            try comp.typeName(wanted),
-                        }),
-                        .label = "read-only pointer",
-                        .help = "take '*var' where the pointer is made",
-                    });
-                    return .poison;
-                }
+            // the one subtyping edge, which a view has for a pointer's reason
+            if (writesThrough(&comp.pool, runtime.type, wanted)) |writable| {
+                if (writable) return runtimeValue(runtime.ref, wanted);
+                try check.failNeedsWritable(node, runtime.type, wanted);
+                return .poison;
             }
 
             // membership decides, entering a union that lists the value or covers it
@@ -5374,6 +5451,44 @@ fn coerce(
             return .poison;
         },
     }
+}
+
+/// Whether two types reach one child in one way, and if so whether the first
+/// may be written through. A view answers the way a pointer does, which is what
+/// makes `[]var T` fitting `[]T` the edge `*var T` already had.
+fn writesThrough(pool: *const Pool, have: Pool.Index, want: Pool.Index) ?bool {
+    const from = pool.keyOf(have);
+    const to = pool.keyOf(want);
+    if (std.meta.activeTag(from) != std.meta.activeTag(to)) return null;
+
+    return switch (from) {
+        .type_pointer => |it| if (it.child == to.type_pointer.child) it.mutable else null,
+        .type_slice => |it| if (it.child == to.type_slice.child) it.mutable else null,
+        else => null,
+    };
+}
+
+fn failNeedsWritable(
+    check: *Check,
+    node: Node.Index,
+    found: Pool.Index,
+    wanted: Pool.Index,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    const comp = check.comp;
+    const help: []const u8 = switch (comp.pool.keyOf(wanted)) {
+        .type_slice => "take '[]var' where the view is made",
+        else => "take '*var' where the pointer is made",
+    };
+    try check.fail(node, .{
+        .code = .write_through_pointer,
+        .message = try comp.fmt("this is {s}, and {s} is needed to write", .{
+            try comp.typeName(found),
+            try comp.typeName(wanted),
+        }),
+        .label = "read-only",
+        .help = help,
+    });
 }
 
 /// A constant meets a type by value.

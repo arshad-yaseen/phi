@@ -200,6 +200,11 @@ fn node(
             try node(ast, writer, it.length, below, "length");
             try node(ast, writer, it.child, below, "child");
         },
+        .slice_type => |it| {
+            try flag(writer, it.is_mutable, "var");
+            try writer.writeByte('\n');
+            try node(ast, writer, it.child, below, "child");
+        },
         .pointer_type => |it| {
             try flag(writer, it.is_mutable, "var");
             try writer.writeByte('\n');
@@ -268,6 +273,7 @@ fn inst(
             if (data.name != .empty) try writer.print(" {s}", .{comp.pool.stringText(data.name)});
         },
         .load,
+        .slice_len,
         .ptr_cast,
         .union_init,
         .union_narrow,

@@ -66,6 +66,11 @@ fn ofBounded(
             .size = pointer_size,
             .alignment = pointer_size,
         } },
+        // an address and a count, two words
+        .type_slice => .{ .layout = .{
+            .size = 2 * pointer_size,
+            .alignment = pointer_size,
+        } },
         .type_unit => .{ .layout = .{ .size = 0, .alignment = 1 } },
         .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
@@ -149,7 +154,8 @@ fn ofUnion(
 
     var payload_size: u32 = 0;
     var payload_alignment: u32 = 1;
-    var pointers: u32 = 0;
+    // the one member that could hide a tag in the address it carries
+    var carrier: ?Layout = null;
     var units: u32 = 0;
     var at: u32 = 0;
 
@@ -163,25 +169,25 @@ fn ofUnion(
         payload_size = @max(payload_size, found.size);
         payload_alignment = @max(payload_alignment, found.alignment);
         switch (pool.keyOf(member)) {
-            .type_pointer => pointers += 1,
+            // a pointer and a view both lead with an address that is never zero
+            .type_pointer, .type_slice => carrier = found,
             .type_unit => units += 1,
             else => {},
         }
     }
 
-    // the zero niche. a pointer member is never zero, so the zero word itself
-    // encodes the unit member and no tag byte exists. `*Node | none` stores as
+    // the zero niche. the address a pointer or a view leads with is never zero,
+    // so that word itself encodes the unit member and no tag byte exists. the
+    // carrier keeps its own layout, so the saving is the tag and never the count
     //
-    //   0x0000000000000000   none
-    //   0x00007f2e51c04150   the *Node, the address as is
+    //   0x0000000000000000                      none
+    //   0x00007f2e51c04150                      the *Node, the address as is
+    //   0x00007f2e51c04150 0x0000000000000004   the []u32, address then count
     //
-    // one word where tag and payload would take sixteen bytes, and a member
-    // test is one compare against zero
-    if (count == 2 and pointers == 1 and units == 1) {
-        return .{ .layout = .{
-            .size = pointer_size,
-            .alignment = pointer_size,
-        } };
+    // a member test is one compare against zero, and a second non-unit member
+    // would need a second reserved value the zero cannot express
+    if (count == 2 and units == 1) {
+        if (carrier) |only| return .{ .layout = only };
     }
 
     const total = std.mem.alignForward(

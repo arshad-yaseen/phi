@@ -65,7 +65,7 @@ error[E0222]: this writes through a '*[4]u32', which is read-only
   --> test/fail/indexing.phi:46:5
    |
 46 |     p[0] = 9
-   |     ^^^ read-only pointer
+   |     ^^^ read-only
    |
    = help: take '*var [4]u32' to write through it
 

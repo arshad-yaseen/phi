@@ -23,3 +23,13 @@ fn computed(a: [1 + 2 * 3]u8) u8 {
 fn in_a_bracket(b: Box[[4]u32]) u8 {
     return 0
 }
+
+type Bytes = []u8
+type Writable = []var u8
+type Views = [][]u32
+type ViewOfArrays = [][4]u32
+type MaybeView = []u32 | none
+
+fn views(xs: []u32, ys: []var Box[u32], zs: Box[[]u8]) []u8 {
+    return xs
+}

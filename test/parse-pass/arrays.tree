@@ -81,3 +81,42 @@ root
     body: block
       return_expr
         value: number_literal 0
+  alias_decl Bytes
+    type: slice_type
+      child: ident u8
+  alias_decl Writable
+    type: slice_type var
+      child: ident u8
+  alias_decl Views
+    type: slice_type
+      child: slice_type
+        child: ident u32
+  alias_decl ViewOfArrays
+    type: slice_type
+      child: array_type
+        length: number_literal 4
+        child: ident u32
+  alias_decl MaybeView
+    type: union_type
+      slice_type
+        child: ident u32
+      ident none
+  fn_decl views
+    param xs
+      type: slice_type
+        child: ident u32
+    param ys
+      type: slice_type var
+        child: bracket
+          base: ident Box
+          arg: ident u32
+    param zs
+      type: bracket
+        base: ident Box
+        arg: slice_type
+          child: ident u8
+    ret: slice_type
+      child: ident u8
+    body: block
+      return_expr
+        value: ident xs

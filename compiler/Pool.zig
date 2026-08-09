@@ -182,6 +182,8 @@ pub const Key = union(enum) {
     type_pointer: Pointer,
     /// N values of one type, contiguous. The length is part of the type.
     type_array: Array,
+    /// A pointer and a length.
+    type_slice: Slice,
     /// A nominal struct, whose identity is the instantiation.
     type_struct: Instance,
     /// A nominal unit type. Never generic, so the declaration is the identity.
@@ -201,6 +203,7 @@ pub const Key = union(enum) {
     pub const Pointer = struct { child: Index, mutable: bool };
     /// A length no layout can hold is refused where the size is asked, not here.
     pub const Array = struct { child: Index, len: u64 };
+    pub const Slice = struct { child: Index, mutable: bool };
     pub const Int = struct { type: Index, value: i128 };
     pub const Float = struct { type: Index, value: f64 };
     pub const Wrapped = struct { type: Index, value: Index };
@@ -218,6 +221,10 @@ pub const Key = union(enum) {
                 const len: [2]u32 = @bitCast(array.len);
                 return hashWords(seed, .{ array.child.int(), len[0], len[1] });
             },
+            .type_slice => |slice| return hashWords(seed, .{
+                slice.child.int(),
+                @intFromBool(slice.mutable),
+            }),
             .type_struct => |instance| return hashWords(seed, .{instance.int()}),
             .type_unit => |decl| return hashWords(seed, .{decl.int()}),
             .type_union => |members| {
@@ -255,6 +262,8 @@ pub const Key = union(enum) {
                 pointer.mutable == other.type_pointer.mutable,
             .type_array => |array| array.child == other.type_array.child and
                 array.len == other.type_array.len,
+            .type_slice => |slice| slice.child == other.type_slice.child and
+                slice.mutable == other.type_slice.mutable,
             .type_struct => |instance| instance == other.type_struct,
             .type_unit => |decl| decl == other.type_unit,
             .type_union => |members| std.mem.eql(Index, members, other.type_union),
@@ -282,6 +291,9 @@ const Item = struct {
         type_pointer_var,
         /// `data` points at `extra`. The element type, then the length in two words.
         type_array,
+        /// `data` is the element type, the way a pointer stores its child.
+        type_slice,
+        type_slice_var,
         type_struct,
         type_unit,
         /// `data` points at `extra`. The member count, then the members.
@@ -377,6 +389,13 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = try pool.addExtra(gpa, &.{array.child.int()}, &wordsOf(array.len)),
             };
         },
+        .type_slice => |slice| item: {
+            assert(pool.isType(slice.child));
+            break :item .{
+                .tag = if (slice.mutable) .type_slice_var else .type_slice,
+                .data = slice.child.int(),
+            };
+        },
         .type_struct => |instance| .{ .tag = .type_struct, .data = instance.int() },
         .type_unit => |decl| .{ .tag = .type_unit, .data = decl.int() },
         .type_union => |members| item: {
@@ -457,6 +476,8 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
             .child = @enumFromInt(pool.extra.items[data]),
             .len = @bitCast(pool.extraWords(data + 1, 2).*),
         } },
+        .type_slice => .{ .type_slice = .{ .child = @enumFromInt(data), .mutable = false } },
+        .type_slice_var => .{ .type_slice = .{ .child = @enumFromInt(data), .mutable = true } },
         .type_struct => .{ .type_struct = @enumFromInt(data) },
         .type_unit => .{ .type_unit = @enumFromInt(data) },
         .type_union => .{
@@ -666,13 +687,14 @@ pub fn typeOfValue(pool: *const Pool, value: Index) Index {
             assert(simple == .poison);
             break :simple .poison;
         },
-        .type_pointer, .type_array, .type_struct, .type_unit, .type_union => unreachable,
+        .type_pointer, .type_array, .type_slice => unreachable,
+        .type_struct, .type_unit, .type_union => unreachable,
     };
 }
 
 pub fn isType(pool: *const Pool, index: Index) bool {
     return switch (pool.keyOf(index)) {
-        .type_simple, .type_pointer, .type_array => true,
+        .type_simple, .type_pointer, .type_array, .type_slice => true,
         .type_struct, .type_unit, .type_union => true,
         .value_int, .value_float, .value_aggregate => false,
         .value_unit, .value_union => false,
@@ -923,7 +945,7 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
         .value_unit => |unit_type| {
             return if (type_index == unit_type) .{ .value = value } else .wrong_kind;
         },
-        .type_simple, .type_pointer, .type_array => unreachable,
+        .type_simple, .type_pointer, .type_array, .type_slice => unreachable,
         .type_struct, .type_unit, .type_union => unreachable,
     }
 }

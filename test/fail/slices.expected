@@ -1,0 +1,54 @@
+error[E0222]: this is []u32, and []var u32 is needed to write
+  --> test/fail/slices.phi:11:10
+   |
+11 |     fill(xs)
+   |          ^^ read-only
+   |
+   = help: take '[]var' where the view is made
+
+error[E0222]: this writes through a '[]u32', which is read-only
+  --> test/fail/slices.phi:16:5
+   |
+16 |     xs[0] = 1
+   |     ^^^^ read-only
+   |
+   = help: take '[]var u32' to write through it
+
+error[E0206]: expected []var u32, found []var u8
+  --> test/fail/slices.phi:21:10
+   |
+21 |     fill(xs)
+   |          ^^ the wrong type
+   |
+   = help: nothing converts on its own
+
+error[E0206]: expected []u32, found [4]u32
+  --> test/fail/slices.phi:26:18
+   |
+26 |     return count(a)
+   |                  ^ the wrong type
+   |
+   = help: nothing converts on its own
+
+error[E0219]: []u32 has no field named 'first'
+  --> test/fail/slices.phi:31:15
+   |
+31 |     return xs.first
+   |               ^^^^^ no such field
+
+error[E0219]: []u32 has no field named 'ln'
+  --> test/fail/slices.phi:35:15
+   |
+35 |     return xs.ln
+   |               ^^ no such field
+   |
+   = help: did you mean 'len'?
+
+error[E0221]: 'len' is a value and not a place
+  --> test/fail/slices.phi:40:8
+   |
+40 |     xs.len = 3
+   |        ^^^ nothing to write to or point at
+   |
+   = help: an array's length is in its type, and a view keeps its own
+

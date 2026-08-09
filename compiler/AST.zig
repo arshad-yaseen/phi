@@ -160,6 +160,8 @@ pub const Node = struct {
 
         /// `[N]T`, N values of one type. The length is folded by the checker.
         array_type,
+        /// `[]T` and `[]var T`, a view of elements it does not own.
+        slice_type,
         pointer_type,
         /// `A | B`, only in type position. Members are never unions.
         union_type,
@@ -378,6 +380,7 @@ pub const View = union(enum) {
     or_bind: OrBind,
 
     array_type: ArrayType,
+    slice_type: Slice,
     pointer_type: Pointer,
     union_type: []const Node.Index,
 
@@ -448,6 +451,7 @@ pub const View = union(enum) {
     pub const Call = struct { callee: Node.Index, args: []const Node.Index };
     pub const FieldAccess = struct { lhs: Node.Index, name_token: Token.Index };
     pub const ArrayType = struct { length: Node.Index, child: Node.Index };
+    pub const Slice = struct { is_mutable: bool, child: Node.Index };
     pub const Pointer = struct { is_mutable: bool, child: Node.Index };
     pub const Binary = struct {
         op: BinaryOp,
@@ -620,6 +624,11 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         .array_type => .{ .array_type = .{
             .length = data.node_and_node[0],
             .child = data.node_and_node[1],
+        } },
+        // the tokens are `[`, `]`, then an optional `var`
+        .slice_type => .{ .slice_type = .{
+            .is_mutable = tree.tokenTag(main.after(2)) == .kw_var,
+            .child = data.node,
         } },
         .pointer_type => .{ .pointer_type = .{
             .is_mutable = tree.tokenTag(main.after(1)) == .kw_var,
@@ -928,6 +937,10 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
                 .rightmost => current = it.operand,
             },
             .array_type => |it| switch (side) {
+                .leftmost => return main,
+                .rightmost => current = it.child,
+            },
+            .slice_type => |it| switch (side) {
                 .leftmost => return main,
                 .rightmost => current = it.child,
             },

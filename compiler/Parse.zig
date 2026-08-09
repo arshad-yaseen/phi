@@ -1442,7 +1442,11 @@ fn parseTypeMember(self: *Parse) Allocator.Error!Node.Index {
     defer self.leave();
 
     switch (self.current()) {
-        .l_bracket => return self.parseArrayType(),
+        // `[]T` views elements, `[N]T` holds them, told apart by what follows
+        .l_bracket => {
+            if (self.peek(1) == .r_bracket) return self.parseSliceType();
+            return self.parseArrayType();
+        },
         .star => {
             const star = self.nextToken();
             _ = self.eatToken(.kw_var);
@@ -1462,6 +1466,18 @@ fn parseArrayType(self: *Parse) Allocator.Error!Node.Index {
     try self.expectClosing(.r_bracket, lbracket);
     const child = try self.parseTypeMember();
     return self.addPair(.array_type, lbracket, length, child);
+}
+
+/// `[]T` and `[]var T`
+fn parseSliceType(self: *Parse) Allocator.Error!Node.Index {
+    assert(self.at(.l_bracket));
+    assert(self.peek(1) == .r_bracket);
+
+    const lbracket = self.nextToken();
+    _ = self.nextToken();
+    _ = self.eatToken(.kw_var);
+    const child = try self.parseTypeMember();
+    return self.addUnary(.slice_type, lbracket, child);
 }
 
 fn parseTypePath(self: *Parse) Allocator.Error!Node.Index {

@@ -53,3 +53,15 @@ b0:
 fn alignments() u64
 b0:
   return 9:u64
+
+fn a_view_is_two_words() u64
+b0:
+  return 16:u64
+
+fn an_optional_view_keeps_the_niche() u64
+b0:
+  return 16:u64
+
+fn a_view_aligns_like_a_pointer() u64
+b0:
+  return 8:u64

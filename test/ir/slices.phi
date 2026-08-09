@@ -1,0 +1,84 @@
+type List[T] = {
+    items: []var T
+    capacity: u64
+}
+
+// a view holds no elements, so a type may hold a view of itself
+type Tree = {
+    value: u32
+    children: []Tree
+}
+
+// a view carries its length as data, so it is read
+fn count(xs: []u32) u64 {
+    return xs.len
+}
+
+// and an index reaches through the address it carries
+fn first(xs: []u32) u32 {
+    return xs[0]
+}
+
+fn sum(xs: []u32) u32 {
+    var total: u32 = 0
+    var i: u64 = 0
+    loop i < xs.len {
+        total += xs[i]
+        i += 1
+    }
+    return total
+}
+
+// what may be written is the view's own business
+fn fill(xs: []var u32) {
+    xs[0] = 1
+}
+
+// so a 'let' still writes through one
+fn through_a_let(xs: []var u32) {
+    let same = xs
+    same[1] = 2
+}
+
+// '[]var T' fits where '[]T' is asked, the edge '*var T' already had
+fn widen(xs: []var u32) u32 {
+    return sum(xs)
+}
+
+// the member question and the index each follow one pointer
+fn through_a_pointer(p: *[]u32) u32 {
+    return p[0]
+}
+
+fn counted_through_a_pointer(p: *[]u32) u64 {
+    return p.len
+}
+
+// a view sits in a struct the way any two-word value does
+fn held(list: List[u32]) u64 {
+    return list.items.len + list.capacity
+}
+
+fn grown(tree: Tree) u64 {
+    return tree.children.len
+}
+
+// a view reached through a 'let' still writes through, because the view says so
+fn into_a_held_view(list: List[u32]) {
+    list.items[0] = 7
+}
+
+// absent is a union, settled by a branch, and the niche keeps it two words
+fn counted(found: []u32 | none) u64 {
+    if found is []u32 {
+        return found.len
+    }
+    return 0
+}
+
+fn matched(found: []u32 | none) u64 {
+    return match found {
+        []u32 => found.len
+        none => 0
+    }
+}
