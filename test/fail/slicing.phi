@@ -1,0 +1,36 @@
+type Point = {
+    x: u32
+}
+
+fn count(xs: []u32) u64 {
+    return xs.len
+}
+
+// a base with no elements has no range to run over
+fn a_struct(p: Point) {
+    _ = p[0..]
+}
+
+// the ends are counts
+fn not_a_count(a: [4]u32) {
+    _ = a[0..1.5]
+}
+
+// and they take each other's type, so two written types must be one
+fn ends_disagree(a: [8]u32, i: u32, n: u64) {
+    _ = a[i..n]
+}
+
+// the bridge is written out, never inferred
+fn no_bridge(a: [4]u32) u64 {
+    return count(a)
+}
+
+// a view is made rather than found, so there is nowhere to write
+fn not_a_place(a: [4]u32) {
+    a[0..2] = a
+}
+
+// a top-level binding has nothing to take the address of
+let global: [4]u32 = [1, 2, 3, 4]
+let sliced = global[0..]

@@ -1300,7 +1300,6 @@ fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
     const value = try check.checkExpr(view.init_expr, annotation);
 
     switch (value) {
-        // a broken binding poisons its uses silently
         .diverged, .poison => try check.declarePoisoned(name, node),
         .constant => {
             const met = if (annotation) |wanted|
@@ -1586,7 +1585,6 @@ fn settleType(
         });
         return .poison;
     }
-    // the same situation as `var x = 5`
     try check.fail(node, .{
         .code = .var_needs_type,
         .message = try comp.fmt("nothing says what type this '{s}' is", .{what}),
@@ -1756,7 +1754,7 @@ fn checkLoop(
     return runtimeValue(loaded, result_type);
 }
 
-/// The one rewrite: a slot exists before its arms have said what type it is.
+/// A slot exists before its arms have said what type it is.
 fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error!void {
     const builder = check.body();
     const index = switch (slot.unwrap()) {
@@ -1784,7 +1782,7 @@ const ArmIndex = enum(u32) {
     }
 };
 
-/// N-way `is`: arms label members, the scrutinee narrows per arm, coverage is counted.
+/// Arms label members, the scrutinee narrows per arm, and coverage is counted.
 fn checkMatch(
     check: *Check,
     node: Node.Index,
@@ -2232,7 +2230,7 @@ fn gatherWhenTrue(
     }
 }
 
-/// One `is`, both doors: the member and the rest, swapped for `is not`.
+/// The member when it holds and the rest when it does not, swapped for `is not`.
 fn factsOfIs(
     check: *Check,
     node: Node.Index,
@@ -2332,7 +2330,7 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
     return runtimeValue(tested, bools);
 }
 
-/// `bool` is declared, not built in: two unit members, the first meaning yes.
+/// Two unit members, the first meaning yes. `bool` is declared, never built in.
 fn boolType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     const comp = check.comp;
     if (check.bool_type != .poison) return check.bool_type;
@@ -2996,7 +2994,7 @@ fn checkShortCircuit(check: *Check, view: AST.View.Binary) Allocator.Error!Value
     return runtimeValue(loaded, bools);
 }
 
-/// `e or f`: the first member of `e`, or else `f`, that member or everything `e` could be.
+/// The first member of `e`, or else `f`.
 fn checkOr(check: *Check, view: AST.View.Binary) Allocator.Error!Value {
     assert(view.op == .bool_or);
     const lhs = try check.checkExpr(view.lhs, null);
@@ -3345,9 +3343,7 @@ fn valueField(
 const Member = union(enum) {
     /// A field, by its absolute row.
     field: Compilation.Row.Index,
-    /// A function declared in the type, by its declaration.
     method: Decl.Index,
-    /// How many elements there are.
     length: Length,
 
     /// An array's length is in its type, so it is settled before anything
@@ -3434,12 +3430,25 @@ fn lengthValue(
     }
 }
 
+/// `p.x` and `p[i]` both reach into what `p` points at.
+const Peeled = struct {
+    /// The pointer that was followed, where there was one.
+    pointer: ?Pool.Key.Pointer,
+    /// The type the question is then asked of.
+    owner: Pool.Index,
+};
+
+fn peelPointer(pool: *const Pool, from: Pool.Index) Peeled {
+    switch (pool.keyOf(from)) {
+        .type_pointer => |it| return .{ .pointer = it, .owner = it.child },
+        else => return .{ .pointer = null, .owner = from },
+    }
+}
+
 /// What a `.name` reaches for a read or a place, with one pointer already
 /// followed. Every such site asks through here, so the question has one answer.
 const Reach = struct {
-    /// The pointer that was followed, where there was one.
     pointer: ?Pool.Key.Pointer,
-    /// The type the name was asked of.
     owner: Pool.Index,
     what: What,
 
@@ -3452,12 +3461,8 @@ const Reach = struct {
 };
 
 fn reachField(check: *Check, from: Pool.Index, name_token: Token.Index) Allocator.Error!Reach {
-    // one pointer is followed, so `p.x` reaches into what `p` points at
-    const pointer: ?Pool.Key.Pointer = switch (check.comp.pool.keyOf(from)) {
-        .type_pointer => |it| it,
-        else => null,
-    };
-    const owner = if (pointer) |it| it.child else from;
+    const peeled = peelPointer(&check.comp.pool, from);
+    const owner = peeled.owner;
 
     const what: Reach.What = what: {
         if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
@@ -3470,10 +3475,10 @@ fn reachField(check: *Check, from: Pool.Index, name_token: Token.Index) Allocato
         try check.reportNoMember(owner, name_token, .field);
         break :what .reported;
     };
-    return .{ .pointer = pointer, .owner = owner, .what = what };
+    return .{ .pointer = peeled.pointer, .owner = owner, .what = what };
 }
 
-/// The method a site needs, or null once reported.
+/// Null once reported.
 fn methodOf(
     check: *Check,
     owner: Pool.Index,
@@ -3489,8 +3494,8 @@ fn methodOf(
     return null;
 }
 
-/// Naming what the member is instead, where it is something, because reaching for
-/// a method as a field is the likelier mistake than misspelling one.
+/// Reaching for a method as a field is likelier than misspelling one, so a
+/// name that means something else says what it means.
 fn reportNoMember(
     check: *Check,
     owner: Pool.Index,
@@ -3569,7 +3574,6 @@ fn suggestMember(
     return comp.didYouMean(closest);
 }
 
-/// Whether this file may reach a member of another one.
 fn memberIsVisible(check: *Check, member: Decl.Index, at: Token.Index) Allocator.Error!bool {
     const decl = check.comp.declAt(member);
     if (decl.module == check.module_index) return true;
@@ -3633,16 +3637,40 @@ fn checkBracketExpr(
     }
 }
 
-/// One `a[i]`, resolved, where the elements are, and which one.
-const Indexed = struct {
+/// A bracket's base, past one pointer, and what holds its elements. Indexing
+/// and slicing both start here.
+const Elements = struct {
     base: Place,
-    /// The pointer that was followed, where there was one.
     pointer: ?Pool.Key.Pointer,
-    /// The type the elements were asked of, past any pointer.
     owner: Pool.Index,
-    element: Pool.Index,
-    /// The view the elements belong to, where they belong to one.
-    slice: ?Pool.Key.Slice,
+    holds: Holds,
+
+    /// Storage, whose length is in its type, or a view, which carries both its
+    /// own length and what may be written through it.
+    const Holds = union(enum) {
+        array: Pool.Key.Array,
+        slice: Pool.Key.Slice,
+
+        /// One element's type, which both of them name.
+        fn element(holds: Holds) Pool.Index {
+            return switch (holds) {
+                .array => |it| it.child,
+                .slice => |it| it.child,
+            };
+        }
+
+        /// The count, where the type settles it before anything runs.
+        fn length(holds: Holds) ?u64 {
+            return switch (holds) {
+                .array => |it| it.len,
+                .slice => null,
+            };
+        }
+    };
+};
+
+const Indexed = struct {
+    elements: Elements,
     index: Index,
 
     /// A bracket's one value, as the index it is.
@@ -3653,14 +3681,6 @@ const Indexed = struct {
     };
 };
 
-/// Where the elements are. An array settles its length in its type, and a view
-/// carries the address itself, and with it what may be written through it.
-const Holds = struct {
-    element: Pool.Index,
-    length: ?u64,
-    slice: ?Pool.Key.Slice,
-};
-
 /// `a[i]` names a place, so reading one is a load from it. An element of a
 /// constant array is a constant, which is what a top-level binding needs.
 fn checkIndexExpr(
@@ -3669,12 +3689,14 @@ fn checkIndexExpr(
     view: AST.View.Bracket,
 ) Allocator.Error!Value {
     const comp = check.comp;
+    if (check.rangeIn(view)) |range| return check.checkSlice(node, view, range);
+
     const indexed = try check.checkIndex(node, view) orelse return .poison;
 
     if (indexed.index.at) |at| {
         // through a pointer the elements belong to whatever it points at
-        if (indexed.pointer == null) {
-            if (check.placeConstant(indexed.base)) |aggregate| {
+        if (indexed.elements.pointer == null) {
+            if (check.placeConstant(indexed.elements.base)) |aggregate| {
                 return .{ .constant = comp.pool.aggregateAt(aggregate, @intCast(at)) };
             }
         }
@@ -3684,68 +3706,197 @@ fn checkIndexExpr(
     // constant, so the fold above is the only way past here with no body to
     // build in
     assert(check.builder != null);
-    const place = try check.elementPlace(indexed) orelse return .poison;
+    const place = try check.elementPlace(indexed.elements, indexed.index.ref) orelse
+        return .poison;
     return runtimeValue(try check.placeValue(place), place.type);
 }
 
-/// The base as a place and the index beside it, which reading and writing
-/// share. Null once reported.
+/// The one bridge from storage to a view, so a program writes it out.
+/// Mutability follows the place the base names.
+fn checkSlice(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+    range: AST.View.Range,
+) Allocator.Error!Value {
+    // a view is an address, and a top-level binding has nothing to address
+    if (check.builder == null) return check.needRuntime(node, "making a view");
+
+    const elements = try check.checkElements(node, view) orelse return .poison;
+    const through = try check.elementsThrough(elements) orelse return .poison;
+    const bounds = try check.checkRange(view.args[0], range, elements, through) orelse
+        return .poison;
+
+    const made = try check.sliceOf(elements.holds.element(), through.mutable);
+    const payload = try check.emitExtra(&.{
+        @intFromEnum(through.ref),
+        @intFromEnum(bounds.start),
+        @intFromEnum(bounds.end),
+    }, &.{});
+    return runtimeValue(try check.emit(.slice_make, made, .{ .payload = payload }), made);
+}
+
+const Bounds = struct { start: Ref, end: Ref };
+
+/// The ends take each other's type the way arithmetic's operands do, and a
+/// count with nothing to take it from is a `u64`. Null once reported.
+fn checkRange(
+    check: *Check,
+    range_node: Node.Index,
+    range: AST.View.Range,
+    elements: Elements,
+    through: Through,
+) Allocator.Error!?Bounds {
+    const comp = check.comp;
+
+    const start = try check.checkRangeEnd(range.start) orelse return null;
+    const end_node = range.end.unwrap();
+    const end = if (end_node) |written|
+        try check.checkRangeEnd(written) orelse return null
+    else
+        try check.baseLength(elements, through);
+
+    const left = check.typeOf(start);
+    const right = check.typeOf(end);
+    if (Pool.isUntyped(left) == false and Pool.isUntyped(right) == false and left != right) {
+        try check.failToken(check.tree.nodeMainToken(range_node), .{
+            .code = .mixed_types,
+            .message = try comp.fmt("'..' mixes {s} and {s}", .{
+                try comp.typeName(left),
+                try comp.typeName(right),
+            }),
+            .label = "two different types",
+            .help = "the ends of a range take each other's type, and nothing " ++
+                "converts on its own",
+        });
+        return null;
+    }
+
+    var settled = left;
+    if (Pool.isUntyped(settled)) settled = right;
+    if (Pool.isUntyped(settled)) settled = .u64_type;
+
+    const first = try check.coerce(start, settled, range.start);
+    const second = try check.coerce(end, settled, end_node orelse range_node);
+    if (first == .poison or second == .poison) return null;
+    return .{ .start = refOf(first), .end = refOf(second) };
+}
+
+/// One end, which is a count the way an index is. Null once reported.
+fn checkRangeEnd(check: *Check, node: Node.Index) Allocator.Error!?Value {
+    const comp = check.comp;
+    const value = try check.checkExpr(node, null);
+    if (try check.valueOnly(node, value) == false) return null;
+
+    const found = check.typeOf(value);
+    if (found == .poison) return null;
+    if (Pool.isInteger(found) == false) {
+        try check.fail(node, .{
+            .code = .bad_operand,
+            .message = try comp.fmt("an end of a range is a count, and this is {s}", .{
+                try comp.typeName(found),
+            }),
+            .label = "not a count",
+            .help = "any integer counts, and nothing else does",
+        });
+        return null;
+    }
+    return value;
+}
+
+/// What `a..` runs to. An array answers untyped, so a written start settles
+/// both ends, and a view answers with the count it carries.
+fn baseLength(check: *Check, elements: Elements, through: Through) Allocator.Error!Value {
+    const comp = check.comp;
+
+    switch (elements.holds) {
+        // untyped, so a written start settles the type for both ends
+        .array => |it| return .{ .constant = try comp.pool.intern(comp.gpa, .{
+            .value_int = .{ .type = .untyped_int_type, .value = it.len },
+        }) },
+        .slice => return runtimeValue(
+            try check.emitOne(.slice_len, .u64_type, through.ref),
+            .u64_type,
+        ),
+    }
+}
+
+/// The range a bracket holds, where it holds one. `a[i]` and `a[x..y]` are one
+/// node, and only what stands inside says which.
+fn rangeIn(check: *const Check, view: AST.View.Bracket) ?AST.View.Range {
+    if (view.args.len != 1) return null;
+    if (check.tree.nodeTag(view.args[0]) != .range_expr) return null;
+    return check.tree.viewOf(view.args[0]).range_expr;
+}
+
+/// Whatever stands inside the brackets, checked for its own sake once the base
+/// turned out to be the mistake.
+fn checkBracketArgs(check: *Check, view: AST.View.Bracket) Allocator.Error!void {
+    for (view.args) |argument| {
+        if (check.tree.nodeTag(argument) == .range_expr) {
+            const range = check.tree.viewOf(argument).range_expr;
+            _ = try check.checkExpr(range.start, null);
+            if (range.end.unwrap()) |end| _ = try check.checkExpr(end, null);
+            continue;
+        }
+        _ = try check.checkExpr(argument, null);
+    }
+}
+
+/// Null once reported.
 fn checkIndex(
     check: *Check,
     node: Node.Index,
     view: AST.View.Bracket,
 ) Allocator.Error!?Indexed {
+    const elements = try check.checkElements(node, view) orelse return null;
+    const index = try check.checkIndexOperand(node, view, elements) orelse return null;
+    return .{ .elements = elements, .index = index };
+}
+
+/// The base as a place, past one pointer, and what it holds. Null once reported.
+fn checkElements(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+) Allocator.Error!?Elements {
     const comp = check.comp;
     assert(check.tree.nodeTag(node) == .bracket);
 
     const base = try check.checkPlace(view.base) orelse return null;
 
-    // one pointer is followed, so `p[i]` reaches into what `p` points at
-    const pointer: ?Pool.Key.Pointer = switch (comp.pool.keyOf(base.type)) {
-        .type_pointer => |it| it,
-        else => null,
-    };
-    const owner = if (pointer) |it| it.child else base.type;
+    const peeled = peelPointer(&comp.pool, base.type);
+    const owner = peeled.owner;
     if (owner == .poison) return null;
 
-    const holds: Holds = switch (comp.pool.keyOf(owner)) {
-        .type_array => |it| .{ .element = it.child, .length = it.len, .slice = null },
-        .type_slice => |it| .{ .element = it.child, .length = null, .slice = it },
+    const holds: Elements.Holds = switch (comp.pool.keyOf(owner)) {
+        .type_array => |it| .{ .array = it },
+        .type_slice => |it| .{ .slice = it },
         else => {
             // the base is the mistake, and what stands inside the brackets is
             // still a program
-            for (view.args) |argument| _ = try check.checkExpr(argument, null);
+            try check.checkBracketArgs(view);
             try check.failNotIndexable(node, owner);
             return null;
         },
     };
 
-    const index = try check.checkIndexOperand(node, view, owner, holds.length) orelse
-        return null;
-    return .{
-        .base = base,
-        .pointer = pointer,
-        .owner = owner,
-        .element = holds.element,
-        .slice = holds.slice,
-        .index = index,
-    };
+    return .{ .base = base, .pointer = peeled.pointer, .owner = owner, .holds = holds };
 }
 
-/// The one value inside the brackets. Any integer indexes, which is the
-/// operator's domain, and a constant one is answered against the length before
-/// anything runs. Null once reported.
+/// Any integer indexes, and a constant one is answered against the length
+/// before anything runs. Null once reported.
 fn checkIndexOperand(
     check: *Check,
     node: Node.Index,
     view: AST.View.Bracket,
-    owner: Pool.Index,
-    length: ?u64,
+    elements: Elements,
 ) Allocator.Error!?Indexed.Index {
     const comp = check.comp;
+    const length = elements.holds.length();
 
     if (view.args.len != 1) {
-        for (view.args) |argument| _ = try check.checkExpr(argument, null);
+        try check.checkBracketArgs(view);
         try check.fail(node, .{
             .code = .wrong_arity,
             .message = try comp.fmt("an index is one value, and this writes {d}", .{
@@ -3781,7 +3932,7 @@ fn checkIndexOperand(
     // a view carries its length as data, so only the near edge is settled here
     const past_end = if (length) |count| written >= @as(i128, count) else false;
     if (written < 0 or past_end) {
-        try check.failIndexOutOfRange(argument, written, owner, length);
+        try check.failIndexOutOfRange(argument, written, elements.owner, length);
         return null;
     }
 
@@ -3959,8 +4110,7 @@ fn checkStructLiteral(
     return check.settleAggregate(node, wanted, comp.operands.items[start..]);
 }
 
-/// What the literal builds: the type it writes, or the one it lands on where
-/// that says which struct on its own. Null once reported.
+/// The type the literal writes, or the one it lands on. Null once reported.
 fn structLiteralType(
     check: *Check,
     node: Node.Index,
@@ -4407,7 +4557,7 @@ fn checkCallResolved(
             receiver_node = method.receiver;
 
             // only a struct declares one, so finding a method proves the owner
-            const type_struct = peelOnePointer(comp, place.type);
+            const type_struct = peelPointer(&comp.pool, place.type).owner;
             const member = try check.methodOf(type_struct, method.name_token) orelse
                 return .poison;
             if (try check.memberIsVisible(member, method.name_token) == false) return .poison;
@@ -4677,13 +4827,6 @@ fn suggestIntrinsic(check: *Check, text: []const u8) Allocator.Error!?[]const u8
 
 fn plural(count: u64) []const u8 {
     return if (count == 1) "" else "s";
-}
-
-fn peelOnePointer(comp: *const Compilation, type_index: Pool.Index) Pool.Index {
-    return switch (comp.pool.keyOf(type_index)) {
-        .type_pointer => |pointer| pointer.child,
-        else => type_index,
-    };
 }
 
 /// Coerced to its parameter type. Never checked twice, because checking emits.
@@ -5155,46 +5298,61 @@ fn placeIndex(
     node: Node.Index,
     view: AST.View.Bracket,
 ) Allocator.Error!?Place {
+    // a view is made, not found, so there is nowhere to write or point
+    if (check.rangeIn(view) != null) {
+        try check.checkBracketArgs(view);
+        try check.fail(node, .{
+            .code = .not_assignable,
+            .message = "this makes a view, which is a value and not a place",
+            .label = "nothing to write to or point at",
+        });
+        return null;
+    }
+
     const indexed = try check.checkIndex(node, view) orelse return null;
-    return check.elementPlace(indexed);
+    return check.elementPlace(indexed.elements, indexed.index.ref);
 }
 
 /// The place an index names, as mutable as whatever it reached through.
-fn elementPlace(check: *Check, indexed: Indexed) Allocator.Error!?Place {
+fn elementPlace(check: *Check, elements: Elements, index: Ref) Allocator.Error!?Place {
+    const element = elements.holds.element();
     // neither carrier ever holds a broken element, so an element always has one
-    assert(indexed.element != .poison);
-    assert(indexed.index.ref != .none);
+    assert(element != .poison);
+    assert(index != .none);
 
-    const through = if (indexed.slice) |slice|
-        try check.viewThrough(indexed, slice)
-    else
-        try check.placeThrough(indexed.base, indexed.pointer) orelse return null;
-
-    const element_pointer = try check.pointerTo(indexed.element, through.mutable);
+    const through = try check.elementsThrough(elements) orelse return null;
+    const element_pointer = try check.pointerTo(element, through.mutable);
     const place = try check.emit(.elem_ptr, element_pointer, .{
-        .bin = .{ .lhs = through.ref, .rhs = indexed.index.ref },
+        .bin = .{ .lhs = through.ref, .rhs = index },
     });
-    return through.reaching(place, indexed.element);
+    return through.reaching(place, element);
+}
+
+/// A view carries its own permission, and storage takes its place's.
+fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Through {
+    return switch (elements.holds) {
+        .slice => |slice| try check.viewThrough(elements, slice),
+        .array => try check.placeThrough(elements.base, elements.pointer),
+    };
 }
 
 /// A view leads with the address itself, so the elements are reached through
-/// the view's own value and what may be written through it is its own business
-/// rather than that of whatever place happens to hold it.
+/// its value, and what may be written is the view's own business.
 fn viewThrough(
     check: *Check,
-    indexed: Indexed,
+    elements: Elements,
     slice: Pool.Key.Slice,
 ) Allocator.Error!Through {
-    var held = try check.placeValue(indexed.base);
+    var held = try check.placeValue(elements.base);
     // one pointer was followed to reach the view, so the view is read first
-    if (indexed.pointer != null) {
-        held = try check.emitOne(.load, indexed.owner, held);
+    if (elements.pointer != null) {
+        held = try check.emitOne(.load, elements.owner, held);
     }
     return .{
         .ref = held,
         .mutable = slice.mutable,
-        .reason = if (slice.mutable) .mutable else .{ .read_only = indexed.owner },
-        .root = indexed.base,
+        .reason = if (slice.mutable) .mutable else .{ .read_only = elements.owner },
+        .root = elements.base,
     };
 }
 
@@ -5384,7 +5542,6 @@ fn refOf(value: Value) Ref {
     };
 }
 
-/// Whether a slot can be made of this.
 fn typeCanHold(check: *const Check, type_index: Pool.Index) bool {
     if (type_index == .void_type) return false;
     if (Pool.isUntyped(type_index)) return false;
@@ -5454,8 +5611,7 @@ fn coerce(
 }
 
 /// Whether two types reach one child in one way, and if so whether the first
-/// may be written through. A view answers the way a pointer does, which is what
-/// makes `[]var T` fitting `[]T` the edge `*var T` already had.
+/// may be written through. A view answers the way a pointer does.
 fn writesThrough(pool: *const Pool, have: Pool.Index, want: Pool.Index) ?bool {
     const from = pool.keyOf(have);
     const to = pool.keyOf(want);
@@ -5544,13 +5700,19 @@ fn reportMismatch(
     const narrowable = found != .poison and wanted != .poison and
         comp.pool.isUnion(found) and comp.pool.isUnion(wanted) == false and
         comp.pool.unionHas(found, wanted);
-    const help: []const u8 = if (narrowable)
-        try comp.fmt("narrow it first, with a guard 'is {s} or return' or inside " ++
-            "the branch that proved it, and never through a 'var'", .{
-            try comp.typeName(wanted),
-        })
-    else
-        "nothing converts on its own";
+
+    const help: []const u8 = help: {
+        if (narrowable) {
+            break :help try comp.fmt("narrow it first, with a guard 'is {s} or return' or " ++
+                "inside the branch that proved it, and never through a 'var'", .{
+                try comp.typeName(wanted),
+            });
+        }
+        if (check.needsBridge(found, wanted)) {
+            break :help "slice it to make a view of it, as in 'a[0..]'";
+        }
+        break :help "nothing converts on its own";
+    };
 
     try check.fail(node, .{
         .code = .type_mismatch,
@@ -5562,6 +5724,19 @@ fn reportMismatch(
         .help = help,
     });
     return .poison;
+}
+
+/// Whether storage was handed over where a view of it was asked for
+fn needsBridge(check: *const Check, found: Pool.Index, wanted: Pool.Index) bool {
+    const stored = switch (check.comp.pool.keyOf(found)) {
+        .type_array => |it| it.child,
+        else => return false,
+    };
+    const viewed = switch (check.comp.pool.keyOf(wanted)) {
+        .type_slice => |it| it.child,
+        else => return false,
+    };
+    return stored == viewed;
 }
 
 fn valueOnly(check: *Check, node: Node.Index, value: Value) Allocator.Error!bool {
@@ -5646,8 +5821,8 @@ fn reportBadOperand(
     });
 }
 
-/// `_` is not a name. It stands in one place, `_ = expression`, and nowhere else,
-/// so every site that wanted a name reports the same thing.
+/// `_` stands in one place, `_ = expression`, so every site that wanted a name
+/// reports the same thing.
 fn failDiscard(check: *Check, node: Node.Index) Allocator.Error!void {
     try check.fail(node, .{
         .code = .discard_reserved,

@@ -170,6 +170,11 @@ fn node(
             try writer.writeByte('\n');
             for (elements) |element| try node(ast, writer, element, below, "");
         },
+        .range_expr => |it| {
+            try writer.writeByte('\n');
+            try node(ast, writer, it.start, below, "start");
+            if (it.end.unwrap()) |end| try node(ast, writer, end, below, "end");
+        },
         .struct_field_init => |it| {
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
             try node(ast, writer, it.value, below, "value");
@@ -329,6 +334,15 @@ fn inst(
                 try ref(comp, operand, writer);
             }
             try writer.writeByte(')');
+        },
+        .slice_make => {
+            const made = IR.sliceMakeAt(comp.funcExtra(body), data.payload);
+            try writer.writeByte(' ');
+            try ref(comp, made.base, writer);
+            try writer.writeAll(", ");
+            try ref(comp, made.start, writer);
+            try writer.writeAll(", ");
+            try ref(comp, made.end, writer);
         },
         .aggregate_init => {
             const operands = IR.aggregateInitAt(comp.funcExtra(body), data.payload);

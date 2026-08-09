@@ -61,6 +61,19 @@ pub fn callAt(extra: []const u32, at: ExtraIndex) Call {
     };
 }
 
+pub const SliceMake = struct { base: Ref, start: Ref, end: Ref };
+
+/// The base and the two ends
+pub fn sliceMakeAt(extra: []const u32, at: ExtraIndex) SliceMake {
+    const start = @intFromEnum(at);
+    assert(start + 3 <= extra.len);
+    return .{
+        .base = @enumFromInt(extra[start]),
+        .start = @enumFromInt(extra[start + 1]),
+        .end = @enumFromInt(extra[start + 2]),
+    };
+}
+
 /// Elements in order, or fields in declaration order.
 pub fn aggregateInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
     const start = @intFromEnum(at);
@@ -148,6 +161,8 @@ pub const Inst = struct {
         elem_ptr,
         /// Uses `un`, a view. Produces the count it carries.
         slice_len,
+        /// Uses `payload`, read by `sliceMakeAt`.
+        slice_make,
 
         // all `bin`
         add,

@@ -197,7 +197,7 @@ pub const Key = union(enum) {
     value_aggregate: Aggregate,
     /// The one value of a unit type.
     value_unit: Index,
-    /// A constant that knows its union: the union, then the member constant.
+    /// A constant that knows its union. The union, then the member constant.
     value_union: Wrapped,
 
     pub const Pointer = struct { child: Index, mutable: bool };

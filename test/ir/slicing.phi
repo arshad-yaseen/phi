@@ -1,0 +1,72 @@
+// the bridge, written out, and the one way storage becomes a view
+fn whole(a: [4]u32) u64 {
+    let s = a[0..]
+    return s.len
+}
+
+fn part(a: [4]u32) u32 {
+    let s = a[1..3]
+    return s[0]
+}
+
+// mutability follows the place, so a 'var' array yields a writable view
+fn from_a_var() u32 {
+    var a: [4]u32 = [1, 2, 3, 4]
+    let s = a[0..]
+    s[0] = 9
+    return a[0]
+}
+
+// and a parameter yields a read-only one
+fn from_a_parameter(a: [4]u32) u64 {
+    let s = a[0..]
+    return s.len
+}
+
+// slicing a view covers the same bytes and keeps what it may do
+fn of_a_view(xs: []var u32) []var u32 {
+    return xs[1..]
+}
+
+fn narrowed(xs: []var u32) []u32 {
+    return xs[0..2]
+}
+
+// through a pointer, what the pointer allows
+fn through_a_pointer(p: *var [4]u32) []var u32 {
+    return p[0..]
+}
+
+fn through_a_read_only_pointer(p: *[4]u32) []u32 {
+    return p[1..2]
+}
+
+// the ends take each other's type, so a written start settles both
+fn ends_take_the_start(a: [8]u32, i: u32) []u32 {
+    return a[i..]
+}
+
+// views alias, so two over one array see each other's writes
+fn aliased() u32 {
+    var a: [4]u32 = [1, 2, 3, 4]
+    let first = a[0..2]
+    let second = a[0..]
+    first[0] = 7
+    return second[0]
+}
+
+// the design's pair, with the loop still written as a condition
+fn sum(xs: []u32) u32 {
+    var total: u32 = 0
+    var i: u64 = 0
+    loop i < xs.len {
+        total += xs[i]
+        i += 1
+    }
+    return total
+}
+
+fn drive() u32 {
+    var arr: [4]u32 = [10, 20, 30, 40]
+    return sum(arr[0..])
+}

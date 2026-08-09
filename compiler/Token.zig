@@ -49,6 +49,8 @@ pub const Tag = enum(u8) {
     dot,
     /// One token, so a line ending in `p.*` ends its statement.
     dot_star,
+    /// `a..b`, the ends of a range.
+    dot_dot,
     colon,
     /// Written, or inserted at a line break.
     semi,
@@ -120,6 +122,7 @@ pub const Tag = enum(u8) {
             .comma => ",",
             .dot => ".",
             .dot_star => ".*",
+            .dot_dot => "..",
             .colon => ":",
             .semi => ";",
             .pipe => "|",

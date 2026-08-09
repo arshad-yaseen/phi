@@ -1283,12 +1283,27 @@ fn parseBracket(self: *Parse, base: Node.Index) Allocator.Error!Node.Index {
     });
 }
 
-/// Only a type opens with `*` or `[`. Everything else parses as an expression.
+/// Only a type opens with `*` or `[`. Everything else parses as an expression,
+/// which `..` then makes a range. This is the one place a range is written.
 fn parseBracketItem(self: *Parse) Allocator.Error!Node.Index {
-    return switch (self.current()) {
-        .star, .l_bracket => self.parseType(),
-        else => self.parseExpr(),
-    };
+    switch (self.current()) {
+        .star, .l_bracket => return self.parseType(),
+        else => {},
+    }
+
+    const start = try self.parseExpr();
+    const dot_dot = self.eatToken(.dot_dot) orelse return start;
+
+    const end: Node.OptionalIndex = if (starts_expr.contains(self.current()))
+        (try self.parseExpr()).toOptional()
+    else
+        .none;
+
+    return self.addNode(.{
+        .tag = .range_expr,
+        .main_token = dot_dot,
+        .data = .{ .node_and_opt_node = .{ start, end } },
+    });
 }
 
 fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
@@ -1297,7 +1312,7 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
         .ident => return self.addLeaf(.ident),
         .number => return self.addLeaf(.number_literal),
         .l_bracket => return self.parseArrayLiteral(),
-        // `.{ ... }` builds the struct that wherever it lands asks for
+        // `.{ ... }` takes the struct from wherever it lands
         .dot => {
             const dot = self.nextToken();
             if (self.at(.l_brace)) return self.parseStructLiteral(.none, dot);

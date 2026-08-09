@@ -149,6 +149,8 @@ pub const Node = struct {
         struct_literal,
         /// `[a, b, c]`, which states its own length.
         array_literal,
+        /// `a..b` and `a..`. Only a bracket takes one.
+        range_expr,
         struct_field_init,
 
         binary,
@@ -176,6 +178,7 @@ pub const Node = struct {
         node: Index,
         opt_node: OptionalIndex,
         node_and_node: struct { Index, Index },
+        node_and_opt_node: struct { Index, OptionalIndex },
         opt_node_and_node: struct { OptionalIndex, Index },
         /// Where `Fields` starts reading.
         extra: ExtraIndex,
@@ -372,6 +375,7 @@ pub const View = union(enum) {
     call: Call,
     struct_literal: StructLiteral,
     array_literal: []const Node.Index,
+    range_expr: Range,
     struct_field_init: NamedValue,
 
     binary: Binary,
@@ -448,6 +452,8 @@ pub const View = union(enum) {
         fields: []const Node.Index,
     };
     pub const Bracket = struct { base: Node.Index, args: []const Node.Index };
+    /// `.none` leaves the end to the base, which is asked for its length.
+    pub const Range = struct { start: Node.Index, end: Node.OptionalIndex };
     pub const Call = struct { callee: Node.Index, args: []const Node.Index };
     pub const FieldAccess = struct { lhs: Node.Index, name_token: Token.Index };
     pub const ArrayType = struct { length: Node.Index, child: Node.Index };
@@ -590,6 +596,10 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
             } };
         },
         .array_literal => .{ .array_literal = tree.listAt(data.extra) },
+        .range_expr => .{ .range_expr = .{
+            .start = data.node_and_opt_node[0],
+            .end = data.node_and_opt_node[1],
+        } },
         .struct_field_init => .{ .struct_field_init = .{ .name_token = main, .value = data.node } },
 
         .binary => .{
@@ -918,6 +928,11 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
                         current = elements[elements.len - 1];
                     } else return main.after(1);
                 },
+            },
+            .range_expr => |it| switch (side) {
+                .leftmost => current = it.start,
+                // `a..` ends at the `..` itself
+                .rightmost => current = it.end.unwrap() orelse return main,
             },
             .struct_field_init => |it| switch (side) {
                 .leftmost => return main,
