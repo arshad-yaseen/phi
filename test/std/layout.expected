@@ -26,6 +26,26 @@ fn a_field_pads_up_to_its_alignment() u64
 b0:
   return 12:u64
 
+fn an_array_is_its_elements() u64
+b0:
+  return 16:u64
+
+fn arrays_nest_by_multiplying() u64
+b0:
+  return 6:u64
+
+fn an_array_aligns_like_its_element() u64
+b0:
+  return 4:u64
+
+fn no_elements_is_no_bytes() u64
+b0:
+  return 0:u64
+
+fn an_array_field_sits_inline() u64
+b0:
+  return 8:u64
+
 fn alignments() u64
 b0:
   return 9:u64

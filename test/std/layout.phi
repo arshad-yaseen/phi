@@ -17,6 +17,11 @@ type Sandwich = {
     after: u8
 }
 
+type Header = {
+    magic: [4]u8
+    version: u32
+}
+
 fn bool_is_the_tag_alone() u64 {
     return intrinsic.size_of[bool]()
 }
@@ -43,6 +48,26 @@ fn an_empty_struct_is_nothing() u64 {
 
 fn a_field_pads_up_to_its_alignment() u64 {
     return intrinsic.size_of[Sandwich]()
+}
+
+fn an_array_is_its_elements() u64 {
+    return intrinsic.size_of[[4]u32]()
+}
+
+fn arrays_nest_by_multiplying() u64 {
+    return intrinsic.size_of[[2][3]u8]()
+}
+
+fn an_array_aligns_like_its_element() u64 {
+    return intrinsic.align_of[[4]u32]()
+}
+
+fn no_elements_is_no_bytes() u64 {
+    return intrinsic.size_of[[0]u64]()
+}
+
+fn an_array_field_sits_inline() u64 {
+    return intrinsic.size_of[Header]()
 }
 
 fn alignments() u64 {

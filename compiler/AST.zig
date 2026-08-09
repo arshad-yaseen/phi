@@ -156,6 +156,8 @@ pub const Node = struct {
         /// `e or name { ... }`, the handler form of `or`.
         or_bind,
 
+        /// `[N]T`, N values of one type. The length is folded by the checker.
+        array_type,
         pointer_type,
         /// `A | B`, only in type position. Members are never unions.
         union_type,
@@ -372,6 +374,7 @@ pub const View = union(enum) {
     is_expr: Is,
     or_bind: OrBind,
 
+    array_type: ArrayType,
     pointer_type: Pointer,
     union_type: []const Node.Index,
 
@@ -440,6 +443,7 @@ pub const View = union(enum) {
     pub const Bracket = struct { base: Node.Index, args: []const Node.Index };
     pub const Call = struct { callee: Node.Index, args: []const Node.Index };
     pub const FieldAccess = struct { lhs: Node.Index, name_token: Token.Index };
+    pub const ArrayType = struct { length: Node.Index, child: Node.Index };
     pub const Pointer = struct { is_mutable: bool, child: Node.Index };
     pub const Binary = struct {
         op: BinaryOp,
@@ -608,6 +612,10 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
             } };
         },
 
+        .array_type => .{ .array_type = .{
+            .length = data.node_and_node[0],
+            .child = data.node_and_node[1],
+        } },
         .pointer_type => .{ .pointer_type = .{
             .is_mutable = tree.tokenTag(main.after(1)) == .kw_var,
             .child = data.node,
@@ -904,6 +912,10 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
             .unary => |it| switch (side) {
                 .leftmost => return it.op_token,
                 .rightmost => current = it.operand,
+            },
+            .array_type => |it| switch (side) {
+                .leftmost => return main,
+                .rightmost => current = it.child,
             },
             .pointer_type => |it| switch (side) {
                 .leftmost => return main,

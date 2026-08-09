@@ -195,6 +195,8 @@ fn walkEmbedded(
     if (depth >= type_depth_max) return;
     switch (comp.pool.keyOf(type_index)) {
         .type_struct => |embedded| try comp.ensure(.of(.embedding, embedded), from),
+        // every element embeds, so an array of a type is a cycle through it
+        .type_array => |array| try walkEmbedded(comp, array.child, from, depth + 1),
         .type_union => {
             // every member embeds in place, read by position because the demand interns
             const count = comp.pool.unionMemberCount(type_index);
@@ -362,6 +364,7 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
             }
         },
         .bracket => return check.resolveBracketType(node),
+        .array_type => |array| return check.resolveArrayType(array),
         .pointer_type => |pointer| {
             const child = try check.resolveType(pointer.child);
             if (child == .poison) return .poison;
@@ -394,6 +397,56 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
 fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
     const comp = check.comp;
     return comp.pool.intern(comp.gpa, .{ .type_pointer = .{ .child = child, .mutable = mutable } });
+}
+
+fn resolveArrayType(check: *Check, view: AST.View.ArrayType) Allocator.Error!Pool.Index {
+    const comp = check.comp;
+
+    const length = try check.arrayLength(view.length);
+    const child = try check.resolveType(view.child);
+
+    if (child == .poison) return .poison;
+
+    const count = length orelse return .poison;
+
+    return comp.pool.intern(comp.gpa, .{ .type_array = .{ .child = child, .len = count } });
+}
+
+/// The N in `[N]T`, which the type carries, so it is settled before anything
+/// runs. Null once reported.
+fn arrayLength(check: *Check, node: Node.Index) Allocator.Error!?u64 {
+    const comp = check.comp;
+
+    const value = try check.checkExpr(node, .u64_type);
+    switch (value) {
+        .constant => {},
+        .poison, .diverged => return null,
+        .runtime => {
+            try check.fail(node, .{
+                .code = .not_constant,
+                .message = "an array's length is part of its type, so it is known " ++
+                    "before anything runs",
+                .label = "not a constant",
+                .help = "write the length itself, or another array's length",
+            });
+            return null;
+        },
+        else => {
+            try check.reportNotValue(node, value);
+            return null;
+        },
+    }
+
+    // a count, so the refusals a `u64` already makes are the refusals here
+    const met = try check.fitValue(value.constant, .u64_type, node);
+
+    if (met != .constant) return null;
+
+    const folded = comp.pool.keyOf(met.constant).value_int;
+
+    assert(folded.type == .u64_type);
+    assert(folded.value >= 0);
+    return @intCast(folded.value);
 }
 
 fn resolveUnionType(

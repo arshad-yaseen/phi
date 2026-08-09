@@ -191,6 +191,11 @@ fn node(
             try node(ast, writer, it.binder, below, "binds");
             try node(ast, writer, it.block, below, "handler");
         },
+        .array_type => |it| {
+            try writer.writeByte('\n');
+            try node(ast, writer, it.length, below, "length");
+            try node(ast, writer, it.child, below, "child");
+        },
         .pointer_type => |it| {
             try flag(writer, it.is_mutable, "var");
             try writer.writeByte('\n');

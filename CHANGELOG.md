@@ -25,6 +25,8 @@
   mem.align_up(11, 8)`, the annotation decides `T` where the arguments
   leave it open. Typed arguments still pin first, and a width stated
   nowhere still refuses.
+- `[N]T` is an array, N values of one type laid out end to end. The length is
+  part of the type, so it costs no memory and is settled before anything runs.
 
 ## [0.2.0] - 2026-08-08
 

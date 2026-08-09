@@ -468,15 +468,15 @@ const starts_stmt = starts_expr.unionWith(TokenSet.initMany(&.{
 
 const starts_member = TokenSet.initMany(&.{ .ident, .kw_fn, .kw_pub });
 
-const starts_type = TokenSet.initMany(&.{ .ident, .star });
+const starts_type = TokenSet.initMany(&.{ .ident, .star, .l_bracket });
 
 /// Whatever opens a type argument or an index, which a bracket may hold.
-const starts_bracket_item = starts_expr.unionWith(TokenSet.initOne(.star));
+const starts_bracket_item = starts_expr.unionWith(TokenSet.initMany(&.{ .star, .l_bracket }));
 
 const starts_name = TokenSet.initOne(.ident);
 
 /// A label opens like a type, and `else` labels the rest.
-const starts_arm = TokenSet.initMany(&.{ .ident, .star, .kw_else });
+const starts_arm = TokenSet.initMany(&.{ .ident, .star, .l_bracket, .kw_else });
 
 const starts_decl = TokenSet.initMany(&.{
     .kw_pub, .kw_import, .kw_type,
@@ -1278,10 +1278,10 @@ fn parseBracket(self: *Parse, base: Node.Index) Allocator.Error!Node.Index {
     });
 }
 
-/// Only a type opens with `*`. Everything else parses as an expression.
+/// Only a type opens with `*` or `[`. Everything else parses as an expression.
 fn parseBracketItem(self: *Parse) Allocator.Error!Node.Index {
     return switch (self.current()) {
-        .star => self.parseType(),
+        .star, .l_bracket => self.parseType(),
         else => self.parseExpr(),
     };
 }
@@ -1398,17 +1398,32 @@ fn parseType(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// One union member, a pointer or a path. `|` binds looser, in `parseType`.
+/// One union member, an array, a pointer, or a path. `|` binds looser, in `parseType`.
 fn parseTypeMember(self: *Parse) Allocator.Error!Node.Index {
     if (self.enter() == false) return self.tooDeep();
     defer self.leave();
 
-    if (self.at(.star) == false) return self.parseTypePath();
+    switch (self.current()) {
+        .l_bracket => return self.parseArrayType(),
+        .star => {
+            const star = self.nextToken();
+            _ = self.eatToken(.kw_var);
+            const child = try self.parseTypeMember();
+            return self.addUnary(.pointer_type, star, child);
+        },
+        else => return self.parseTypePath(),
+    }
+}
 
-    const star = self.nextToken();
-    _ = self.eatToken(.kw_var);
+/// `[N]T`
+fn parseArrayType(self: *Parse) Allocator.Error!Node.Index {
+    assert(self.at(.l_bracket));
+    const lbracket = self.nextToken();
+
+    const length = try self.parseExpr();
+    try self.expectClosing(.r_bracket, lbracket);
     const child = try self.parseTypeMember();
-    return self.addUnary(.pointer_type, star, child);
+    return self.addPair(.array_type, lbracket, length, child);
 }
 
 fn parseTypePath(self: *Parse) Allocator.Error!Node.Index {

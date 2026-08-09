@@ -67,6 +67,7 @@ fn ofBounded(
             .alignment = pointer_size,
         } },
         .type_unit => .{ .layout = .{ .size = 0, .alignment = 1 } },
+        .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
         .type_union => try ofUnion(comp, origin, index, depth),
         .value_int, .value_float, .value_unit, .value_union => unreachable,
@@ -78,6 +79,24 @@ fn ofBounded(
         try comp.layouts.put(comp.gpa, index, result.layout);
     }
     return result;
+}
+
+fn ofArray(
+    comp: *Compilation,
+    origin: Compilation.Origin,
+    array: Pool.Key.Array,
+    depth: u32,
+) Allocator.Error!Result {
+    const element = switch (try ofBounded(comp, origin, array.child, depth + 1)) {
+        .layout => |found| found,
+        .poison => return .poison,
+        .too_large => return .too_large,
+    };
+    assert(element.size % element.alignment == 0);
+
+    const total = std.math.mul(u64, array.len, element.size) catch return .too_large;
+    if (total > size_max) return .too_large;
+    return .{ .layout = .{ .size = @intCast(total), .alignment = element.alignment } };
 }
 
 fn ofStruct(

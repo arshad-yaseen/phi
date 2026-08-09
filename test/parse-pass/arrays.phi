@@ -1,0 +1,25 @@
+type Grid = [2][3]u8
+type Pointers = [8]*var Node
+type Boxed = [4]Box[u32]
+type Either = [2]u32 | none
+
+type Header = {
+    magic: [4]u8
+    version: u32
+}
+
+fn take(a: [4]u32) [4]u32 {
+    return a
+}
+
+fn nested(g: [2][3]u8) [1]Box[[2]u8] {
+    return g
+}
+
+fn computed(a: [1 + 2 * 3]u8) u8 {
+    return 0
+}
+
+fn in_a_bracket(b: Box[[4]u32]) u8 {
+    return 0
+}
