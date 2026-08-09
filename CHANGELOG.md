@@ -26,7 +26,8 @@
   leave it open. Typed arguments still pin first, and a width stated
   nowhere still refuses.
 - `[N]T` is an array, N values of one type laid out end to end. The length is
-  part of the type, so it costs no memory and is settled before anything runs.
+  part of the type, so it costs no memory, and `a.len` reads it as a `u64`
+  settled before anything runs, which may in turn size another array.
 
 ## [0.2.0] - 2026-08-08
 

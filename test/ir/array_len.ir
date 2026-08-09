@@ -1,0 +1,31 @@
+fn count(a: [4]u32) u64
+b0:
+  %0 = param a : [4]u32
+  return 4:u64
+
+fn total(a: [4]u32, b: [8]u32) u64
+b0:
+  %0 = param a : [4]u32
+  %1 = param b : [8]u32
+  return 12:u64
+
+fn rows(g: [2][3]u8) u64
+b0:
+  %0 = param g : [2][3]u8
+  return 2:u64
+
+fn through_a_pointer(p: *[4]u32) u64
+b0:
+  %0 = param p : *[4]u32
+  return 4:u64
+
+fn same_size(a: [4]u32) [4]u32
+b0:
+  %0 = param a : [4]u32
+  return %0
+
+fn the_field_wins(w: Window) u32
+b0:
+  %0 = param w : Window
+  %1 = field_val %0, .len : u32
+  return %1

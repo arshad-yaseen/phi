@@ -3306,7 +3306,17 @@ fn valueField(
     };
     const owner = if (pointer) |it| it.child else found;
 
-    const row = try check.fieldOf(owner, view.name_token) orelse return .poison;
+    const row = row: {
+        if (try check.memberOf(owner, check.tree.tokenSlice(view.name_token))) |member| {
+            switch (member) {
+                .field => |found_row| break :row found_row,
+                .length => |count| return .{ .constant = try check.lengthValue(count) },
+                .method => {},
+            }
+        }
+        try check.reportNoMember(owner, view.name_token, .field);
+        return .poison;
+    };
     const row_type = comp.rowAt(row).type;
     const operand: IR.Inst.Data = .{ .field = .{ .base = refOf(base), .row = row } };
 
@@ -3326,6 +3336,8 @@ const Member = union(enum) {
     field: Compilation.Row.Index,
     /// A function declared in the type, by its declaration.
     method: Decl.Index,
+    /// How many elements the type holds, which the type itself knows.
+    length: u64,
 
     /// What a site was looking for, and how a message names it.
     const Kind = enum {
@@ -3341,13 +3353,28 @@ const Member = union(enum) {
     };
 };
 
+/// Not a keyword and not reserved. A struct may declare a field by this name,
+/// and there it is the field, because the owner's type decides what a name means.
+const length_name = "len";
+
 /// Reports nothing, because only the caller knows what it was looking for.
 fn memberOf(check: *Check, owner: Pool.Index, name: []const u8) Allocator.Error!?Member {
-    const comp = check.comp;
-    const instance = switch (comp.pool.keyOf(owner)) {
-        .type_struct => |it| it,
+    switch (check.comp.pool.keyOf(owner)) {
+        .type_array => |array| {
+            if (std.mem.eql(u8, name, length_name) == false) return null;
+            return .{ .length = array.len };
+        },
+        .type_struct => |instance| return check.structMember(instance, name),
         else => return null,
-    };
+    }
+}
+
+fn structMember(
+    check: *Check,
+    instance: Pool.Instance,
+    name: []const u8,
+) Allocator.Error!?Member {
+    const comp = check.comp;
 
     try comp.ensureRows(instance);
     const rows = comp.instanceAt(instance).rows;
@@ -3364,6 +3391,13 @@ fn memberOf(check: *Check, owner: Pool.Index, name: []const u8) Allocator.Error!
     return null;
 }
 
+/// A length reads as `u64`, because folding is about when a value is known and
+/// never about what type it is.
+fn lengthValue(check: *Check, count: u64) Allocator.Error!Pool.Index {
+    const comp = check.comp;
+    return comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = .u64_type, .value = count } });
+}
+
 /// The field a site needs, or null once reported.
 fn fieldOf(
     check: *Check,
@@ -3373,7 +3407,7 @@ fn fieldOf(
     if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
         switch (member) {
             .field => |row| return row,
-            .method => {},
+            .length, .method => {},
         }
     }
     try check.reportNoMember(owner, name_token, .field);
@@ -3389,7 +3423,7 @@ fn methodOf(
     if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
         switch (member) {
             .method => |decl_index| return decl_index,
-            .field => {},
+            .field, .length => {},
         }
     }
     try check.reportNoMember(owner, name_token, .method);
@@ -3417,6 +3451,9 @@ fn reportNoMember(
                 .method => try comp.fmt("'{s}' is a function, so call it with '.{s}(...)'", .{
                     name_text, name_text,
                 }),
+                .length => try comp.fmt("'{s}' is a length, so it is read rather than called", .{
+                    name_text,
+                }),
             },
             .label = try comp.fmt("not a {s}", .{wanted.text()}),
         });
@@ -3439,18 +3476,21 @@ fn suggestMember(
     name_text: []const u8,
 ) Allocator.Error!?[]const u8 {
     const comp = check.comp;
-    const instance = switch (comp.pool.keyOf(owner)) {
-        .type_struct => |it| it,
-        else => return null,
-    };
-
     var closest: edit_distance.Closest = .{ .target = name_text };
-    for (comp.instanceRows(instance)) |row| closest.consider(comp.pool.stringText(row.name));
 
-    const members = comp.declAt(comp.instanceDecl(instance)).members();
-    for (members.start..members.end()) |raw| {
-        const member = comp.declAt(.from(raw));
-        if (member.kind == .fn_decl) closest.consider(comp.pool.stringText(member.name));
+    switch (comp.pool.keyOf(owner)) {
+        .type_array => closest.consider(length_name),
+        .type_struct => |instance| {
+            for (comp.instanceRows(instance)) |row| {
+                closest.consider(comp.pool.stringText(row.name));
+            }
+            const members = comp.declAt(comp.instanceDecl(instance)).members();
+            for (members.start..members.end()) |raw| {
+                const member = comp.declAt(.from(raw));
+                if (member.kind == .fn_decl) closest.consider(comp.pool.stringText(member.name));
+            }
+        },
+        else => return null,
     }
     return comp.didYouMean(closest);
 }
@@ -3895,22 +3935,14 @@ fn checkCallResolved(
             receiver_place = place;
             receiver_node = method.receiver;
 
+            // only a struct declares one, so finding a method proves the owner
             const type_struct = peelOnePointer(comp, place.type);
-            switch (comp.pool.keyOf(type_struct)) {
-                .type_struct => |owner| {
-                    const member = try check.methodOf(type_struct, method.name_token) orelse
-                        return .poison;
-                    if (try check.memberIsVisible(member, method.name_token) == false) {
-                        return .poison;
-                    }
-                    owner_args = comp.instanceArgs(owner);
-                    break :method member;
-                },
-                else => {
-                    try check.reportNotMethod(method.name_token, place.type);
-                    return .poison;
-                },
-            }
+            const member = try check.methodOf(type_struct, method.name_token) orelse
+                return .poison;
+            if (try check.memberIsVisible(member, method.name_token) == false) return .poison;
+
+            owner_args = comp.instanceArgs(comp.pool.keyOf(type_struct).type_struct);
+            break :method member;
         },
     };
 
@@ -4181,18 +4213,6 @@ fn peelOnePointer(comp: *const Compilation, type_index: Pool.Index) Pool.Index {
         .type_pointer => |pointer| pointer.child,
         else => type_index,
     };
-}
-
-fn reportNotMethod(check: *Check, name_token: Token.Index, found: Pool.Index) Allocator.Error!void {
-    const name_text = check.tree.tokenSlice(name_token);
-    try check.failToken(name_token, .{
-        .code = .no_such_member,
-        .message = try check.comp.fmt("{s} has no method named '{s}'", .{
-            try check.comp.typeName(found),
-            name_text,
-        }),
-        .label = "no such method",
-    });
 }
 
 /// Coerced to its parameter type. Never checked twice, because checking emits.
@@ -4639,7 +4659,17 @@ fn placeField(
     };
     const owner = if (pointer) |it| it.child else base.type;
 
-    const row = try check.fieldOf(owner, name_token) orelse return null;
+    const row = row: {
+        if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
+            switch (member) {
+                .field => |found| break :row found,
+                .length => return check.failLengthPlace(name_token),
+                .method => {},
+            }
+        }
+        try check.reportNoMember(owner, name_token, .field);
+        return null;
+    };
     const row_type = comp.rowAt(row).type;
 
     // through a pointer the reach is the pointer's own, otherwise the base's address
@@ -4671,6 +4701,16 @@ fn placeField(
         .root_name = root.root_name,
         .root_node = root.root_node,
     };
+}
+
+fn failLengthPlace(check: *Check, name_token: Token.Index) Allocator.Error!?Place {
+    try check.failToken(name_token, .{
+        .code = .not_assignable,
+        .message = try check.comp.fmt("'{s}' comes from the type, so it is a value and " ++
+            "not a place", .{check.tree.tokenSlice(name_token)}),
+        .label = "nothing to write to or point at",
+    });
+    return null;
 }
 
 /// Loading when the place is an address.
