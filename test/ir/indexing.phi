@@ -1,0 +1,67 @@
+type Cell = {
+    slot: [2]u32
+}
+
+// an element of a constant array is a constant, so it costs no instruction
+let table: [4]u32 = [2, 3, 5, 7]
+let third = table[2]
+
+// a read is a load from the place the index names
+fn read(a: [4]u32) u32 {
+    return a[1]
+}
+
+// and a write is a store into it
+fn write() u32 {
+    var a: [4]u32 = [1, 2, 3, 4]
+    a[0] = 9
+    a[1] += 1
+    return a[0]
+}
+
+// a place composes with '&', the same as a field does
+fn address(a: [4]u32) u32 {
+    let p = &a[0]
+    return p.*
+}
+
+// nesting only multiplies, and each step is one more place
+fn nested(g: [2][3]u8) u8 {
+    return g[1][2]
+}
+
+fn nested_write() u8 {
+    var g: [2][3]u8 = [[1, 2, 3], [4, 5, 6]]
+    g[1][2] = 7
+    return g[1][2]
+}
+
+// the index follows one pointer, the way the member question does
+fn through_a_pointer(p: *var [4]u32) u32 {
+    p[0] = 1
+    return p[0]
+}
+
+// an index is a count, so any integer indexes and none of them converts
+fn a_runtime_index(a: [4]u32, i: u64) u32 {
+    return a[i]
+}
+
+fn a_signed_index(a: [4]u32, i: i32) u32 {
+    return a[i]
+}
+
+// a field holds the elements, and an element is reached through it
+fn through_a_field(c: Cell) u32 {
+    return c.slot[1]
+}
+
+fn into_a_field() u32 {
+    var c: Cell = Cell.{ slot: [1, 2] }
+    c.slot[0] = 3
+    return c.slot[0]
+}
+
+fn folded() u32 {
+    return third
+}

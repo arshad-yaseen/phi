@@ -144,6 +144,10 @@ pub const Inst = struct {
         field_ptr,
         /// Uses `field`. Produces the field's value.
         field_val,
+        /// Uses `bin`, the base pointer and the index. Produces a pointer to the
+        /// element, as mutable as its base, and is where the index is checked
+        /// against the length.
+        elem_ptr,
 
         // all `bin`
         add,

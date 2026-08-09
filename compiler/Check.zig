@@ -3455,6 +3455,17 @@ fn reportNoMember(
     const comp = check.comp;
     const name_text = check.tree.tokenSlice(name_token);
 
+    // a constant that has not landed has no members because it has no type,
+    // which is a different mistake from a member that is missing
+    if (owner == .untyped_aggregate_type) {
+        return check.failToken(name_token, .{
+            .code = .no_such_member,
+            .message = "this array has no type yet, so it has no members to reach",
+            .label = "no type in sight",
+            .help = not_landed_help,
+        });
+    }
+
     if (try check.memberOf(owner, name_text)) |other| {
         try check.failToken(name_token, .{
             .code = .no_such_member,
@@ -3541,7 +3552,8 @@ fn checkBracketExpr(
     node: Node.Index,
     view: AST.View.Bracket,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    if (check.baseIsNamespace(view.base) == false) return check.checkIndexExpr(node, view);
+
     const base = try check.checkExpr(view.base, null);
     switch (base) {
         .named_generic => {
@@ -3559,17 +3571,8 @@ fn checkBracketExpr(
         },
         .diverged => return .diverged,
         .poison => return .poison,
-        .constant, .runtime => {
-            try check.fail(node, .{
-                .code = .not_indexable,
-                .message = try comp.fmt("{s} cannot be indexed", .{
-                    try comp.typeName(check.typeOf(base)),
-                }),
-                .label = "not something to index",
-                .help = "no type holds more than one value yet, so nothing can be indexed",
-            });
-            return .poison;
-        },
+        // a name that means a value is indexed the way every other value is
+        .constant, .runtime => return check.checkIndexExpr(node, view),
         else => {
             try check.fail(node, .{
                 .code = .generic_arguments,
@@ -3579,6 +3582,210 @@ fn checkBracketExpr(
             return .poison;
         },
     }
+}
+
+/// One `a[i]`, resolved, where the elements are, and which one.
+const Indexed = struct {
+    base: Place,
+    /// The pointer that was followed, where there was one.
+    pointer: ?Pool.Key.Pointer,
+    element: Pool.Index,
+    index: Index,
+
+    /// A bracket's one value, as the index it is.
+    const Index = struct {
+        ref: Ref,
+        /// The element it names, where the index is known before anything runs.
+        at: ?u64,
+    };
+};
+
+/// `a[i]` names a place, so reading one is a load from it. An element of a
+/// constant array is a constant, which is what a top-level binding needs.
+fn checkIndexExpr(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    const indexed = try check.checkIndex(node, view) orelse return .poison;
+
+    if (indexed.index.at) |at| {
+        // through a pointer the elements belong to whatever it points at
+        if (indexed.pointer == null) {
+            if (check.placeConstant(indexed.base)) |aggregate| {
+                return .{ .constant = comp.pool.aggregateAt(aggregate, @intCast(at)) };
+            }
+        }
+    }
+
+    // a constant of array type is an aggregate and a top-level index is a
+    // constant, so the fold above is the only way past here with no body to
+    // build in
+    assert(check.builder != null);
+    const place = try check.elementPlace(indexed) orelse return .poison;
+    return runtimeValue(try check.placeValue(place), place.type);
+}
+
+/// The base as a place and the index beside it, which reading and writing
+/// share. Null once reported.
+fn checkIndex(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+) Allocator.Error!?Indexed {
+    const comp = check.comp;
+    assert(check.tree.nodeTag(node) == .bracket);
+
+    const base = try check.checkPlace(view.base) orelse return null;
+
+    // one pointer is followed, so `p[i]` reaches into what `p` points at
+    const pointer: ?Pool.Key.Pointer = switch (comp.pool.keyOf(base.type)) {
+        .type_pointer => |it| it,
+        else => null,
+    };
+    const owner = if (pointer) |it| it.child else base.type;
+    if (owner == .poison) return null;
+
+    const array = switch (comp.pool.keyOf(owner)) {
+        .type_array => |it| it,
+        else => {
+            // the base is the mistake, and what stands inside the brackets is
+            // still a program
+            for (view.args) |argument| _ = try check.checkExpr(argument, null);
+            try check.failNotIndexable(node, owner);
+            return null;
+        },
+    };
+
+    const index = try check.checkIndexOperand(node, view, owner, array) orelse return null;
+    return .{
+        .base = base,
+        .pointer = pointer,
+        .element = array.child,
+        .index = index,
+    };
+}
+
+/// The one value inside the brackets. Any integer indexes, which is the
+/// operator's domain, and a constant one is answered against the length before
+/// anything runs. Null once reported.
+fn checkIndexOperand(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+    owner: Pool.Index,
+    array: Pool.Key.Array,
+) Allocator.Error!?Indexed.Index {
+    const comp = check.comp;
+
+    if (view.args.len != 1) {
+        for (view.args) |argument| _ = try check.checkExpr(argument, null);
+        try check.fail(node, .{
+            .code = .wrong_arity,
+            .message = try comp.fmt("an index is one value, and this writes {d}", .{
+                view.args.len,
+            }),
+            .label = "the wrong number of values",
+            .help = "reach through one step at a time, as in 'grid[1][2]'",
+        });
+        return null;
+    }
+
+    const argument = view.args[0];
+    const value = try check.checkExpr(argument, null);
+    if (try check.valueOnly(argument, value) == false) return null;
+
+    const found = check.typeOf(value);
+    if (found == .poison) return null;
+    if (Pool.isInteger(found) == false) {
+        try check.fail(argument, .{
+            .code = .bad_operand,
+            .message = try comp.fmt("an index is a count, and this is {s}", .{
+                try comp.typeName(found),
+            }),
+            .label = "not a count",
+            .help = "any integer indexes, and nothing else does",
+        });
+        return null;
+    }
+    if (value != .constant) return .{ .ref = refOf(value), .at = null };
+
+    const written = comp.pool.keyOf(value.constant).value_int.value;
+    const length: i128 = array.len;
+    if (written < 0 or written >= length) {
+        try check.failIndexOutOfRange(argument, written, owner, array.len);
+        return null;
+    }
+
+    var ref = refOf(value);
+    if (Pool.isUntyped(found)) {
+        // an index that chose no type takes u64, the type a length reads as
+        const met = try check.fitValue(value.constant, .u64_type, argument);
+        // the value stands inside the length, which a u64 holds by construction
+        assert(met == .constant);
+        ref = refOf(met);
+    }
+
+    const at: u64 = @intCast(written);
+    // the pair of the bounds assertion `Pool.aggregateAt` makes on the way out
+    assert(at < array.len);
+    return .{ .ref = ref, .at = at };
+}
+
+/// A constant that has not landed is a missing annotation rather than a type
+/// with nothing inside it, so every question asked of one ends the same way.
+const not_landed_help = "give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and " ++
+    "everything it holds can be reached";
+
+fn failNotIndexable(check: *Check, node: Node.Index, owner: Pool.Index) Allocator.Error!void {
+    @branchHint(.cold);
+    const comp = check.comp;
+
+    if (owner == .untyped_aggregate_type) {
+        return check.fail(node, .{
+            .code = .not_indexable,
+            .message = "this array has no type yet, so it has no elements to reach",
+            .label = "no type in sight",
+            .help = not_landed_help,
+        });
+    }
+    try check.fail(node, .{
+        .code = .not_indexable,
+        .message = try comp.fmt("{s} cannot be indexed", .{try comp.typeName(owner)}),
+        .label = "not something to index",
+        .help = "an index reaches an element, and an array is what holds elements",
+    });
+}
+
+fn failIndexOutOfRange(
+    check: *Check,
+    node: Node.Index,
+    written: i128,
+    owner: Pool.Index,
+    length: u64,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    const comp = check.comp;
+
+    if (written < 0) {
+        try check.fail(node, .{
+            .code = .index_out_of_range,
+            .message = try comp.fmt("an index counts from zero, and this one is {d}", .{written}),
+            .label = "before the first element",
+        });
+        return;
+    }
+    try check.fail(node, .{
+        .code = .index_out_of_range,
+        .message = try comp.fmt("this index is {d}, and {s} holds {d} element{s}", .{
+            written,
+            try comp.typeName(owner),
+            length,
+            plural(length),
+        }),
+        .label = "past the last element",
+    });
 }
 
 /// The literal names its type. Every field named, every field present.
@@ -4349,7 +4556,7 @@ fn suggestIntrinsic(check: *Check, text: []const u8) Allocator.Error!?[]const u8
     return check.comp.didYouMean(closest);
 }
 
-fn plural(count: u32) []const u8 {
+fn plural(count: u64) []const u8 {
     return if (count == 1) "" else "s";
 }
 
@@ -4644,6 +4851,13 @@ const Place = struct {
 
 /// An expression as a location. Null once reported.
 fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
+    // constants-only mode has nothing to spill into, and a constant already is
+    // the value it holds, so a place there is whatever the expression is worth
+    if (check.builder == null) {
+        const value = try check.checkExpr(node, null);
+        return check.placeOfValue(node, value, "this value");
+    }
+
     switch (check.tree.viewOf(node)) {
         .ident => {
             const text = check.mainTokenText(node);
@@ -4706,6 +4920,7 @@ fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
             return check.placeField(base, access.name_token);
         },
         .deref => |operand| return check.placeThroughPointer(node, operand),
+        .bracket => |view| return check.placeIndex(node, view),
         .err => return null,
         else => {
             const value = try check.checkExpr(node, null);
@@ -4804,37 +5019,93 @@ fn placeField(
         .reported => return null,
     };
     const row_type = comp.rowAt(row).type;
-    const pointer = reached.pointer;
 
-    // through a pointer the reach is the pointer's own, otherwise the base's address
-    var from: Ref = undefined;
-    var mutable: bool = undefined;
-    var reason: Place.Reason = undefined;
-    var root = base;
-    if (pointer) |it| {
-        from = try check.placeValue(base);
-        mutable = it.mutable;
-        reason = if (it.mutable) .mutable else .{ .const_pointer = base.type };
-    } else {
-        const addressed = try check.placeAddress(base) orelse return null;
-        from = addressed.ref;
-        mutable = addressed.mutable;
-        reason = addressed.reason;
-        root = addressed;
-    }
-
-    const place = try check.emit(.field_ptr, try check.pointerTo(row_type, mutable), .{
-        .field = .{ .base = from, .row = row },
+    const through = try check.placeThrough(base, reached.pointer) orelse return null;
+    const field_pointer = try check.pointerTo(row_type, through.mutable);
+    const place = try check.emit(.field_ptr, field_pointer, .{
+        .field = .{ .base = through.ref, .row = row },
     });
+    return through.reaching(place, row_type);
+}
+
+/// One index step, the same shape as a field step.
+fn placeIndex(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+) Allocator.Error!?Place {
+    const indexed = try check.checkIndex(node, view) orelse return null;
+    return check.elementPlace(indexed);
+}
+
+/// The place an index names, as mutable as whatever it reached through.
+fn elementPlace(check: *Check, indexed: Indexed) Allocator.Error!?Place {
+    // an array type never holds a broken element, so an element always has one
+    assert(indexed.element != .poison);
+    assert(indexed.index.ref != .none);
+
+    const through = try check.placeThrough(indexed.base, indexed.pointer) orelse return null;
+    const element_pointer = try check.pointerTo(indexed.element, through.mutable);
+    const place = try check.emit(.elem_ptr, element_pointer, .{
+        .bin = .{ .lhs = through.ref, .rhs = indexed.index.ref },
+    });
+    return through.reaching(place, indexed.element);
+}
+
+/// Where one step into a place starts, and what it may do once it arrives.
+const Through = struct {
+    /// The pointer to reach through, or the base's own address.
+    ref: Ref,
+    mutable: bool,
+    reason: Place.Reason,
+    /// Whose name a report about what was reached carries.
+    root: Place,
+
+    fn reaching(through: Through, place: Ref, type_index: Pool.Index) Place {
+        return .{
+            .kind = .address,
+            .ref = place,
+            .type = type_index,
+            .mutable = through.mutable,
+            .reason = through.reason,
+            .root_name = through.root.root_name,
+            .root_node = through.root.root_node,
+        };
+    }
+};
+
+/// Through a pointer the reach is the pointer's own, otherwise the base's address.
+fn placeThrough(
+    check: *Check,
+    base: Place,
+    pointer: ?Pool.Key.Pointer,
+) Allocator.Error!?Through {
+    if (pointer) |it| {
+        return .{
+            .ref = try check.placeValue(base),
+            .mutable = it.mutable,
+            .reason = if (it.mutable) .mutable else .{ .const_pointer = base.type },
+            .root = base,
+        };
+    }
+    const addressed = try check.placeAddress(base) orelse return null;
     return .{
-        .kind = .address,
-        .ref = place,
-        .type = row_type,
-        .mutable = mutable,
-        .reason = reason,
-        .root_name = root.root_name,
-        .root_node = root.root_node,
+        .ref = addressed.ref,
+        .mutable = addressed.mutable,
+        .reason = addressed.reason,
+        .root = addressed,
     };
+}
+
+/// The constant a place holds outright, where it holds one.
+fn placeConstant(check: *const Check, place: Place) ?Pool.Index {
+    if (place.kind != .value) return null;
+    const held = switch (place.ref.unwrap()) {
+        .constant => |value| value,
+        .inst => return null,
+    };
+    if (check.comp.pool.keyOf(held) != .value_aggregate) return null;
+    return held;
 }
 
 fn failLengthPlace(check: *Check, name_token: Token.Index) Allocator.Error!?Place {

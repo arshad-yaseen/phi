@@ -285,6 +285,7 @@ fn inst(
             try spell.writeType(comp, writer, data.probe.member);
         },
         .store,
+        .elem_ptr,
         .add,
         .sub,
         .mul,

@@ -91,6 +91,7 @@ pub const Code = enum(u16) {
     missing_arm = 259,
     duplicate_arm = 260,
     type_too_large = 261,
+    index_out_of_range = 262,
 };
 
 pub const Color = enum { off, on };

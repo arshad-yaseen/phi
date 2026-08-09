@@ -28,7 +28,9 @@
 - `[N]T` is an array, N values of one type laid out end to end and written
   `[1, 2, 3]`. The length lives in the type, so it costs no memory, answers as
   `a.len`, and may size another array. A literal has no type until it lands, so
-  one written once fits wherever its value fits.
+  one written once fits wherever its value fits. `a[i]` names an element, which
+  is read, written, and pointed at the way a field is, and a constant index past
+  the end is refused before anything runs.
 - A literal folds where its parts are constant, whether it builds an array or a
   struct, so `Point.{ x: 1, y: 2 }` binds at the top level, sits inside an
   array, and costs no instruction, while one with a runtime part is built where
