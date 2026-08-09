@@ -1,4 +1,4 @@
-error[E0206]: this arm produces nothing, and the match needs a value
+error[E0206]: this produces nothing, and the 'match' needs a value
  --> test/fail/match_void_arm.phi:9:17
   |
 9 |         true => noop()

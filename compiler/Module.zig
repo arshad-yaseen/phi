@@ -47,7 +47,12 @@ pub const Space = enum { root, std };
 pub const std_name = "std";
 pub const prelude_name = "prelude";
 pub const bool_name = "bool";
-pub const discard_name = "_";
+const discard_name = "_";
+
+/// Whether this text is the discard, which is never a name.
+pub fn isDiscard(text: []const u8) bool {
+    return std.mem.eql(u8, text, discard_name);
+}
 
 comptime {
     // module keys spell the space with `{t}`, so the tag is the name
@@ -276,10 +281,10 @@ fn addDecl(
     const name = try comp.pool.string(comp.gpa, text);
     const decl_index = try appendDecl(comp, index, new, name, .none);
 
-    if (std.mem.eql(u8, text, discard_name)) {
+    if (isDiscard(text)) {
         try comp.reportToken(index, new.name_token, .{
             .code = .discard_reserved,
-            .message = "'_' cannot be declared, it is how a value is discarded",
+            .message = "'_' is not a name, and only discards a value",
             .label = "not a name",
             .help = "give this declaration a real name",
         });

@@ -1224,15 +1224,7 @@ fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
     const view = check.tree.viewOf(node).var_decl;
     const name_text = check.tree.tokenSlice(view.name_token);
 
-    if (std.mem.eql(u8, name_text, Module.discard_name)) {
-        try check.fail(node, .{
-            .code = .discard_reserved,
-            .message = "'_' cannot be bound, because it is how a value is discarded",
-            .label = "not a name",
-            .help = "write '_ = expression' to drop the value on purpose",
-        });
-        return;
-    }
+    if (Module.isDiscard(name_text)) return check.failDiscard(node);
     const name = try comp.pool.string(comp.gpa, name_text);
 
     const annotation: ?Pool.Index = if (view.type_expr.unwrap()) |type_expr|
@@ -1356,7 +1348,7 @@ fn declarePoisoned(check: *Check, name: Pool.String, node: Node.Index) Allocator
 fn checkAssign(check: *Check, assign: AST.View.Assign) Allocator.Error!void {
     if (assign.op == null and check.tree.nodeTag(assign.lhs) == .ident) {
         const text = check.mainTokenText(assign.lhs);
-        if (std.mem.eql(u8, text, Module.discard_name)) return check.checkDiscard(assign.rhs);
+        if (Module.isDiscard(text)) return check.checkDiscard(assign.rhs);
     }
 
     const place = try check.checkPlace(assign.lhs) orelse {
@@ -1452,7 +1444,7 @@ fn checkIf(
 
     var result_type = hint orelse check.typeOf(then_value);
     if (carries and then_value != .diverged) {
-        result_type = try check.settleArmType(node, result_type);
+        result_type = try check.settleType(node, result_type, "if");
         try check.storeArm(slot, then_value, result_type, view.then_block);
     }
 
@@ -1471,7 +1463,7 @@ fn checkIf(
 
         if (carries and else_value != .diverged) {
             if (then_value == .diverged and hint == null) {
-                result_type = try check.settleArmType(node, check.typeOf(else_value));
+                result_type = try check.settleType(node, check.typeOf(else_value), "if");
             }
             try check.storeArm(slot, else_value, result_type, else_node);
         }
@@ -1506,26 +1498,32 @@ fn checkIf(
     return runtimeValue(loaded, result_type);
 }
 
-/// The type an arm settled on, or poison once reported.
-fn settleArmType(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!Pool.Index {
+/// The type a branching construct settled on, or poison once reported.
+/// `what` is the keyword, so one wording serves `if`, `loop`, and `match`.
+fn settleType(
+    check: *Check,
+    node: Node.Index,
+    found: Pool.Index,
+    what: []const u8,
+) Allocator.Error!Pool.Index {
+    const comp = check.comp;
     if (found == .poison) return .poison;
     if (check.typeCanHold(found)) return found;
 
     if (found == .void_type) {
         try check.fail(node, .{
             .code = .type_mismatch,
-            .message = "this 'if' produces nothing, so it cannot stand where a value does",
+            .message = try comp.fmt("this produces nothing, and the '{s}' needs a value", .{what}),
             .label = "no value here",
-            .help = "an arm has to end in a value for the 'if' to have one",
         });
         return .poison;
     }
     // the same situation as `var x = 5`
     try check.fail(node, .{
         .code = .var_needs_type,
-        .message = "the arms of this 'if' do not say what type it is",
+        .message = try comp.fmt("nothing says what type this '{s}' is", .{what}),
         .label = "no type in sight",
-        .help = "annotate what it feeds, as in 'let n: i64 = if ...'",
+        .help = try comp.fmt("annotate what it feeds, as in 'let n: i64 = {s} ...'", .{what}),
     });
     return .poison;
 }
@@ -1658,7 +1656,7 @@ fn checkLoop(
         const else_value = try check.checkExpr(else_node, else_hint);
         if (carries and else_value != .diverged) {
             if (settled == false) {
-                result_type = try check.settleLoopType(else_node, check.typeOf(else_value));
+                result_type = try check.settleType(else_node, check.typeOf(else_value), "loop");
             }
             try check.storeArm(slot, else_value, result_type, else_node);
         }
@@ -1688,29 +1686,6 @@ fn checkLoop(
 
     const loaded = try check.emitOne(.load, result_type, slot);
     return runtimeValue(loaded, result_type);
-}
-
-/// The type the loop's first arriving value settles, or poison once reported.
-fn settleLoopType(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!Pool.Index {
-    if (found == .poison) return .poison;
-    if (check.typeCanHold(found)) return found;
-
-    if (found == .void_type) {
-        try check.fail(node, .{
-            .code = .type_mismatch,
-            .message = "this produces nothing, and the loop needs a value",
-            .label = "no value here",
-        });
-        return .poison;
-    }
-    // the same situation as `var x = 5`
-    try check.fail(node, .{
-        .code = .var_needs_type,
-        .message = "nothing says what type this loop is",
-        .label = "no type in sight",
-        .help = "annotate what it feeds, as in 'let n: i64 = loop ...'",
-    });
-    return .poison;
 }
 
 /// The one rewrite: a slot exists before its arms have said what type it is.
@@ -1883,7 +1858,7 @@ fn checkMatch(
             all_diverged = false;
             if (carries) {
                 if (settled == false) {
-                    result_type = try check.settleMatchType(arm.body, check.typeOf(arm_value));
+                    result_type = try check.settleType(arm.body, check.typeOf(arm_value), "match");
                     settled = true;
                 }
                 try check.storeArm(slot, arm_value, result_type, arm.body);
@@ -2123,29 +2098,6 @@ fn checkMatchMissing(
         .help = "add an arm per member, or 'else =>' for the rest",
     });
     return true;
-}
-
-/// The type the first arriving arm settles, or poison once reported.
-fn settleMatchType(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!Pool.Index {
-    if (found == .poison) return .poison;
-    if (check.typeCanHold(found)) return found;
-
-    if (found == .void_type) {
-        try check.fail(node, .{
-            .code = .type_mismatch,
-            .message = "this arm produces nothing, and the match needs a value",
-            .label = "no value here",
-        });
-        return .poison;
-    }
-    // the same situation as `var x = 5`
-    try check.fail(node, .{
-        .code = .var_needs_type,
-        .message = "nothing says what type this 'match' is",
-        .label = "no type in sight",
-        .help = "annotate what it feeds, as in 'let n: i64 = match ...'",
-    });
-    return .poison;
 }
 
 // narrowing, the facts a condition proves
@@ -2451,7 +2403,7 @@ fn checkBreak(check: *Check, node: Node.Index, view: AST.View.Break) Allocator.E
             const fresh = check.loopPtr(frame_index);
             var target = fresh.result_type;
             if (fresh.settled == false) {
-                target = try check.settleLoopType(value_node, check.typeOf(value));
+                target = try check.settleType(value_node, check.typeOf(value), "loop");
                 fresh.result_type = target;
                 fresh.settled = true;
             }
@@ -2650,12 +2602,8 @@ fn checkIdent(check: *Check, node: Node.Index) Allocator.Error!Value {
     const comp = check.comp;
     const text = check.mainTokenText(node);
 
-    if (std.mem.eql(u8, text, Module.discard_name)) {
-        try check.fail(node, .{
-            .code = .discard_reserved,
-            .message = "'_' has no value, and only discards one",
-            .label = "not a value",
-        });
+    if (Module.isDiscard(text)) {
+        try check.failDiscard(node);
         return .poison;
     }
 
@@ -3136,14 +3084,7 @@ fn bindRest(
     rest: Pool.Index,
 ) Allocator.Error!void {
     const text = check.mainTokenText(binder_node);
-    if (std.mem.eql(u8, text, Module.discard_name)) {
-        try check.fail(binder_node, .{
-            .code = .discard_reserved,
-            .message = "'_' cannot be bound, because it is how a value is discarded",
-            .label = "not a name",
-        });
-        return;
-    }
+    if (Module.isDiscard(text)) return check.failDiscard(binder_node);
     const name = try check.comp.pool.string(check.comp.gpa, text);
     const ref = try check.emitOne(.union_narrow, rest, lhs);
     try check.declareLocal(.{
@@ -3291,7 +3232,7 @@ fn checkFieldAccess(
         },
         .constant, .runtime => {
             const found = check.typeOf(base);
-            return check.valueField(node, view, base, found);
+            return check.valueField(view, base, found);
         },
     }
 }
@@ -3299,112 +3240,166 @@ fn checkFieldAccess(
 /// Through a struct, or through one pointer.
 fn valueField(
     check: *Check,
-    node: Node.Index,
     view: AST.View.FieldAccess,
     base: Value,
     found: Pool.Index,
 ) Allocator.Error!Value {
     const comp = check.comp;
-    const name_text = check.tree.tokenSlice(view.name_token);
 
-    switch (comp.pool.keyOf(found)) {
-        .type_struct => |instance| {
-            const row = try check.findField(instance, view.name_token) orelse return .poison;
-            const row_type = comp.rowAt(row).type;
-            const result = try check.emit(.field_val, row_type, .{
-                .field = .{ .base = refOf(base), .row = row },
-            });
-            return runtimeValue(result, row_type);
-        },
-        .type_pointer => |pointer| {
-            switch (comp.pool.keyOf(pointer.child)) {
-                .type_struct => |instance| {
-                    const row = try check.findField(instance, view.name_token) orelse
-                        return .poison;
-                    const row_type = comp.rowAt(row).type;
-                    const field_pointer = try check.pointerTo(row_type, pointer.mutable);
-                    const place = try check.emit(.field_ptr, field_pointer, .{
-                        .field = .{ .base = refOf(base), .row = row },
-                    });
-                    const loaded = try check.emitOne(.load, row_type, place);
-                    return runtimeValue(loaded, row_type);
-                },
-                else => {},
-            }
-            try check.reportNoField(node, found, name_text);
-            return .poison;
-        },
-        else => {
-            try check.reportNoField(node, found, name_text);
-            return .poison;
-        },
+    // one pointer is followed, so `p.x` reaches into what `p` points at
+    const pointer: ?Pool.Key.Pointer = switch (comp.pool.keyOf(found)) {
+        .type_pointer => |it| it,
+        else => null,
+    };
+    const owner = if (pointer) |it| it.child else found;
+
+    const row = try check.fieldOf(owner, view.name_token) orelse return .poison;
+    const row_type = comp.rowAt(row).type;
+    const operand: IR.Inst.Data = .{ .field = .{ .base = refOf(base), .row = row } };
+
+    if (pointer) |it| {
+        const field_pointer = try check.pointerTo(row_type, it.mutable);
+        const place = try check.emit(.field_ptr, field_pointer, operand);
+        return runtimeValue(try check.emitOne(.load, row_type, place), row_type);
     }
+    return runtimeValue(try check.emit(.field_val, row_type, operand), row_type);
 }
 
-fn reportNoField(
-    check: *Check,
-    node: Node.Index,
-    found: Pool.Index,
-    name: []const u8,
-) Allocator.Error!void {
-    try check.fail(node, .{
-        .code = .no_such_member,
-        .message = try check.comp.fmt("{s} has nothing named '{s}'", .{
-            try check.comp.typeName(found),
-            name,
-        }),
-        .label = "no such field",
-    });
+/// What a name means on a type. Every `.name` asks this one question, and each
+/// type answers it in one place, so a new kind of answer or a new type that has
+/// members is one arm here rather than a rule of its own somewhere else.
+const Member = union(enum) {
+    /// A field, by its absolute row.
+    field: Compilation.Row.Index,
+    /// A function declared in the type, by its declaration.
+    method: Decl.Index,
+
+    /// What a site was looking for, and how a message names it.
+    const Kind = enum {
+        field,
+        method,
+
+        fn text(kind: Kind) []const u8 {
+            return switch (kind) {
+                .field => "field",
+                .method => "method",
+            };
+        }
+    };
+};
+
+/// Reports nothing, because only the caller knows what it was looking for.
+fn memberOf(check: *Check, owner: Pool.Index, name: []const u8) Allocator.Error!?Member {
+    const comp = check.comp;
+    const instance = switch (comp.pool.keyOf(owner)) {
+        .type_struct => |it| it,
+        else => return null,
+    };
+
+    try comp.ensureRows(instance);
+    const rows = comp.instanceAt(instance).rows;
+    for (rows.start..rows.end()) |raw| {
+        if (comp.pool.sameText(comp.rowAt(.from(raw)).name, name)) return .{ .field = .from(raw) };
+    }
+
+    const members = comp.declAt(comp.instanceDecl(instance)).members();
+    for (members.start..members.end()) |raw| {
+        const member = comp.declAt(.from(raw));
+        if (member.kind != .fn_decl) continue;
+        if (comp.pool.sameText(member.name, name)) return .{ .method = .from(raw) };
+    }
+    return null;
 }
 
-/// With a suggestion when the name misses.
-fn findField(
+/// The field a site needs, or null once reported.
+fn fieldOf(
     check: *Check,
-    instance: Pool.Instance,
+    owner: Pool.Index,
     name_token: Token.Index,
 ) Allocator.Error!?Compilation.Row.Index {
+    if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
+        switch (member) {
+            .field => |row| return row,
+            .method => {},
+        }
+    }
+    try check.reportNoMember(owner, name_token, .field);
+    return null;
+}
+
+/// The method a site needs, or null once reported.
+fn methodOf(
+    check: *Check,
+    owner: Pool.Index,
+    name_token: Token.Index,
+) Allocator.Error!?Decl.Index {
+    if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
+        switch (member) {
+            .method => |decl_index| return decl_index,
+            .field => {},
+        }
+    }
+    try check.reportNoMember(owner, name_token, .method);
+    return null;
+}
+
+/// Naming what the member is instead, where it is something, because reaching for
+/// a method as a field is the likelier mistake than misspelling one.
+fn reportNoMember(
+    check: *Check,
+    owner: Pool.Index,
+    name_token: Token.Index,
+    wanted: Member.Kind,
+) Allocator.Error!void {
     const comp = check.comp;
     const name_text = check.tree.tokenSlice(name_token);
 
-    if (try check.fieldRow(instance, name_text)) |row| return row;
-
-    const decl_index = comp.instanceDecl(instance);
-    if (findMember(comp, decl_index, name_text) != null) {
+    if (try check.memberOf(owner, name_text)) |other| {
         try check.failToken(name_token, .{
             .code = .no_such_member,
-            .message = try comp.fmt("'{s}' is a function, so call it with '.{s}(...)'", .{
-                name_text, name_text,
-            }),
-            .label = "a method, not a field",
+            .message = switch (other) {
+                .field => try comp.fmt("'{s}' is a field, so it is read rather than called", .{
+                    name_text,
+                }),
+                .method => try comp.fmt("'{s}' is a function, so call it with '.{s}(...)'", .{
+                    name_text, name_text,
+                }),
+            },
+            .label = try comp.fmt("not a {s}", .{wanted.text()}),
         });
-        return null;
+        return;
     }
 
     try check.failToken(name_token, .{
         .code = .no_such_member,
-        .message = try comp.fmt("'{s}' has no field named '{s}'", .{
-            try comp.instanceName(instance), name_text,
+        .message = try comp.fmt("{s} has no {s} named '{s}'", .{
+            try comp.typeName(owner), wanted.text(), name_text,
         }),
-        .label = "no such field",
-        .help = try check.suggestField(instance, name_text),
+        .label = try comp.fmt("no such {s}", .{wanted.text()}),
+        .help = try check.suggestMember(owner, name_text),
     });
-    return null;
 }
 
-/// Absolute, which is what the IR stores.
-fn fieldRow(
+fn suggestMember(
     check: *Check,
-    instance: Pool.Instance,
+    owner: Pool.Index,
     name_text: []const u8,
-) Allocator.Error!?Compilation.Row.Index {
+) Allocator.Error!?[]const u8 {
     const comp = check.comp;
-    try comp.ensureRows(instance);
+    const instance = switch (comp.pool.keyOf(owner)) {
+        .type_struct => |it| it,
+        else => return null,
+    };
 
-    const rows = comp.instanceAt(instance).rows;
-    for (rows.start..rows.end()) |raw| {
-        if (comp.pool.sameText(comp.rowAt(.from(raw)).name, name_text)) return .from(raw);
+    var closest: edit_distance.Closest = .{ .target = name_text };
+    for (comp.instanceRows(instance)) |row| closest.consider(comp.pool.stringText(row.name));
+
+    const members = comp.declAt(comp.instanceDecl(instance)).members();
+    for (members.start..members.end()) |raw| {
+        const member = comp.declAt(.from(raw));
+        if (member.kind == .fn_decl) closest.consider(comp.pool.stringText(member.name));
     }
-    return null;
+    return comp.didYouMean(closest);
 }
 
 /// Whether this file may reach a member of another one.
@@ -3425,32 +3420,6 @@ fn memberIsVisible(check: *Check, member: Decl.Index, at: Token.Index) Allocator
         }),
     });
     return false;
-}
-
-fn findMember(comp: *const Compilation, decl_index: Decl.Index, name_text: []const u8) ?Decl.Index {
-    const decl = comp.declAt(decl_index);
-    assert(decl.kind == .struct_decl);
-
-    const members = decl.members();
-    for (members.start..members.start + members.len) |raw| {
-        const member = comp.declAt(.from(raw));
-        if (member.kind != .fn_decl) continue;
-        if (comp.pool.sameText(member.name, name_text)) return .from(raw);
-    }
-    return null;
-}
-
-fn suggestField(
-    check: *Check,
-    instance: Pool.Instance,
-    name_text: []const u8,
-) Allocator.Error!?[]const u8 {
-    const comp = check.comp;
-    var closest: edit_distance.Closest = .{ .target = name_text };
-    for (comp.instanceRows(instance)) |row| {
-        closest.consider(comp.pool.stringText(row.name));
-    }
-    return comp.didYouMean(closest);
 }
 
 fn checkDeref(check: *Check, node: Node.Index) Allocator.Error!Value {
@@ -3545,13 +3514,12 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
         if (check.tree.nodeTag(init_node) != .struct_field_init) continue;
         const field_init = check.tree.viewOf(init_node).struct_field_init;
 
-        const row = try check.fieldRow(instance, check.tree.tokenSlice(field_init.name_token));
-        const position: u32 = if (row) |absolute| absolute.int() - rows.start else {
-            _ = try check.findField(instance, field_init.name_token);
+        const row = try check.fieldOf(wanted, field_init.name_token) orelse {
             _ = try check.checkExpr(field_init.value, null);
             clean = false;
             continue;
         };
+        const position: u32 = row.int() - rows.start;
 
         if (builder.operands.items[start + position].initializer.unwrap()) |first| {
             try check.failToken(field_init.name_token, .{
@@ -3724,11 +3692,8 @@ fn resolveCalleeMember(
             .named_type => |type_index| {
                 switch (comp.pool.keyOf(type_index)) {
                     .type_struct => |owner| {
-                        const decl_index = comp.instanceDecl(owner);
-                        const member = findMember(comp, decl_index, name_text) orelse {
-                            _ = try check.findField(owner, access.name_token);
+                        const member = try check.methodOf(type_index, access.name_token) orelse
                             return null;
-                        };
                         if (try check.memberIsVisible(member, access.name_token) == false) {
                             return null;
                         }
@@ -3880,12 +3845,8 @@ fn checkCallResolved(
             const type_struct = peelOnePointer(comp, place.type);
             switch (comp.pool.keyOf(type_struct)) {
                 .type_struct => |owner| {
-                    const owner_decl = comp.instanceDecl(owner);
-                    const name_text = check.tree.tokenSlice(method.name_token);
-                    const member = findMember(comp, owner_decl, name_text) orelse {
-                        _ = try check.findField(owner, method.name_token);
+                    const member = try check.methodOf(type_struct, method.name_token) orelse
                         return .poison;
-                    };
                     if (try check.memberIsVisible(member, method.name_token) == false) {
                         return .poison;
                     }
@@ -4469,12 +4430,8 @@ fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
     switch (check.tree.viewOf(node)) {
         .ident => {
             const text = check.mainTokenText(node);
-            if (std.mem.eql(u8, text, Module.discard_name)) {
-                try check.fail(node, .{
-                    .code = .discard_reserved,
-                    .message = "'_' is not a place, and only discards a whole value",
-                    .label = "not a place",
-                });
+            if (Module.isDiscard(text)) {
+                try check.failDiscard(node);
                 return null;
             }
             if (check.findLocalIndex(text)) |index| {
@@ -4529,7 +4486,7 @@ fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
         },
         .field_access => |access| {
             const base = try check.checkPlace(access.lhs) orelse return null;
-            return check.placeField(node, base, access.name_token);
+            return check.placeField(base, access.name_token);
         },
         .deref => |operand| return check.placeThroughPointer(node, operand),
         .err => return null,
@@ -4618,67 +4575,49 @@ fn placeThroughPointer(
 /// One field step. Crossing a pointer resets mutability to the pointer's own.
 fn placeField(
     check: *Check,
-    node: Node.Index,
     base: Place,
     name_token: Token.Index,
 ) Allocator.Error!?Place {
     const comp = check.comp;
-    switch (comp.pool.keyOf(base.type)) {
-        .type_struct => |instance| {
-            const row = try check.findField(instance, name_token) orelse return null;
-            const row_type = comp.rowAt(row).type;
 
-            const addressed = try check.placeAddress(base) orelse return null;
-            const field_pointer = try check.pointerTo(row_type, addressed.mutable);
-            const place = try check.emit(.field_ptr, field_pointer, .{
-                .field = .{ .base = addressed.ref, .row = row },
-            });
-            return .{
-                .kind = .address,
-                .ref = place,
-                .type = row_type,
-                .mutable = addressed.mutable,
-                .reason = addressed.reason,
-                .root_name = addressed.root_name,
-                .root_node = addressed.root_node,
-            };
-        },
-        .type_pointer => |pointer| {
-            switch (comp.pool.keyOf(pointer.child)) {
-                .type_struct => |instance| {
-                    const row = try check.findField(instance, name_token) orelse return null;
-                    const row_type = comp.rowAt(row).type;
+    const pointer: ?Pool.Key.Pointer = switch (comp.pool.keyOf(base.type)) {
+        .type_pointer => |it| it,
+        else => null,
+    };
+    const owner = if (pointer) |it| it.child else base.type;
 
-                    const through = try check.placeValue(base);
-                    const field_pointer = try check.pointerTo(row_type, pointer.mutable);
-                    const place = try check.emit(.field_ptr, field_pointer, .{
-                        .field = .{ .base = through, .row = row },
-                    });
-                    return .{
-                        .kind = .address,
-                        .ref = place,
-                        .type = row_type,
-                        .mutable = pointer.mutable,
-                        .reason = if (pointer.mutable)
-                            .mutable
-                        else
-                            .{ .const_pointer = base.type },
-                        .root_name = base.root_name,
-                        .root_node = base.root_node,
-                    };
-                },
-                else => {
-                    try check.reportNoField(node, base.type, check.tree.tokenSlice(name_token));
-                    return null;
-                },
-            }
-        },
-        else => {
-            const text = check.tree.tokenSlice(name_token);
-            try check.reportNoField(node, base.type, text);
-            return null;
-        },
+    const row = try check.fieldOf(owner, name_token) orelse return null;
+    const row_type = comp.rowAt(row).type;
+
+    // through a pointer the reach is the pointer's own, otherwise the base's address
+    var from: Ref = undefined;
+    var mutable: bool = undefined;
+    var reason: Place.Reason = undefined;
+    var root = base;
+    if (pointer) |it| {
+        from = try check.placeValue(base);
+        mutable = it.mutable;
+        reason = if (it.mutable) .mutable else .{ .const_pointer = base.type };
+    } else {
+        const addressed = try check.placeAddress(base) orelse return null;
+        from = addressed.ref;
+        mutable = addressed.mutable;
+        reason = addressed.reason;
+        root = addressed;
     }
+
+    const place = try check.emit(.field_ptr, try check.pointerTo(row_type, mutable), .{
+        .field = .{ .base = from, .row = row },
+    });
+    return .{
+        .kind = .address,
+        .ref = place,
+        .type = row_type,
+        .mutable = mutable,
+        .reason = reason,
+        .root_name = root.root_name,
+        .root_node = root.root_node,
+    };
 }
 
 /// Loading when the place is an address.
@@ -5033,6 +4972,17 @@ fn reportBadOperand(
             try check.comp.typeName(operand_type),
         }),
         .label = "wrong operand type",
+    });
+}
+
+/// `_` is not a name. It stands in one place, `_ = expression`, and nowhere else,
+/// so every site that wanted a name reports the same thing.
+fn failDiscard(check: *Check, node: Node.Index) Allocator.Error!void {
+    try check.fail(node, .{
+        .code = .discard_reserved,
+        .message = "'_' is not a name, and only discards a value",
+        .label = "not a name",
+        .help = "write '_ = expression' to drop a value on purpose",
     });
 }
 

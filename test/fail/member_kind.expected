@@ -1,0 +1,34 @@
+error[E0219]: 'x' is a field, so it is read rather than called
+  --> test/fail/member_kind.phi:10:14
+   |
+10 |     return p.x()
+   |              ^ not a method
+
+error[E0219]: 'x' is a field, so it is read rather than called
+  --> test/fail/member_kind.phi:14:18
+   |
+14 |     return Point.x(p)
+   |                  ^ not a method
+
+error[E0219]: 'norm' is a function, so call it with '.norm(...)'
+  --> test/fail/member_kind.phi:18:14
+   |
+18 |     return p.norm
+   |              ^^^^ not a field
+
+error[E0219]: Point has no method named 'nrm'
+  --> test/fail/member_kind.phi:22:14
+   |
+22 |     return p.nrm()
+   |              ^^^ no such method
+   |
+   = help: did you mean 'norm'?
+
+error[E0219]: Point has no field named 'z'
+  --> test/fail/member_kind.phi:26:14
+   |
+26 |     return p.z
+   |              ^ no such field
+   |
+   = help: did you mean 'x'?
+

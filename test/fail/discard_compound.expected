@@ -1,6 +1,8 @@
-error[E0244]: '_' is not a place, and only discards a whole value
+error[E0244]: '_' is not a name, and only discards a value
  --> test/fail/discard_compound.phi:2:5
   |
 2 |     _ += n
-  |     ^ not a place
+  |     ^ not a name
+  |
+  = help: write '_ = expression' to drop a value on purpose
 

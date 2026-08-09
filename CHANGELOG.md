@@ -4,6 +4,9 @@
 
 ### Language
 
+- Reaching a member by the wrong kind is refused: calling a field used to
+  compile silently, reading a method now says to call it, and a missed name
+  suggests methods as well as fields.
 - Every type answers its size and alignment: `bool` is one byte, and
   `*T | none` is one word, with `none` as the zero no valid pointer holds.
   A type past 4 GiB is refused with `E0261`.

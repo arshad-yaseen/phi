@@ -1,0 +1,27 @@
+type Point = {
+    x: u32
+
+    fn norm(self: Point) u32 {
+        return self.x
+    }
+}
+
+fn call_a_field(p: Point) u32 {
+    return p.x()
+}
+
+fn call_a_field_through_the_type(p: Point) u32 {
+    return Point.x(p)
+}
+
+fn read_a_method(p: Point) u32 {
+    return p.norm
+}
+
+fn miss_a_method(p: Point) u32 {
+    return p.nrm()
+}
+
+fn miss_a_field(p: Point) u32 {
+    return p.z
+}

@@ -47,7 +47,7 @@ note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var 
   |            ^^^^^^^^^^
 note: and 56 more instantiation levels
 
-error[E0219]: 'Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]' has no field named 'item'
+error[E0219]: Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]] has no field named 'item'
  --> test/fail/instantiation_depth.phi:6:31
   |
 6 |     var boxed = Box[*var T].{ item: value }
