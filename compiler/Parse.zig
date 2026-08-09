@@ -331,7 +331,11 @@ fn expectTerminator(self: *Parse, closer: Token.Tag) Allocator.Error!void {
 }
 
 /// A line opening with one of these may continue the line above. `.` is already joined.
-const continues_line = TokenSet.initMany(&.{ .minus, .ampersand, .tilde, .l_paren });
+const continues_line = TokenSet.initMany(&.{
+    .minus,     .ampersand,
+    .tilde,     .l_paren,
+    .l_bracket,
+});
 
 fn errAmbiguousLine(self: *Parse) Allocator.Error!void {
     @branchHint(.cold);
@@ -452,14 +456,15 @@ fn extraList(self: *Parse, items: []const Node.Index) Allocator.Error!void {
 const TokenSet = std.EnumSet(Token.Tag);
 
 const starts_expr = TokenSet.initMany(&.{
-    .ident,       .number,
-    .l_paren,     .dot,
-    .minus,       .kw_not,
-    .tilde,       .ampersand,
-    .invalid,     .kw_if,
-    .kw_loop,     .kw_match,
-    .kw_return,   .kw_break,
-    .kw_continue, .kw_intrinsic,
+    .ident,        .number,
+    .l_paren,      .dot,
+    .l_bracket,    .minus,
+    .kw_not,       .tilde,
+    .ampersand,    .invalid,
+    .kw_if,        .kw_loop,
+    .kw_match,     .kw_return,
+    .kw_break,     .kw_continue,
+    .kw_intrinsic,
 });
 
 const starts_stmt = starts_expr.unionWith(TokenSet.initMany(&.{
@@ -1291,6 +1296,7 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
         .kw_intrinsic => return self.addLeaf(.intrinsic),
         .ident => return self.addLeaf(.ident),
         .number => return self.addLeaf(.number_literal),
+        .l_bracket => return self.parseArrayLiteral(),
         // a literal with no type in front of it, which the checker cannot place
         .dot => {
             try self.err(.{
@@ -1329,6 +1335,32 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
             return self.hole();
         },
     }
+}
+
+/// `[a, b, c]`, which states its own length.
+fn parseArrayLiteral(self: *Parse) Allocator.Error!Node.Index {
+    assert(self.at(.l_bracket));
+    const lbracket = self.nextToken();
+
+    const top = self.scratch.items.len;
+    defer self.scratch.shrinkRetainingCapacity(top);
+
+    try self.parseList(.{
+        .item = parseExpr,
+        .starts = starts_expr,
+        .closer = .r_bracket,
+        .opener = lbracket,
+        .code = .expected_expression,
+        .expected = "an element",
+    });
+
+    const start = self.extraStart();
+    try self.extraList(self.scratch.items[top..]);
+    return self.addNode(.{
+        .tag = .array_literal,
+        .main_token = lbracket,
+        .data = .{ .extra = start },
+    });
 }
 
 /// `Point.{ x: 1 }`. The type is written, so nothing infers it.

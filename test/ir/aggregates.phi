@@ -1,0 +1,35 @@
+type Point = {
+    x: u32
+    y: u32
+}
+
+// every part constant, so the literal is one, and a top-level binding takes it
+let origin: Point = Point.{ x: 0, y: 0 }
+
+// an array of struct constants, which each form used to refuse from its own side
+fn corners() [2]Point {
+    return [Point.{ x: 0, y: 0 }, Point.{ x: 1, y: 1 }]
+}
+
+// one runtime part is enough to emit, and the constant parts stay constant
+fn mixed(n: u32) Point {
+    return Point.{ x: 1, y: n }
+}
+
+// an array literal names no type, so a runtime one takes the type it lands on
+fn runtime_elements(n: u32) [2]u32 {
+    let pair: [2]u32 = [1, n]
+    return pair
+}
+
+// reading a field of a constant struct is a constant
+fn folded_field() u32 {
+    return origin.x
+}
+
+// a sealed constant carries its type, so storage needs no annotation
+fn varies() u32 {
+    var here = Point.{ x: 3, y: 4 }
+    here.x = 5
+    return here.x
+}

@@ -41,8 +41,11 @@ instance_map: std.HashMapUnmanaged(
 rows: std.ArrayList(Row),
 /// Marked and restored, because one signature can demand another.
 rows_scratch: std.ArrayList(Row),
+values_scratch: std.ArrayList(Pool.Index),
 /// Bodies never nest, so one builder serves them all.
 body_builder: Check.Builder,
+/// Staged literal parts and call arguments, marked and restored.
+operands: std.ArrayList(Check.Operand),
 body_queue: std.ArrayList(Pool.Instance),
 funcs: std.ArrayList(IR.Func),
 /// Every function's instructions, blocks, and extra words, which each `Func` ranges into.
@@ -236,7 +239,9 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .instance_map = .empty,
         .rows = .empty,
         .rows_scratch = .empty,
+        .values_scratch = .empty,
         .body_builder = .empty,
+        .operands = .empty,
         .body_queue = .empty,
         .funcs = .empty,
         .insts = .empty,
@@ -279,6 +284,7 @@ pub fn deinit(comp: *Compilation) void {
     comp.blocks.deinit(gpa);
 
     comp.body_builder.deinit(gpa);
+    comp.operands.deinit(gpa);
     comp.body_queue.deinit(gpa);
     comp.pool.deinit(gpa);
     comp.decls.deinit(gpa);
@@ -287,6 +293,7 @@ pub fn deinit(comp: *Compilation) void {
     comp.instance_map.deinit(gpa);
     comp.rows.deinit(gpa);
     comp.rows_scratch.deinit(gpa);
+    comp.values_scratch.deinit(gpa);
     comp.diagnostics.deinit(gpa);
     comp.reported.deinit(gpa);
     comp.expr_types.deinit(gpa);

@@ -1,9 +1,8 @@
 fn drive() i64
 b0:
-  %0 = struct_init .{ x: 3:i64, y: 4:i64 } : Point
-  %1 = call taxicab(%0) : i64
-  %2 = add %1, 0:i64 : i64
-  return %2
+  %0 = call taxicab(Point.{ x: 3:i64, y: 4:i64 }) : i64
+  %1 = add %0, 0:i64 : i64
+  return %1
 
 fn taxicab(point: Point) i64
 b0:

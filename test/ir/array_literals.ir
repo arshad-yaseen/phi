@@ -1,0 +1,26 @@
+fn sealed() [4]u32
+b0:
+  return [1:u32, 2:u32, 3:u32, 4:u32]
+
+fn nested() [2][3]u8
+b0:
+  return [[1:u8, 2:u8, 3:u8], [4:u8, 5:u8, 6:u8]]
+
+fn twice() u64
+b0:
+  return 8:u64
+
+fn stored() u64
+b0:
+  %0 = local slot : *var [2]u32
+  %1 = store %0, [10:u32, 20:u32]
+  %2 = load %0 : [2]u32
+  return 2:u64
+
+fn header() Header
+b0:
+  return Header.{ magic: [1:u8, 2:u8, 3:u8, 4:u8], version: 1:u32 }
+
+fn empty() u64
+b0:
+  return 0:u64

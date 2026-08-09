@@ -1,0 +1,41 @@
+type Header = {
+    magic: [4]u8
+    version: u32
+}
+
+// an annotation seals a literal, and the count is part of fitting
+fn sealed() [4]u32 {
+    let four: [4]u32 = [1, 2, 3, 4]
+    return four
+}
+
+// nesting only multiplies
+fn nested() [2][3]u8 {
+    let grid: [2][3]u8 = [[1, 2, 3], [4, 5, 6]]
+    return grid
+}
+
+// unsealed, a literal has not chosen, so one may land at two types
+fn twice() u64 {
+    let table = [2, 3, 5, 7]
+    let small: [4]u8 = table
+    let wide: [4]u64 = table
+    return small.len + wide.len
+}
+
+// storage knows its type, and then it holds the literal
+fn stored() u64 {
+    var slot: [2]u32 = [10, 20]
+    return slot.len
+}
+
+// a field takes one the way any other value does
+fn header() Header {
+    return Header.{ magic: [1, 2, 3, 4], version: 1 }
+}
+
+// no elements is a length like any other
+fn empty() u64 {
+    let nothing: [0]u32 = []
+    return nothing.len
+}

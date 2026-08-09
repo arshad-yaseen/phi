@@ -11,39 +11,36 @@ b0:
 fn tidy(early: true | false) i64
 b0:
   %0 = param early : true | false
-  %1 = struct_init .{ hits: 0:i64 } : Counter
-  %2 = local counter : *var Counter
-  %3 = store %2, %1
+  %1 = local counter : *var Counter
+  %2 = store %1, Counter.{ hits: 0:i64 }
   branch %0, b1, b2
 b1:
-  %4 = call Counter.bump(%2)
+  %3 = call Counter.bump(%1)
   return 1:i64
 b2:
   jump b3
 b3:
-  %5 = call Counter.bump(%2)
+  %4 = call Counter.bump(%1)
   return 0:i64
 
 fn nested_scopes(deep: true | false) i64
 b0:
   %0 = param deep : true | false
-  %1 = struct_init .{ hits: 0:i64 } : Counter
-  %2 = local counter : *var Counter
-  %3 = store %2, %1
+  %1 = local counter : *var Counter
+  %2 = store %1, Counter.{ hits: 0:i64 }
   branch %0, b1, b2
 b1:
-  %4 = struct_init .{ hits: 0:i64 } : Counter
-  %5 = local inner : *var Counter
-  %6 = store %5, %4
-  %7 = load %5 : Counter
-  %8 = field_val %7, .hits : i64
-  %9 = call Counter.bump(%5)
-  %10 = call Counter.bump(%2)
-  return %8
+  %3 = local inner : *var Counter
+  %4 = store %3, Counter.{ hits: 0:i64 }
+  %5 = load %3 : Counter
+  %6 = field_val %5, .hits : i64
+  %7 = call Counter.bump(%3)
+  %8 = call Counter.bump(%1)
+  return %6
 b2:
   jump b3
 b3:
-  %11 = load %2 : Counter
-  %12 = field_val %11, .hits : i64
-  %13 = call Counter.bump(%2)
-  return %12
+  %9 = load %1 : Counter
+  %10 = field_val %9, .hits : i64
+  %11 = call Counter.bump(%1)
+  return %10

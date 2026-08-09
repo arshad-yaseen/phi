@@ -1,11 +1,10 @@
 fn framed(width: i64) Frame
 b0:
   %0 = param width : i64
-  %1 = struct_init .{ x: 0:i64, y: 0:i64 } : Point
-  %2 = mul %0, 2:i64 : i64
-  %3 = struct_init .{ x: %0, y: %2 } : Point
-  %4 = struct_init .{ origin: %1, size: %3, label: 7:u32 } : Frame
-  return %4
+  %1 = mul %0, 2:i64 : i64
+  %2 = aggregate_init .{ x: %0, y: %1 } : Point
+  %3 = aggregate_init .{ origin: Point.{ x: 0:i64, y: 0:i64 }, size: %2, label: 7:u32 } : Frame
+  return %3
 
 fn area_of(frame: Frame) i64
 b0:

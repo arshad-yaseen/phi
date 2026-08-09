@@ -17,14 +17,12 @@ b0:
 
 fn drive() i64
 b0:
-  %0 = struct_init .{ hits: 0:i64 } : Tally
-  %1 = local mine : *var Tally
-  %2 = store %1, %0
-  %3 = call bump(%1)
-  %4 = struct_init .{ hits: 5:i64 } : Tally
-  %5 = call read(%1) : i64
-  %6 = local : *var Tally
-  %7 = store %6, %4
-  %8 = call read(%6) : i64
-  %9 = add %5, %8 : i64
-  return %9
+  %0 = local mine : *var Tally
+  %1 = store %0, Tally.{ hits: 0:i64 }
+  %2 = call bump(%0)
+  %3 = call read(%0) : i64
+  %4 = local : *var Tally
+  %5 = store %4, Tally.{ hits: 5:i64 }
+  %6 = call read(%4) : i64
+  %7 = add %3, %6 : i64
+  return %7

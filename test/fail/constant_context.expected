@@ -38,11 +38,9 @@ error[E0214]: a top-level binding must be a constant, and a call happens at run 
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: a top-level binding must be a constant, and a struct literal happens at run time
+error[E0202]: i64 has no fields to give
   --> test/fail/constant_context.phi:14:13
    |
 14 | let built = i64.{ x: 1 }
-   |             ^^^^^^^^^^ not a constant
-   |
-   = help: the constant set is literals, names of constants, operators, and parentheses
+   |             ^^^ not a struct
 

@@ -61,8 +61,8 @@ pub fn callAt(extra: []const u32, at: ExtraIndex) Call {
     };
 }
 
-/// Fields in declaration order.
-pub fn structInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
+/// Elements in order, or fields in declaration order.
+pub fn aggregateInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
     const start = @intFromEnum(at);
     assert(start + 1 <= extra.len);
     return refsAt(extra, start + 1, extra[start]);
@@ -185,8 +185,9 @@ pub const Inst = struct {
         /// Uses `payload`, an `IR.Call`.
         call,
 
-        /// Uses `payload`, read by `structInitAt`.
-        struct_init,
+        /// Uses `payload`, read by `aggregateInitAt`. An array or a struct, told
+        /// apart by the type, whose parts are not all constant.
+        aggregate_init,
     };
 };
 

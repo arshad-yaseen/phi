@@ -1,0 +1,23 @@
+fn too_few() {
+    let three: [3]u32 = [1, 2]
+}
+
+fn too_many() {
+    let three: [3]u32 = [1, 2, 3, 4]
+}
+
+fn past_the_edge() {
+    let bytes: [2]u8 = [1, 300]
+}
+
+fn var_needs_a_type() {
+    var loose = [1, 2]
+}
+
+fn not_a_constant(n: u32) {
+    let pair: [2]u32 = [1, n]
+}
+
+fn not_a_number() {
+    let sum: u32 = [1, 2]
+}

@@ -166,6 +166,10 @@ fn node(
             try node(ast, writer, it.type_expr, below, "type");
             for (it.fields) |field| try node(ast, writer, field, below, "");
         },
+        .array_literal => |elements| {
+            try writer.writeByte('\n');
+            for (elements) |element| try node(ast, writer, element, below, "");
+        },
         .struct_field_init => |it| {
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
             try node(ast, writer, it.value, below, "value");
@@ -319,15 +323,29 @@ fn inst(
             }
             try writer.writeByte(')');
         },
-        .struct_init => {
-            const rows = comp.instanceAt(comp.pool.keyOf(it.type).type_struct).rows;
-            try writer.writeAll(" .{ ");
-            for (IR.structInitAt(comp.funcExtra(body), data.payload), 0..) |operand, position| {
-                if (position > 0) try writer.writeAll(", ");
-                try writer.print("{s}: ", .{comp.rowName(.from(rows.at(@intCast(position))))});
-                try ref(comp, operand, writer);
+        .aggregate_init => {
+            const operands = IR.aggregateInitAt(comp.funcExtra(body), data.payload);
+            switch (comp.pool.keyOf(it.type)) {
+                .type_struct => |instance| {
+                    const rows = comp.instanceAt(instance).rows;
+                    try writer.writeAll(" .{ ");
+                    for (operands, 0..) |operand, position| {
+                        if (position > 0) try writer.writeAll(", ");
+                        const row: Compilation.Row.Index = .from(rows.at(@intCast(position)));
+                        try writer.print("{s}: ", .{comp.rowName(row)});
+                        try ref(comp, operand, writer);
+                    }
+                    try writer.writeAll(" }");
+                },
+                else => {
+                    try writer.writeAll(" [");
+                    for (operands, 0..) |operand, position| {
+                        if (position > 0) try writer.writeAll(", ");
+                        try ref(comp, operand, writer);
+                    }
+                    try writer.writeByte(']');
+                },
             }
-            try writer.writeAll(" }");
         },
     }
 

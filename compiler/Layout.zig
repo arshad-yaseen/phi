@@ -60,7 +60,7 @@ fn ofBounded(
             .i32, .u32, .f32 => .{ .layout = .{ .size = 4, .alignment = 4 } },
             .i64, .u64, .f64 => .{ .layout = .{ .size = 8, .alignment = 8 } },
             // a written type is never void or untyped
-            .void, .untyped_int, .untyped_float => unreachable,
+            .void, .untyped_int, .untyped_float, .untyped_aggregate => unreachable,
         },
         .type_pointer => .{ .layout = .{
             .size = pointer_size,
@@ -70,7 +70,8 @@ fn ofBounded(
         .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
         .type_union => try ofUnion(comp, origin, index, depth),
-        .value_int, .value_float, .value_unit, .value_union => unreachable,
+        .value_int, .value_float, .value_aggregate => unreachable,
+        .value_unit, .value_union => unreachable,
     };
 
     if (result == .layout) {

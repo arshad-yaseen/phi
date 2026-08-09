@@ -47,6 +47,10 @@ const type_depth_max = AST.nest_max;
 
 const Binding = struct { name: Pool.String, type: Pool.Index };
 
+/// One part of a literal or one argument of a call. `initializer` names where a
+/// field was given, and is `.none` everywhere else.
+pub const Operand = struct { value: Value, initializer: Node.OptionalIndex };
+
 /// What an expression turned out to be. A `named_` case is not a value.
 const Value = union(enum) {
     constant: Pool.Index,
@@ -207,7 +211,8 @@ fn walkEmbedded(
             }
         },
         .type_simple, .type_unit, .type_pointer => {},
-        .value_int, .value_float, .value_unit, .value_union => unreachable,
+        .value_int, .value_float, .value_aggregate => unreachable,
+        .value_unit, .value_union => unreachable,
     }
 }
 
@@ -717,8 +722,6 @@ pub const Builder = struct {
     defer_nodes: std.ArrayList(Node.Index),
     /// Active `is` facts, innermost last. Applied per branch, then cut back.
     narrows: std.ArrayList(Narrow),
-    /// Staged call arguments and field values, marked and restored.
-    operands: std.ArrayList(Operand),
     /// Enclosing loops, innermost last.
     loops: std.ArrayList(LoopFrame),
     /// Scratch for `finishFunc`, retained across bodies.
@@ -731,9 +734,6 @@ pub const Builder = struct {
     reachable: bool,
 
     const BlockBuild = struct { first: u32, count: u32, terminator: IR.Terminator };
-
-    /// Where a field was given, `.none` otherwise.
-    const Operand = struct { value: Value, initializer: Node.OptionalIndex };
 
     const Local = struct {
         name: Pool.String,
@@ -813,7 +813,6 @@ pub const Builder = struct {
         .scopes = .empty,
         .defer_nodes = .empty,
         .narrows = .empty,
-        .operands = .empty,
         .loops = .empty,
         .block_map = .empty,
         .frontier = .empty,
@@ -839,7 +838,6 @@ pub const Builder = struct {
         builder.scopes.clearRetainingCapacity();
         builder.defer_nodes.clearRetainingCapacity();
         builder.narrows.clearRetainingCapacity();
-        builder.operands.clearRetainingCapacity();
         builder.loops.clearRetainingCapacity();
         builder.block_map.clearRetainingCapacity();
         builder.frontier.clearRetainingCapacity();
@@ -853,7 +851,6 @@ pub const Builder = struct {
         builder.scopes.deinit(gpa);
         builder.defer_nodes.deinit(gpa);
         builder.narrows.deinit(gpa);
-        builder.operands.deinit(gpa);
         builder.loops.deinit(gpa);
         builder.block_map.deinit(gpa);
         builder.frontier.deinit(gpa);
@@ -1345,21 +1342,24 @@ fn checkVarDeclSlot(
     }
     if (value_type == .poison) return check.declarePoisoned(name, node);
 
-    if (final == .constant and annotation == null) {
+    // a sealed constant carries its type here, so only an unchosen one needs words
+    if (final == .constant and annotation == null and Pool.isUntyped(value_type)) {
         assert(view.is_mutable);
-        const spelled = switch (comp.pool.keyOf(final.constant)) {
-            .value_int, .value_float => true,
-            else => false,
+        const example: ?[]const u8 = switch (comp.pool.keyOf(final.constant)) {
+            .value_int => "i64",
+            .value_float => "f64",
+            .value_aggregate => |it| try comp.fmt("[{d}]u32", .{it.elems.len}),
+            else => null,
         };
-        if (spelled) {
+        if (example) |shape| {
             try check.fail(node, .{
                 .code = .var_needs_type,
                 .message = try comp.fmt("'{s}' needs a type before it can vary", .{
                     comp.pool.stringText(name),
                 }),
                 .label = "no type to hold it",
-                .help = try comp.fmt("write 'var {s}: i64 = ...', or whichever type is meant", .{
-                    comp.pool.stringText(name),
+                .help = try comp.fmt("write 'var {s}: {s} = ...', or whichever type is meant", .{
+                    comp.pool.stringText(name), shape,
                 }),
             });
             return check.declarePoisoned(name, node);
@@ -2645,6 +2645,7 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
         .call => return check.checkCall(node, hint),
         .bracket => |view| return check.checkBracketExpr(node, view),
         .struct_literal => return check.checkStructLiteral(node),
+        .array_literal => return check.checkArrayLiteral(node, hint),
         .err => return .poison,
         // the parser keeps statements out of expression position
         else => unreachable,
@@ -3318,6 +3319,15 @@ fn valueField(
         return .poison;
     };
     const row_type = comp.rowAt(row).type;
+
+    // a field of a constant struct is a constant, so it needs no instruction
+    if (pointer == null and base == .constant and
+        comp.pool.keyOf(base.constant) == .value_aggregate)
+    {
+        const rows = comp.instanceAt(comp.pool.keyOf(owner).type_struct).rows;
+        return .{ .constant = comp.pool.aggregateAt(base.constant, row.int() - rows.start) };
+    }
+
     const operand: IR.Inst.Data = .{ .field = .{ .base = refOf(base), .row = row } };
 
     if (pointer) |it| {
@@ -3328,9 +3338,7 @@ fn valueField(
     return runtimeValue(try check.emit(.field_val, row_type, operand), row_type);
 }
 
-/// What a name means on a type. Every `.name` asks this one question, and each
-/// type answers it in one place, so a new kind of answer or a new type that has
-/// members is one arm here rather than a rule of its own somewhere else.
+/// What a name means on a type. Every `.name` asks this one question.
 const Member = union(enum) {
     /// A field, by its absolute row.
     field: Compilation.Row.Index,
@@ -3353,11 +3361,8 @@ const Member = union(enum) {
     };
 };
 
-/// Not a keyword and not reserved. A struct may declare a field by this name,
-/// and there it is the field, because the owner's type decides what a name means.
 const length_name = "len";
 
-/// Reports nothing, because only the caller knows what it was looking for.
 fn memberOf(check: *Check, owner: Pool.Index, name: []const u8) Allocator.Error!?Member {
     switch (check.comp.pool.keyOf(owner)) {
         .type_array => |array| {
@@ -3391,8 +3396,6 @@ fn structMember(
     return null;
 }
 
-/// A length reads as `u64`, because folding is about when a value is known and
-/// never about what type it is.
 fn lengthValue(check: *Check, count: u64) Allocator.Error!Pool.Index {
     const comp = check.comp;
     return comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = .u64_type, .value = count } });
@@ -3593,10 +3596,9 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
     const rows = comp.instanceAt(instance).rows;
 
     // one slot per field, in declaration order
-    const builder = check.body();
-    const start: u32 = @intCast(builder.operands.items.len);
-    defer builder.operands.shrinkRetainingCapacity(start);
-    try builder.operands.appendNTimes(
+    const start: u32 = @intCast(comp.operands.items.len);
+    defer comp.operands.shrinkRetainingCapacity(start);
+    try comp.operands.appendNTimes(
         comp.gpa,
         .{ .value = .poison, .initializer = .none },
         rows.len,
@@ -3614,7 +3616,7 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
         };
         const position: u32 = row.int() - rows.start;
 
-        if (builder.operands.items[start + position].initializer.unwrap()) |first| {
+        if (comp.operands.items[start + position].initializer.unwrap()) |first| {
             try check.failToken(field_init.name_token, .{
                 .code = .redeclared,
                 .message = try comp.fmt("'{s}' is given twice", .{
@@ -3628,18 +3630,18 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
             clean = false;
             continue;
         }
-        builder.operands.items[start + position].initializer = init_node.toOptional();
+        comp.operands.items[start + position].initializer = init_node.toOptional();
 
         const row_type = comp.rowAt(.from(rows.at(position))).type;
         const value = try check.checkExpr(field_init.value, row_type);
         const met = try check.coerce(value, row_type, field_init.value);
         if (met == .poison) clean = false;
-        builder.operands.items[start + position].value = met;
+        comp.operands.items[start + position].value = met;
     }
 
     var missing: ?[]const u8 = null;
     for (0..rows.len) |position| {
-        if (builder.operands.items[start + position].initializer != .none) continue;
+        if (comp.operands.items[start + position].initializer != .none) continue;
         const name = comp.pool.stringText(comp.rowAt(.from(rows.at(@intCast(position)))).name);
         missing = if (missing) |earlier|
             try comp.fmt("{s}, '{s}'", .{ earlier, name })
@@ -3657,17 +3659,143 @@ fn checkStructLiteral(check: *Check, node: Node.Index) Allocator.Error!Value {
     }
     if (clean == false) return .poison;
 
-    const fields = builder.operands.items[start..];
-    const payload = try check.emitExtra(&.{@intCast(fields.len)}, fields);
-    const result = try check.emit(.struct_init, wanted, .{ .payload = payload });
-    return runtimeValue(result, wanted);
+    return check.settleAggregate(node, wanted, comp.operands.items[start..]);
+}
+
+/// A literal folds when every part is a constant and emits when one is not.
+/// Both forms end here, so neither knows a rule the other does not.
+fn settleAggregate(
+    check: *Check,
+    node: Node.Index,
+    type_index: Pool.Index,
+    operands: []const Operand,
+) Allocator.Error!Value {
+    var all_constant = true;
+    for (operands) |operand| {
+        if (operand.value != .constant) all_constant = false;
+    }
+    if (all_constant) return check.internAggregate(type_index, operands);
+
+    if (check.builder == null) {
+        try check.fail(node, .{
+            .code = .not_constant,
+            .message = "a top-level binding must be a constant, and part of this literal is not",
+            .label = "not a constant",
+        });
+        return .poison;
+    }
+
+    const payload = try check.emitExtra(&.{@intCast(operands.len)}, operands);
+    const result = try check.emit(.aggregate_init, type_index, .{ .payload = payload });
+    return runtimeValue(result, type_index);
+}
+
+fn internAggregate(
+    check: *Check,
+    type_index: Pool.Index,
+    operands: []const Operand,
+) Allocator.Error!Value {
+    const comp = check.comp;
+
+    const mark = comp.values_scratch.items.len;
+    defer comp.values_scratch.shrinkRetainingCapacity(mark);
+    try comp.values_scratch.ensureUnusedCapacity(comp.gpa, operands.len);
+    for (operands) |operand| {
+        comp.values_scratch.appendAssumeCapacity(operand.value.constant);
+    }
+
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{ .value_aggregate = .{
+        .type = type_index,
+        .elems = comp.values_scratch.items[mark..],
+    } }) };
+}
+
+fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    const comp = check.comp;
+    const elements = check.tree.viewOf(node).array_literal;
+
+    // a literal names no type, so where it lands is the only thing that can
+    const target: ?Pool.Key.Array = target: {
+        const found = hint orelse break :target null;
+        break :target switch (comp.pool.keyOf(found)) {
+            .type_array => |array| array,
+            else => null,
+        };
+    };
+
+    const start = comp.operands.items.len;
+    defer comp.operands.shrinkRetainingCapacity(start);
+    try comp.operands.ensureUnusedCapacity(comp.gpa, elements.len);
+
+    var clean = true;
+    var diverged = false;
+    var all_constant = true;
+    for (elements) |element| {
+        const value = try check.checkExpr(element, if (target) |array| array.child else null);
+        switch (value) {
+            .constant => {},
+            .runtime => all_constant = false,
+            .diverged => {
+                diverged = true;
+                continue;
+            },
+            .poison => {
+                clean = false;
+                continue;
+            },
+            else => {
+                try check.reportNotValue(element, value);
+                clean = false;
+                continue;
+            },
+        }
+        comp.operands.appendAssumeCapacity(.{ .value = value, .initializer = .none });
+    }
+    if (diverged) return .diverged;
+    if (clean == false) return .poison;
+
+    const array = target orelse {
+        // nothing chose, so the literal stays unchosen and fits where it lands
+        if (all_constant) {
+            return check.internAggregate(.untyped_aggregate_type, comp.operands.items[start..]);
+        }
+        try check.fail(node, .{
+            .code = .var_needs_type,
+            .message = "nothing says what type this array is",
+            .label = "no type in sight",
+            .help = "annotate what it feeds, as in 'let a: [2]u32 = ...'",
+        });
+        return .poison;
+    };
+
+    if (array.len != elements.len) {
+        try check.fail(node, .{
+            .code = .does_not_fit,
+            .message = try comp.fmt("this literal has {d} element{s}, and {s} holds {d}", .{
+                elements.len,
+                plural(@intCast(elements.len)),
+                try comp.typeName(hint.?),
+                array.len,
+            }),
+            .label = "the wrong number of elements",
+        });
+        return .poison;
+    }
+
+    for (comp.operands.items[start..], elements) |*operand, element| {
+        operand.value = try check.coerce(operand.value, array.child, element);
+        if (operand.value == .poison) clean = false;
+    }
+    if (clean == false) return .poison;
+
+    return check.settleAggregate(node, hint.?, comp.operands.items[start..]);
 }
 
 /// A header, then one ref per operand, as `Func.callAt` reads it back.
 fn emitExtra(
     check: *Check,
     header: []const u32,
-    operands: []const Builder.Operand,
+    operands: []const Operand,
 ) Allocator.Error!IR.ExtraIndex {
     const builder = check.body();
     if (builder.extra.items.len + header.len + operands.len > std.math.maxInt(u32)) {
@@ -3916,7 +4044,6 @@ fn checkCallResolved(
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
     const comp = check.comp;
-    const builder = check.body();
 
     // the receiver is written first, so it is evaluated first
     var receiver_place: ?Place = null;
@@ -3958,8 +4085,8 @@ fn checkCallResolved(
     @memcpy(full_args[0..owner_args.len], owner_args);
     const owner_count: u32 = @intCast(owner_args.len);
 
-    const mark: u32 = @intCast(builder.operands.items.len);
-    defer builder.operands.shrinkRetainingCapacity(mark);
+    const mark: u32 = @intCast(comp.operands.items.len);
+    defer comp.operands.shrinkRetainingCapacity(mark);
 
     var inferred = false;
     if (callee.explicit) |explicit| {
@@ -4026,7 +4153,7 @@ fn checkCallResolved(
         const self_type = comp.rowAt(.from(rows.at(0))).type;
         const receiver = try check.adaptReceiver(receiver_node.?, place, self_type, fn_name) orelse
             return .poison;
-        try builder.operands.append(comp.gpa, .{
+        try comp.operands.append(comp.gpa, .{
             .value = runtimeValue(receiver, self_type),
             .initializer = .none,
         });
@@ -4055,15 +4182,15 @@ fn checkCallResolved(
     for (args, 0..) |argument, position| {
         const at = receiver_count + @as(u32, @intCast(position));
         const row_type = comp.rowAt(.from(rows.at(at))).type;
-        const early: ?Value = if (inferred) builder.operands.items[mark + position].value else null;
+        const early: ?Value = if (inferred) comp.operands.items[mark + position].value else null;
         const met = try check.checkArgument(argument, row_type, early);
         if (met == .poison) clean = false;
-        try builder.operands.append(comp.gpa, .{ .value = met, .initializer = .none });
+        try comp.operands.append(comp.gpa, .{ .value = met, .initializer = .none });
     }
     if (clean == false) return .poison;
-    assert(builder.operands.items.len == start + receiver_count + args.len);
+    assert(comp.operands.items.len == start + receiver_count + args.len);
 
-    const operands = builder.operands.items[start..];
+    const operands = comp.operands.items[start..];
     const payload = try check.emitExtra(&.{ instance.int(), @intCast(operands.len) }, operands);
 
     const result = try check.emit(.call, return_type, .{ .payload = payload });
@@ -4240,17 +4367,16 @@ fn inferTypeArguments(
     out: []Pool.Index,
 ) Allocator.Error!bool {
     const comp = check.comp;
-    const builder = check.body();
     const decl = comp.declAt(decl_index);
     const owner_tree = comp.treeOf(decl.module);
     const fn_view = owner_tree.viewOf(decl.node).fn_decl;
     const fn_name = comp.pool.stringText(decl.name);
 
     // in source order, so evaluation order survives
-    const early: u32 = @intCast(builder.operands.items.len);
+    const early: u32 = @intCast(comp.operands.items.len);
     for (args) |argument| {
         const value = try check.checkExpr(argument, null);
-        try builder.operands.append(comp.gpa, .{ .value = value, .initializer = .none });
+        try comp.operands.append(comp.gpa, .{ .value = value, .initializer = .none });
     }
 
     const receiver_rows: u32 = if (has_receiver) 1 else 0;
@@ -4289,7 +4415,7 @@ fn inferTypeArguments(
             return false;
         }
 
-        const pinned = builder.operands.items[early + pin.argument].value;
+        const pinned = comp.operands.items[early + pin.argument].value;
         var found = check.typeOf(pinned);
         if (found == .poison) return false;
         if (Pool.isUntyped(found)) {
@@ -5005,7 +5131,6 @@ fn runtimeOnly(tag: Node.Tag) ?[]const u8 {
         .break_expr => "'break'",
         .continue_expr => "'continue'",
         .call => "a call",
-        .struct_literal => "a struct literal",
         .deref => "reading through a pointer",
         .is_expr => "an 'is' test",
         .or_bind => "an 'or' handler",

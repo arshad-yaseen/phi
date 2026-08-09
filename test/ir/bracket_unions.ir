@@ -1,7 +1,7 @@
 fn wrap(value: u32 | none) Box[u32 | none]
 b0:
   %0 = param value : u32 | none
-  %1 = struct_init .{ item: %0 } : Box[u32 | none]
+  %1 = aggregate_init .{ item: %0 } : Box[u32 | none]
   return %1
 
 fn read(box: Box[u32 | none]) u32 | none

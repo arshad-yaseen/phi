@@ -1,7 +1,6 @@
 fn make() Pair[true | false, i64]
 b0:
-  %0 = struct_init .{ key: true, value: 41:i64 } : Pair[true | false, i64]
-  return %0
+  return Pair[true | false, i64].{ key: true, value: 41:i64 }
 
 fn use_them() i64
 b0:

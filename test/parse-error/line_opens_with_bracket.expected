@@ -1,0 +1,8 @@
+error[E0117]: this line opens with '[', which may continue the line above
+ --> test/parse-error/line_opens_with_bracket.phi:3:5
+  |
+3 |     [1, 2]
+  |     ^ unclear what this belongs to
+  |
+  = help: move it up to continue that line, or write ',' before it to start a new one
+

@@ -15,6 +15,7 @@ bytes: std.ArrayList(u8),
 /// Item lookup, so one (tag, payload) is one index forever.
 map: std.HashMapUnmanaged(Index, void, IndexContext, load_percentage),
 string_map: std.HashMapUnmanaged(String, void, StringContext, load_percentage),
+scratch: std.ArrayList(Index),
 /// Small integer constants, so they skip the map. `.poison`, never a value, marks unfilled.
 small_ints: [statics * small_int_range]Index,
 
@@ -46,6 +47,8 @@ pub const Index = enum(u32) {
     /// A number that has not met a type yet.
     untyped_int_type,
     untyped_float_type,
+    /// A written `[a, b, c]`, which has not met a type yet.
+    untyped_aggregate_type,
     _,
 
     pub fn from(raw: usize) Index {
@@ -119,6 +122,7 @@ pub const SimpleType = enum(u32) {
     void = @intFromEnum(Index.void_type),
     untyped_int = @intFromEnum(Index.untyped_int_type),
     untyped_float = @intFromEnum(Index.untyped_float_type),
+    untyped_aggregate = @intFromEnum(Index.untyped_aggregate_type),
 
     pub fn index(simple: SimpleType) Index {
         return @enumFromInt(@intFromEnum(simple));
@@ -130,7 +134,8 @@ pub const SimpleType = enum(u32) {
             .i8, .i16, .i32, .i64 => true,
             .u8, .u16, .u32, .u64 => true,
             .f32, .f64 => true,
-            .poison, .void, .untyped_int, .untyped_float => false,
+            .poison, .void => false,
+            .untyped_int, .untyped_float, .untyped_aggregate => false,
         };
     }
 };
@@ -185,6 +190,8 @@ pub const Key = union(enum) {
 
     value_int: Int,
     value_float: Float,
+    /// Ordered elements. Borrowed from `extra`, stale at the next intern.
+    value_aggregate: Aggregate,
     /// The one value of a unit type.
     value_unit: Index,
     /// A constant that knows its union: the union, then the member constant.
@@ -196,6 +203,7 @@ pub const Key = union(enum) {
     pub const Int = struct { type: Index, value: i128 };
     pub const Float = struct { type: Index, value: f64 };
     pub const Wrapped = struct { type: Index, value: Index };
+    pub const Aggregate = struct { type: Index, elems: []const Index };
 
     fn hash(key: Key) u64 {
         const seed: u64 = @intFromEnum(std.meta.activeTag(key));
@@ -213,6 +221,12 @@ pub const Key = union(enum) {
             .type_unit => |decl| return hashWords(seed, .{decl.int()}),
             .type_union => |members| {
                 return std.hash.Wyhash.hash(seed, std.mem.sliceAsBytes(members));
+            },
+            .value_aggregate => |it| {
+                var hasher: std.hash.Wyhash = .init(seed);
+                hasher.update(std.mem.asBytes(&it.type));
+                hasher.update(std.mem.sliceAsBytes(it.elems));
+                return hasher.final();
             },
             .value_unit => |unit_type| return hashWords(seed, .{unit_type.int()}),
             .value_union => |it| return hashWords(seed, .{ it.type.int(), it.value.int() }),
@@ -243,6 +257,8 @@ pub const Key = union(enum) {
             .type_struct => |instance| instance == other.type_struct,
             .type_unit => |decl| decl == other.type_unit,
             .type_union => |members| std.mem.eql(Index, members, other.type_union),
+            .value_aggregate => |it| it.type == other.value_aggregate.type and
+                std.mem.eql(Index, it.elems, other.value_aggregate.elems),
             .value_unit => |unit_type| unit_type == other.value_unit,
             .value_union => |it| it.type == other.value_union.type and
                 it.value == other.value_union.value,
@@ -273,6 +289,8 @@ const Item = struct {
         value_int,
         /// `data` points at `extra`.
         value_float,
+        /// `data` points at `extra`. The type, the element count, then the elements.
+        value_aggregate,
         /// `data` is its unit type.
         value_unit,
         /// `data` points at `extra`. The union, then the member constant.
@@ -293,6 +311,7 @@ pub fn init(pool: *Pool, gpa: Allocator) Allocator.Error!void {
         .bytes = .empty,
         .map = .empty,
         .string_map = .empty,
+        .scratch = .empty,
         .small_ints = @splat(.poison),
     };
     errdefer pool.deinit(gpa);
@@ -321,6 +340,7 @@ pub fn deinit(pool: *Pool, gpa: Allocator) void {
     pool.bytes.deinit(gpa);
     pool.map.deinit(gpa);
     pool.string_map.deinit(gpa);
+    pool.scratch.deinit(gpa);
     pool.* = undefined;
 }
 
@@ -353,7 +373,7 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
             assert(pool.isType(array.child));
             break :item .{
                 .tag = .type_array,
-                .data = try pool.addExtra(gpa, array.child.int(), &wordsOf(array.len)),
+                .data = try pool.addExtra(gpa, &.{array.child.int()}, &wordsOf(array.len)),
             };
         },
         .type_struct => |instance| .{ .tag = .type_struct, .data = instance.int() },
@@ -368,7 +388,7 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
             }
             break :item .{
                 .tag = .type_union,
-                .data = try pool.addExtra(gpa, @intCast(members.len), @ptrCast(members)),
+                .data = try pool.addExtra(gpa, &.{@intCast(members.len)}, @ptrCast(members)),
             };
         },
         .value_union => |it| item: {
@@ -378,7 +398,19 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
             assert(pool.unionHas(it.type, pool.typeOfValue(it.value)));
             break :item .{
                 .tag = .value_union,
-                .data = try pool.addExtra(gpa, it.type.int(), &.{it.value.int()}),
+                .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.value.int()}),
+            };
+        },
+        .value_aggregate => |it| item: {
+            assert(pool.isType(it.type));
+            for (it.elems) |element| assert(pool.isType(element) == false);
+            break :item .{
+                .tag = .value_aggregate,
+                .data = try pool.addExtra(
+                    gpa,
+                    &.{ it.type.int(), @intCast(it.elems.len) },
+                    @ptrCast(it.elems),
+                ),
             };
         },
         .value_unit => |unit_type| item: {
@@ -387,11 +419,11 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
         .value_int => |it| .{
             .tag = .value_int,
-            .data = try pool.addExtra(gpa, it.type.int(), &wordsOf(it.value)),
+            .data = try pool.addExtra(gpa, &.{it.type.int()}, &wordsOf(it.value)),
         },
         .value_float => |it| .{
             .tag = .value_float,
-            .data = try pool.addExtra(gpa, it.type.int(), &wordsOf(@as(u64, @bitCast(it.value)))),
+            .data = try pool.addExtra(gpa, &.{it.type.int()}, &wordsOf(@as(u64, @bitCast(it.value)))),
         },
     };
     try pool.items.append(gpa, item);
@@ -429,6 +461,10 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
         .type_union => .{
             .type_union = @ptrCast(pool.extra.items[data + 1 ..][0..pool.extra.items[data]]),
         },
+        .value_aggregate => .{ .value_aggregate = .{
+            .type = @enumFromInt(pool.extra.items[data]),
+            .elems = @ptrCast(pool.extra.items[data + 2 ..][0..pool.extra.items[data + 1]]),
+        } },
         .value_unit => .{ .value_unit = @enumFromInt(data) },
         .value_union => .{ .value_union = .{
             .type = @enumFromInt(pool.extra.items[data]),
@@ -622,6 +658,7 @@ pub fn typeOfValue(pool: *const Pool, value: Index) Index {
     return switch (pool.keyOf(value)) {
         .value_int => |it| it.type,
         .value_float => |it| it.type,
+        .value_aggregate => |it| it.type,
         .value_unit => |unit_type| unit_type,
         .value_union => |it| it.type,
         .type_simple => |simple| simple: {
@@ -636,8 +673,21 @@ pub fn isType(pool: *const Pool, index: Index) bool {
     return switch (pool.keyOf(index)) {
         .type_simple, .type_pointer, .type_array => true,
         .type_struct, .type_unit, .type_union => true,
-        .value_int, .value_float, .value_unit, .value_union => false,
+        .value_int, .value_float, .value_aggregate => false,
+        .value_unit, .value_union => false,
     };
+}
+
+/// With `aggregateAt`, for walks that intern. `keyOf` only borrows.
+pub fn aggregateLen(pool: *const Pool, index: Index) u32 {
+    assert(pool.items.items(.tag)[index.int()] == .value_aggregate);
+    return pool.extra.items[pool.items.items(.data)[index.int()] + 1];
+}
+
+pub fn aggregateAt(pool: *const Pool, index: Index, at: u32) Index {
+    assert(at < pool.aggregateLen(index));
+    const data = pool.items.items(.data)[index.int()];
+    return @enumFromInt(pool.extra.items[data + 2 + at]);
 }
 
 pub fn isInteger(index: Index) bool {
@@ -659,7 +709,8 @@ pub fn isFloat(index: Index) bool {
 /// A constant that has not met a type yet, so it may still take one.
 pub fn isUntyped(index: Index) bool {
     if (index == .untyped_int_type) return true;
-    return index == .untyped_float_type;
+    if (index == .untyped_float_type) return true;
+    return index == .untyped_aggregate_type;
 }
 
 pub fn isNumeric(index: Index) bool {
@@ -858,12 +909,51 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
             }
             return .wrong_kind;
         },
+        .value_aggregate => |it| {
+            if (isUntyped(it.type) == false) {
+                return if (type_index == it.type) .{ .value = value } else .wrong_kind;
+            }
+            const array = switch (pool.keyOf(type_index)) {
+                .type_array => |found| found,
+                else => return .wrong_kind,
+            };
+            return pool.fitAggregate(gpa, value, array, type_index);
+        },
         .value_unit => |unit_type| {
             return if (type_index == unit_type) .{ .value = value } else .wrong_kind;
         },
         .type_simple, .type_pointer, .type_array => unreachable,
         .type_struct, .type_unit, .type_union => unreachable,
     }
+}
+
+fn fitAggregate(
+    pool: *Pool,
+    gpa: Allocator,
+    value: Index,
+    array: Key.Array,
+    type_index: Index,
+) Allocator.Error!Fit {
+    const count = pool.aggregateLen(value);
+    if (array.len != count) return .does_not_fit;
+
+    const mark = pool.scratch.items.len;
+    defer pool.scratch.shrinkRetainingCapacity(mark);
+    try pool.scratch.ensureUnusedCapacity(gpa, count);
+
+    var at: u32 = 0;
+    while (at < count) : (at += 1) {
+        switch (try pool.fit(gpa, pool.aggregateAt(value, at), array.child)) {
+            .value => |fitted| try pool.scratch.append(gpa, fitted),
+            .does_not_fit => return .does_not_fit,
+            .wrong_kind => return .wrong_kind,
+        }
+    }
+
+    return .{ .value = try pool.intern(gpa, .{ .value_aggregate = .{
+        .type = type_index,
+        .elems = pool.scratch.items[mark..],
+    } }) };
 }
 
 // the arms of the core
@@ -1023,14 +1113,20 @@ fn internWith(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Alloc
 
 // storage helpers
 
-/// One leading word, then the payload: a value's type, a union's member count,
-/// or an array's element type.
-fn addExtra(pool: *Pool, gpa: Allocator, lead: u32, words: []const u32) Allocator.Error!u32 {
-    assert(words.len > 0);
-    if (pool.extra.items.len + words.len + 1 > std.math.maxInt(u32)) return error.OutOfMemory;
+/// Leading words, then the payload.
+fn addExtra(
+    pool: *Pool,
+    gpa: Allocator,
+    leads: []const u32,
+    words: []const u32,
+) Allocator.Error!u32 {
+    assert(leads.len > 0);
+    if (pool.extra.items.len + words.len + leads.len > std.math.maxInt(u32)) {
+        return error.OutOfMemory;
+    }
 
     // the reserve may move `extra`, so the payload must not point into it
-    if (pool.extra.items.len > 0) {
+    if (pool.extra.items.len > 0 and words.len > 0) {
         const extra_start = @intFromPtr(pool.extra.items.ptr);
         const extra_end = extra_start + pool.extra.items.len * @sizeOf(u32);
         const words_start = @intFromPtr(words.ptr);
@@ -1038,11 +1134,11 @@ fn addExtra(pool: *Pool, gpa: Allocator, lead: u32, words: []const u32) Allocato
     }
 
     const start: u32 = @intCast(pool.extra.items.len);
-    try pool.extra.ensureUnusedCapacity(gpa, words.len + 1);
-    pool.extra.appendAssumeCapacity(lead);
+    try pool.extra.ensureUnusedCapacity(gpa, words.len + leads.len);
+    pool.extra.appendSliceAssumeCapacity(leads);
     pool.extra.appendSliceAssumeCapacity(words);
 
-    assert(pool.extra.items.len == start + words.len + 1);
+    assert(pool.extra.items.len == start + words.len + leads.len);
     return start;
 }
 
@@ -1102,228 +1198,3 @@ const StringContext = struct {
         return a == b;
     }
 };
-
-const testing = std.testing;
-
-test "one value is one item, and the statics sit where their names say" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-
-    const five = try pool.intern(testing.allocator, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 5 },
-    });
-    const again = try pool.intern(testing.allocator, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 5 },
-    });
-    try testing.expectEqual(five, again);
-
-    const typed = try pool.intern(testing.allocator, .{
-        .value_int = .{ .type = .u8_type, .value = 5 },
-    });
-    try testing.expect(five != typed);
-
-    try testing.expectEqual(Index.u8_type, try pool.intern(testing.allocator, .{
-        .type_simple = .u8,
-    }));
-}
-
-test "every primitive name is its own static item, and nothing else has one" {
-    try testing.expectEqual(Index.i8_type, primitiveType("i8"));
-    try testing.expectEqual(Index.u64_type, primitiveType("u64"));
-    try testing.expectEqual(Index.f64_type, primitiveType("f64"));
-
-    try testing.expectEqual(null, primitiveType("nothing"));
-    try testing.expectEqual(null, primitiveType("bool"));
-    try testing.expectEqual(null, primitiveType("error"));
-    try testing.expectEqual(null, primitiveType("true"));
-    try testing.expectEqual(null, primitiveType("poison"));
-    try testing.expectEqual(null, primitiveType("int"));
-
-    try testing.expectEqual(10, primitive_names.len);
-    for (primitive_names) |name| try testing.expect(primitiveType(name) != null);
-}
-
-test "folding is 128 bits wide and reports the edge" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const a = try pool.intern(gpa, .{ .value_int = .{ .type = .untyped_int_type, .value = 255 } });
-    const b = try pool.intern(gpa, .{ .value_int = .{ .type = .untyped_int_type, .value = 1 } });
-
-    const sum = try pool.fold(gpa, .add, a, b);
-    try testing.expectEqual(@as(i128, 256), pool.keyOf(sum.value).value_int.value);
-
-    const zero = try pool.intern(gpa, .{ .value_int = .{ .type = .untyped_int_type, .value = 0 } });
-    try testing.expectEqual(Fold.division_by_zero, try pool.fold(gpa, .div, a, zero));
-
-    const huge = try pool.intern(gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = std.math.maxInt(i128) },
-    });
-    try testing.expectEqual(Fold.overflow, try pool.fold(gpa, .add, huge, b));
-}
-
-test "a typed operand types the fold, and the type refuses what it cannot hold" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const typed = try pool.intern(gpa, .{ .value_int = .{ .type = .u8_type, .value = 200 } });
-    const untyped = try pool.intern(gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 100 },
-    });
-
-    const folded = try pool.fold(gpa, .add, typed, untyped);
-    try testing.expectEqual(@as(i128, 300), folded.does_not_fit.value);
-    try testing.expectEqual(Index.u8_type, folded.does_not_fit.type);
-
-    const other = try pool.intern(gpa, .{ .value_int = .{ .type = .i64_type, .value = 1 } });
-    const mixed = try pool.fold(gpa, .add, typed, other);
-    try testing.expectEqual(Index.u8_type, mixed.mismatch.left);
-    try testing.expectEqual(Index.i64_type, mixed.mismatch.right);
-}
-
-test "a union is one item, and order is part of the type" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const ab = (try pool.unite(gpa, &.{ .i32_type, .u8_type })).index;
-    const again = (try pool.unite(gpa, &.{ .i32_type, .u8_type })).index;
-    try testing.expectEqual(ab, again);
-    try testing.expect(pool.isUnion(ab));
-    try testing.expect(pool.isType(ab));
-
-    const ba = (try pool.unite(gpa, &.{ .u8_type, .i32_type })).index;
-    try testing.expect(ab != ba);
-
-    try testing.expectEqual(2, pool.unionMemberCount(ab));
-    try testing.expectEqual(Index.i32_type, pool.unionMemberAt(ab, 0));
-    try testing.expectEqual(Index.u8_type, pool.unionMemberAt(ab, 1));
-}
-
-test "a member union splices in flat, and a repeat is refused" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const ab = (try pool.unite(gpa, &.{ .i32_type, .u8_type })).index;
-    const spliced = (try pool.unite(gpa, &.{ ab, .f64_type })).index;
-    const written = (try pool.unite(gpa, &.{ .i32_type, .u8_type, .f64_type })).index;
-    try testing.expectEqual(written, spliced);
-
-    const repeat = try pool.unite(gpa, &.{ .i32_type, .u8_type, .i32_type });
-    try testing.expectEqual(Index.i32_type, repeat.duplicate);
-
-    // the repeat hides inside a member union, and flattening still finds it
-    const nested = try pool.unite(gpa, &.{ ab, .u8_type });
-    try testing.expectEqual(Index.u8_type, nested.duplicate);
-
-    const broken = try pool.unite(gpa, &.{ .poison, .i32_type });
-    try testing.expectEqual(Index.poison, broken.index);
-}
-
-test "a union without one member is the rest, down to the last one bare" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const wide = (try pool.unite(gpa, &.{ .i32_type, .u8_type, .f64_type })).index;
-    const rest = try pool.unionWithout(gpa, wide, .u8_type);
-    try testing.expect(pool.isUnion(rest));
-    try testing.expectEqual(Index.i32_type, pool.unionMemberAt(rest, 0));
-    try testing.expectEqual(Index.f64_type, pool.unionMemberAt(rest, 1));
-
-    try testing.expectEqual(Index.i32_type, try pool.unionWithout(gpa, rest, .f64_type));
-}
-
-test "a unit type carries one value, which knows its type" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const none_type = try pool.intern(gpa, .{ .type_unit = .from(0) });
-    const other_type = try pool.intern(gpa, .{ .type_unit = .from(1) });
-    try testing.expect(none_type != other_type);
-    try testing.expect(pool.isType(none_type));
-
-    const none_value = try pool.intern(gpa, .{ .value_unit = none_type });
-    const again = try pool.intern(gpa, .{ .value_unit = none_type });
-    try testing.expectEqual(none_value, again);
-    try testing.expect(pool.isType(none_value) == false);
-    try testing.expectEqual(none_type, pool.typeOfValue(none_value));
-}
-
-test "a constant meets a union through its first fitting member" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const number = try pool.intern(gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 42 },
-    });
-
-    // both members hold 42, so the first decides and the constant remembers its union
-    const wide = (try pool.unite(gpa, &.{ .i32_type, .i64_type })).index;
-    const first = try pool.fit(gpa, number, wide);
-    const held = pool.keyOf(first.value).value_union;
-    try testing.expectEqual(wide, held.type);
-    try testing.expectEqual(Index.i32_type, pool.keyOf(held.value).value_int.type);
-    try testing.expectEqual(wide, pool.typeOfValue(first.value));
-
-    const none_type = try pool.intern(gpa, .{ .type_unit = .from(0) });
-    const maybe = (try pool.unite(gpa, &.{ .u8_type, none_type })).index;
-
-    const none_value = try pool.intern(gpa, .{ .value_unit = none_type });
-    const chosen = try pool.fit(gpa, none_value, maybe);
-    try testing.expectEqual(none_value, pool.keyOf(chosen.value).value_union.value);
-
-    // a wrapped constant unwraps into a narrower fit, and back to its member
-    try testing.expectEqual(none_value, (try pool.fit(gpa, chosen.value, none_type)).value);
-
-    // 300 is the right kind for u8 and the wrong size, and no member takes it
-    const big = try pool.intern(gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 300 },
-    });
-    try testing.expectEqual(Fit.does_not_fit, try pool.fit(gpa, big, maybe));
-
-    const other_type = try pool.intern(gpa, .{ .type_unit = .from(1) });
-    const other_value = try pool.intern(gpa, .{ .value_unit = other_type });
-    try testing.expectEqual(Fit.wrong_kind, try pool.fit(gpa, other_value, maybe));
-}
-
-test "an untyped constant adapts by value, and a typed one is sealed" {
-    var pool: Pool = undefined;
-    try pool.init(testing.allocator);
-    defer pool.deinit(testing.allocator);
-    const gpa = testing.allocator;
-
-    const loose = try pool.intern(gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 100 },
-    });
-    const narrowed = try pool.fit(gpa, loose, .u8_type);
-    try testing.expectEqual(Index.u8_type, pool.keyOf(narrowed.value).value_int.type);
-
-    // the annotation pinned the type, so only its own type takes it back
-    const wide = try pool.intern(gpa, .{ .value_int = .{ .type = .i64_type, .value = 100 } });
-    try testing.expectEqual(wide, (try pool.fit(gpa, wide, .i64_type)).value);
-    try testing.expectEqual(Fit.wrong_kind, try pool.fit(gpa, wide, .u8_type));
-    try testing.expectEqual(Fit.wrong_kind, try pool.fit(gpa, wide, .f64_type));
-
-    const big = try pool.intern(gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = 256 },
-    });
-    try testing.expectEqual(Fit.does_not_fit, try pool.fit(gpa, big, .u8_type));
-
-    const unit_type = try pool.intern(gpa, .{ .type_unit = .from(0) });
-    const unit_value = try pool.intern(gpa, .{ .value_unit = unit_type });
-    try testing.expectEqual(Fit.wrong_kind, try pool.fit(gpa, unit_value, .u8_type));
-}

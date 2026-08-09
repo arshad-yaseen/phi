@@ -147,6 +147,8 @@ pub const Node = struct {
         call,
         /// `Point.{ ... }`, which names the struct it builds.
         struct_literal,
+        /// `[a, b, c]`, which states its own length.
+        array_literal,
         struct_field_init,
 
         binary,
@@ -367,6 +369,7 @@ pub const View = union(enum) {
     bracket: Bracket,
     call: Call,
     struct_literal: StructLiteral,
+    array_literal: []const Node.Index,
     struct_field_init: NamedValue,
 
     binary: Binary,
@@ -581,6 +584,7 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
                 .fields = payload.list(),
             } };
         },
+        .array_literal => .{ .array_literal = tree.listAt(data.extra) },
         .struct_field_init => .{ .struct_field_init = .{ .name_token = main, .value = data.node } },
 
         .binary => .{
@@ -894,6 +898,14 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
                     if (it.fields.len > 0) {
                         current = it.fields[it.fields.len - 1];
                     } else return main.after(2);
+                },
+            },
+            .array_literal => |elements| switch (side) {
+                .leftmost => return main,
+                .rightmost => {
+                    if (elements.len > 0) {
+                        current = elements[elements.len - 1];
+                    } else return main.after(1);
                 },
             },
             .struct_field_init => |it| switch (side) {

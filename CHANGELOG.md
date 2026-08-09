@@ -25,9 +25,16 @@
   mem.align_up(11, 8)`, the annotation decides `T` where the arguments
   leave it open. Typed arguments still pin first, and a width stated
   nowhere still refuses.
-- `[N]T` is an array, N values of one type laid out end to end. The length is
-  part of the type, so it costs no memory, and `a.len` reads it as a `u64`
-  settled before anything runs, which may in turn size another array.
+- `[N]T` is an array, N values of one type laid out end to end and written
+  `[1, 2, 3]`. The length lives in the type, so it costs no memory, answers as
+  `a.len`, and may size another array. A literal has no type until it lands, so
+  one written once fits wherever its value fits.
+- A literal folds where its parts are constant, whether it builds an array or a
+  struct, so `Point.{ x: 1, y: 2 }` binds at the top level, sits inside an
+  array, and costs no instruction, while one with a runtime part is built where
+  it stands.
+- A `var` no longer asks a sealed constant for the type it already carries:
+  `let n: u64 = 2` followed by `var c = n` used to be refused.
 
 ## [0.2.0] - 2026-08-08
 
