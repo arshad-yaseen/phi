@@ -18,8 +18,9 @@
   program owns, `let magic: [2]u8 = "hi"` is storage with its length checked,
   and `s[i] == 'a'` compares two numbers. Escapes decode at compile time, and a
   literal never crosses a line.
-- `@size_of[T]()` and `@align_of[T]()` answer as constants that fit wherever
-  their value fits, so `let n: u32 = @size_of[Node]()` needs no conversion.
+- `@size_of[T]()`, `@align_of[T]()`, `@min_int[T]()`, and `@max_int[T]()` answer
+  as constants that fit wherever their value fits, so `let n: u32 =
+  @size_of[Node]()` needs no conversion and `@max_int[u64]()` is exact.
 - `std.mem` opens the standard library with `align_up`, which rounds an address
   to an alignment it asserts is a power of two.
 - `std.debug.assert(ok)` arrives over `@trap()`: a violated contract stops the

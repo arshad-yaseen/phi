@@ -766,6 +766,45 @@ pub fn isNumeric(index: Index) bool {
     return isFloat(index);
 }
 
+/// The lowest value an integer type holds. Exact, because every width folds in 128 bits.
+pub fn minInt(type_index: Index) i128 {
+    // a written type is never untyped, so every case below is a stated width
+    assert(isInteger(type_index));
+    assert(type_index != .untyped_int_type);
+
+    return switch (type_index) {
+        .i8_type => std.math.minInt(i8),
+        .i16_type => std.math.minInt(i16),
+        .i32_type => std.math.minInt(i32),
+        .i64_type => std.math.minInt(i64),
+        .u8_type, .u16_type, .u32_type, .u64_type => 0,
+        else => unreachable,
+    };
+}
+
+pub fn maxInt(type_index: Index) i128 {
+    assert(isInteger(type_index));
+    assert(type_index != .untyped_int_type);
+
+    return switch (type_index) {
+        .i8_type => std.math.maxInt(i8),
+        .i16_type => std.math.maxInt(i16),
+        .i32_type => std.math.maxInt(i32),
+        .i64_type => std.math.maxInt(i64),
+        .u8_type => std.math.maxInt(u8),
+        .u16_type => std.math.maxInt(u16),
+        .u32_type => std.math.maxInt(u32),
+        .u64_type => std.math.maxInt(u64),
+        else => unreachable,
+    };
+}
+
+comptime {
+    // both edges of every width sit inside the fold, which is what keeps them exact
+    assert(std.math.maxInt(u64) < std.math.maxInt(i128));
+    assert(std.math.minInt(i64) > std.math.minInt(i128));
+}
+
 pub fn fitsInt(value: i128, type_index: Index) bool {
     assert(isInteger(type_index) or isFloat(type_index));
     return switch (type_index) {

@@ -1,0 +1,32 @@
+error[E0211]: '@max_int' needs an integer type, and this is f32
+ --> test/fail/limits.phi:6:12
+  |
+6 |     return @max_int[f32]()
+  |            ^^^^^^^^^^^^^^^ not an integer type
+  |
+  = help: the integer types are 'i8' through 'i64' and 'u8' through 'u64'
+
+error[E0211]: '@min_int' needs an integer type, and this is Point
+  --> test/fail/limits.phi:10:12
+   |
+10 |     return @min_int[Point]()
+   |            ^^^^^^^^^^^^^^^^^ not an integer type
+   |
+   = help: the integer types are 'i8' through 'i64' and 'u8' through 'u64'
+
+error[E0208]: 18446744073709551615 does not fit in i64
+  --> test/fail/limits.phi:15:12
+   |
+15 |     return @max_int[u64]()
+   |            ^^^^^^^^^^^^^^^ past the type's edge
+   |
+   = help: an untyped constant takes any type its value fits, and this value does not fit this one
+
+error[E0208]: -128 does not fit in u32
+  --> test/fail/limits.phi:19:12
+   |
+19 |     return @min_int[i8]()
+   |            ^^^^^^^^^^^^^^ past the type's edge
+   |
+   = help: an untyped constant takes any type its value fits, and this value does not fit this one
+

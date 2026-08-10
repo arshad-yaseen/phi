@@ -1,0 +1,39 @@
+fn highest_u8() u8
+b0:
+  return 255:u8
+
+fn lowest_i32() i32
+b0:
+  return -2147483648:i32
+
+fn lowest_u64() u64
+b0:
+  return 0:u64
+
+fn highest_u64() u64
+b0:
+  return 18446744073709551615:u64
+
+fn lowest_i64() i64
+b0:
+  return -9223372036854775808:i64
+
+fn widened() i64
+b0:
+  return 4294967295:i64
+
+fn saturating(n: u32) u32
+b0:
+  %0 = param n : u32
+  %1 = cmp_gt %0, 65535:u32 : true | false
+  branch %1, b1, b2
+b1:
+  return 65535:u32
+b2:
+  jump b3
+b3:
+  return %0
+
+fn through_an_alias() u8
+b0:
+  return 255:u8

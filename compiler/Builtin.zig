@@ -11,6 +11,10 @@ pub const Builtin = enum {
     size_of,
     /// `@align_of[T]()`, the alignment a value of `T` requires, a constant.
     align_of,
+    /// `@min_int[T]()`, the lowest value the integer type `T` holds, a constant.
+    min_int,
+    /// `@max_int[T]()`, the highest value the integer type `T` holds, a constant.
+    max_int,
     /// `@trap()`, stopping the program where it stands.
     trap,
 
@@ -23,7 +27,7 @@ pub const Builtin = enum {
     pub fn shape(builtin: Builtin) Shape {
         return switch (builtin) {
             .ptr_cast => .{ .type_params = 1, .params = 1 },
-            .size_of, .align_of => .{ .type_params = 1, .params = 0 },
+            .size_of, .align_of, .min_int, .max_int => .{ .type_params = 1, .params = 0 },
             .trap => .{ .type_params = 0, .params = 0 },
         };
     }
@@ -33,7 +37,7 @@ pub const Builtin = enum {
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast => true,
-            .size_of, .align_of, .trap => false,
+            .size_of, .align_of, .min_int, .max_int, .trap => false,
         };
     }
 

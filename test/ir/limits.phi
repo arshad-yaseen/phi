@@ -1,0 +1,42 @@
+// an edge is a constant, so it costs no instruction
+fn highest_u8() u8 {
+    return @max_int[u8]()
+}
+
+fn lowest_i32() i32 {
+    return @min_int[i32]()
+}
+
+// an unsigned type starts at zero, however wide it is
+fn lowest_u64() u64 {
+    return @min_int[u64]()
+}
+
+// the widest value of the widest type is exact, because constants fold in 128 bits
+fn highest_u64() u64 {
+    return @max_int[u64]()
+}
+
+fn lowest_i64() i64 {
+    return @min_int[i64]()
+}
+
+// untyped, so a narrow type's edge lands in a wider one without a conversion
+fn widened() i64 {
+    return @max_int[u32]()
+}
+
+// and it folds where it stands, so a guard costs nothing at run time
+fn saturating(n: u32) u32 {
+    if n > @max_int[u16]() {
+        return @max_int[u16]()
+    }
+    return n
+}
+
+// an alias names the same type, so it answers the same edge
+type Byte = u8
+
+fn through_an_alias() u8 {
+    return @max_int[Byte]()
+}

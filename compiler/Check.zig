@@ -5021,6 +5021,7 @@ fn checkBuiltin(
     switch (which) {
         .ptr_cast => return check.builtinPtrCast(args[0], types[0], values[0]),
         .size_of, .align_of => return check.builtinLayoutOf(node, which, types[0]),
+        .min_int, .max_int => return check.builtinLimitOf(node, which, types[0]),
         .trap => {
             try check.reopenDead();
             check.endBlock(.trap);
@@ -5058,6 +5059,34 @@ fn builtinLayoutOf(
             return .poison;
         },
     }
+}
+
+/// An edge of an integer type, an untyped constant, so it meets any type it fits.
+fn builtinLimitOf(
+    check: *Check,
+    node: Node.Index,
+    which: Builtin,
+    wanted: Pool.Index,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(which == .min_int or which == .max_int);
+
+    if (Pool.isInteger(wanted) == false) {
+        try check.fail(node, .{
+            .code = .bad_operand,
+            .message = try comp.fmt("'@{s}' needs an integer type, and this is {s}", .{
+                @tagName(which), try comp.typeName(wanted),
+            }),
+            .label = "not an integer type",
+            .help = "the integer types are 'i8' through 'i64' and 'u8' through 'u64'",
+        });
+        return .poison;
+    }
+
+    const edge = if (which == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted);
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = .untyped_int_type, .value = edge },
+    }) };
 }
 
 /// Retypes the pointee and keeps what the pointer may do.
