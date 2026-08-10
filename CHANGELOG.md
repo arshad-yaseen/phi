@@ -53,6 +53,9 @@
   own length, the ends take each other's type, what the view may write is what
   the place it came from allowed, and a range that leaves its base is refused
   before anything runs, or checked before the view is made.
+- `loop i in 0..n` counts a range: the name is a `let` for the pass, both ends
+  are read once before the first, and the counter takes the type of the ends,
+  `u64` where neither says. `in` joins the keywords.
 - A struct literal may leave out the type where what it lands on says it, so
   `let p: Point = .{ x: 1, y: 2 }` reads once instead of twice, as do an
   argument, a return, a field, and an element. It still names the type where

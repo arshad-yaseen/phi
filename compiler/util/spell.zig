@@ -313,7 +313,14 @@ fn node(
         .loop_expr => |it| {
             if (it.label) |label| try writer.print(" {s}", .{ast.tokenSlice(label)});
             try writer.writeByte('\n');
-            if (it.cond.unwrap()) |cond| try node(ast, writer, cond, below, "cond");
+            switch (it.head) {
+                .forever => {},
+                .cond => |cond| try node(ast, writer, cond, below, "cond"),
+                .range => |range| {
+                    try node(ast, writer, range.name, below, "binds");
+                    try node(ast, writer, range.over, below, "over");
+                },
+            }
             try node(ast, writer, it.body, below, "body");
             if (it.else_node.unwrap()) |otherwise| try node(ast, writer, otherwise, below, "else");
         },

@@ -1,0 +1,30 @@
+fn backwards() {
+    loop i in 5..3 {
+        _ = i
+    }
+}
+
+fn crossed_types(n: u32) {
+    var from: u64 = 0
+    loop i in from..n {
+        _ = i
+    }
+}
+
+fn not_a_count(flag: bool) {
+    loop i in 0..flag {
+        _ = i
+    }
+}
+
+fn discarded(n: u64) {
+    loop _ in 0..n {
+    }
+}
+
+// the name is a 'let', so the body cannot move it
+fn assigned(n: u64) {
+    loop i in 0..n {
+        i = 3
+    }
+}

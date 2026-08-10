@@ -1648,13 +1648,13 @@ fn checkLoop(
 
     const carries = wantsValue(hint);
 
-    // only a conditional loop needs `else` for a value when its condition fails
-    const else_missing = carries and view.cond != .none and view.else_node == .none;
+    // a loop that can end on its own needs `else` to say what it is then
+    const else_missing = carries and view.head.ends() and view.else_node == .none;
 
     if (else_missing) {
         try check.fail(node, .{
             .code = .type_mismatch,
-            .message = "this loop has no 'else', so it has no value when its condition fails",
+            .message = "this loop has no 'else', so it has no value when it ends on its own",
             .label = "needs an 'else'",
             .help = "a loop used as a value says what it is when it ends on its own",
         });
@@ -1680,6 +1680,15 @@ fn checkLoop(
         }
     }
 
+    const binding: ?Node.Index = switch (view.head) {
+        .range => |it| it.name,
+        .forever, .cond => null,
+    };
+    const counter: ?Counter = switch (view.head) {
+        .range => |it| try check.startCounter(it.name, it.over),
+        .forever, .cond => null,
+    };
+
     const header = try check.newBlock();
     const body_block = try check.newBlock();
     const exit = try check.newBlock();
@@ -1687,26 +1696,37 @@ fn checkLoop(
         try check.newBlock()
     else
         exit;
+    // the increment stands apart, so `continue` reaches it before the test
+    const latch: IR.Block.Index = if (counter != null) try check.newBlock() else header;
 
     check.endBlock(.{ .jump = header });
     check.startBlock(header);
-    if (view.cond.unwrap()) |cond_node| {
+    switch (view.head) {
+        .forever => check.endBlock(.{ .jump = body_block }),
         // the header never narrows, so no facts are gathered here
-        const cond = try check.checkCondition(cond_node);
-        try check.reopenDead();
-        check.endBlock(.{ .branch = .{
-            .cond = cond,
-            .then_block = body_block,
-            .else_block = else_target,
-        } });
-    } else {
-        check.endBlock(.{ .jump = body_block });
+        .cond => |cond_node| {
+            const cond = try check.checkCondition(cond_node);
+            try check.reopenDead();
+            check.endBlock(.{ .branch = .{
+                .cond = cond,
+                .then_block = body_block,
+                .else_block = else_target,
+            } });
+        },
+        .range => {
+            const held = try check.counterBelowEnd(counter);
+            check.endBlock(.{ .branch = .{
+                .cond = held,
+                .then_block = body_block,
+                .else_block = else_target,
+            } });
+        },
     }
 
     try builder.loops.append(comp.gpa, .{
         .label = label,
         .node = node,
-        .header = header,
+        .header = latch,
         .exit = exit,
         .scope_depth = @intCast(builder.scopes.items.len),
         .slot = slot,
@@ -1718,8 +1738,16 @@ fn checkLoop(
 
     check.startBlock(body_block);
     builder.reachable = entry_reachable;
+    if (binding) |name| try check.bindCounter(name, counter);
     _ = try check.checkBlockValue(view.body, .void_type);
-    if (check.blockOpen()) check.endBlock(.{ .jump = header });
+    if (binding != null) check.popScope();
+    if (check.blockOpen()) check.endBlock(.{ .jump = latch });
+
+    if (counter) |it| {
+        check.startBlock(latch);
+        try check.countOn(it);
+        check.endBlock(.{ .jump = header });
+    }
 
     const finished = builder.loops.pop().?;
     var result_type = finished.result_type;
@@ -1728,7 +1756,7 @@ fn checkLoop(
     var else_flows = false;
     if (view.else_node.unwrap()) |else_node| {
         check.startBlock(else_target);
-        if (view.cond == .none) {
+        if (view.head.ends() == false) {
             builder.reachable = false;
             try check.fail(else_node, .{
                 .code = .unreachable_code,
@@ -1754,7 +1782,7 @@ fn checkLoop(
 
     check.startBlock(exit);
     var exit_reachable = finished.broke_reachable;
-    if (view.cond != .none) {
+    if (view.head.ends()) {
         if (view.else_node == .none) {
             if (entry_reachable) exit_reachable = true;
         } else {
@@ -1774,6 +1802,82 @@ fn checkLoop(
 
     const loaded = try check.emitOne(.load, result_type, slot);
     return runtimeValue(loaded, result_type);
+}
+
+/// A range loop's counter, which the header tests and the latch counts on.
+const Counter = struct {
+    slot: Ref,
+    /// Read once, before the first pass.
+    end: Ref,
+    type: Pool.Index,
+};
+
+/// The slot a pass counts, filled with the first value. Null once reported.
+fn startCounter(check: *Check, name: Node.Index, over: Node.Index) Allocator.Error!?Counter {
+    const comp = check.comp;
+    // recovery can leave a hole where the range should be, already reported
+    if (check.tree.nodeTag(over) != .range_expr) return null;
+
+    const range = check.tree.viewOf(over).range_expr;
+    const end_node = range.end.unwrap() orelse return null;
+
+    const first = try check.checkRangeEnd(range.start) orelse return null;
+    const last = try check.checkRangeEnd(end_node) orelse return null;
+    const ends = try check.settleEnds(
+        over,
+        .{ .value = first, .node = range.start },
+        .{ .value = last, .node = end_node },
+    ) orelse return null;
+    if (try check.rangeRunsBackwards(over, ends.start, ends.end)) return null;
+
+    const text = check.mainTokenText(name);
+    const named: Pool.String = if (Module.isDiscard(text))
+        .empty
+    else
+        try comp.pool.string(comp.gpa, text);
+
+    const slot = try check.emitSlot(named, ends.type);
+    try check.emitStore(slot, refOf(ends.start));
+    return .{ .slot = slot, .end = refOf(ends.end), .type = ends.type };
+}
+
+/// The compiler's own test, typed void, so no `bool` is asked of the file.
+fn counterBelowEnd(check: *Check, counter: ?Counter) Allocator.Error!Ref {
+    const it = counter orelse return .fromConstant(.poison);
+    const current = try check.emitOne(.load, it.type, it.slot);
+    return check.emit(.cmp_lt, .void_type, .{ .bin = .{ .lhs = current, .rhs = it.end } });
+}
+
+/// The name a pass binds, which is a `let`, so the body cannot move it.
+fn bindCounter(check: *Check, name: Node.Index, counter: ?Counter) Allocator.Error!void {
+    try check.pushScope();
+
+    const text = check.mainTokenText(name);
+    if (Module.isDiscard(text)) return check.failDiscard(name);
+    const named = try check.comp.pool.string(check.comp.gpa, text);
+
+    const it = counter orelse return check.declarePoisoned(named, name);
+    const current = try check.emitOne(.load, it.type, it.slot);
+    try check.declareLocal(.{
+        .name = named,
+        .node = name,
+        .kind = .let_value,
+        .payload = .{ .ref = current },
+        .type = it.type,
+    }, name);
+}
+
+/// One step, which cannot overflow, because the test proved the counter below the end.
+fn countOn(check: *Check, counter: Counter) Allocator.Error!void {
+    const comp = check.comp;
+    const current = try check.emitOne(.load, counter.type, counter.slot);
+    const one = try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = counter.type, .value = 1 },
+    });
+    const next = try check.emit(.add, counter.type, .{
+        .bin = .{ .lhs = current, .rhs = .fromConstant(one) },
+    });
+    try check.emitStore(counter.slot, next);
 }
 
 /// A slot exists before its arms have said what type it is.
@@ -3805,8 +3909,6 @@ fn checkRange(
     elements: Elements,
     through: Through,
 ) Allocator.Error!?Bounds {
-    const comp = check.comp;
-
     const start = try check.checkRangeEnd(range.start) orelse return null;
     const end_node = range.end.unwrap();
     const end = if (end_node) |written|
@@ -3814,8 +3916,28 @@ fn checkRange(
     else
         try check.baseLength(elements, through);
 
-    const left = check.typeOf(start);
-    const right = check.typeOf(end);
+    const ends = try check.settleEnds(
+        range_node,
+        .{ .value = start, .node = range.start },
+        .{ .value = end, .node = end_node orelse range_node },
+    ) orelse return null;
+    if (try check.checkRangeKnown(range_node, range, elements, ends.start, ends.end) == false) {
+        return null;
+    }
+    return .{ .start = refOf(ends.start), .end = refOf(ends.end) };
+}
+
+/// One end of a range, and where a report about it points.
+const End = struct { value: Value, node: Node.Index };
+
+const Ends = struct { start: Value, end: Value, type: Pool.Index };
+
+/// Both ends under one type, `u64` where neither says. Null once reported.
+fn settleEnds(check: *Check, range_node: Node.Index, start: End, end: End) Allocator.Error!?Ends {
+    const comp = check.comp;
+
+    const left = check.typeOf(start.value);
+    const right = check.typeOf(end.value);
     if (Pool.isUntyped(left) == false and Pool.isUntyped(right) == false and left != right) {
         try check.failToken(check.tree.nodeMainToken(range_node), .{
             .code = .mixed_types,
@@ -3834,13 +3956,10 @@ fn checkRange(
     if (Pool.isUntyped(settled)) settled = right;
     if (Pool.isUntyped(settled)) settled = .u64_type;
 
-    const first = try check.coerce(start, settled, range.start);
-    const second = try check.coerce(end, settled, end_node orelse range_node);
+    const first = try check.coerce(start.value, settled, start.node);
+    const second = try check.coerce(end.value, settled, end.node);
     if (first == .poison or second == .poison) return null;
-    if (try check.checkRangeKnown(range_node, range, elements, first, second) == false) {
-        return null;
-    }
-    return .{ .start = refOf(first), .end = refOf(second) };
+    return .{ .start = first, .end = second, .type = settled };
 }
 
 /// What the constants settle, refused before anything runs, as a constant index is.
@@ -3866,22 +3985,7 @@ fn checkRangeKnown(
         if (at < 0) return check.failRangeNegative(end_node, at);
     }
 
-    if (from) |low| {
-        if (to) |high| {
-            if (low > high) {
-                try check.failToken(check.tree.nodeMainToken(range_node), .{
-                    .code = .out_of_range,
-                    .message = try comp.fmt(
-                        "this range starts at {d} and ends at {d}, so it runs backwards",
-                        .{ low, high },
-                    ),
-                    .label = "the ends cross",
-                    .help = "a range runs from its start up to, but not including, its end",
-                });
-                return false;
-            }
-        }
-    }
+    if (try check.rangeRunsBackwards(range_node, start, end)) return false;
 
     // a view carries its length as data, so only storage settles the far edge
     if (to) |high| {
@@ -3899,6 +4003,29 @@ fn checkRangeKnown(
             }
         }
     }
+    return true;
+}
+
+/// Whether the ends cross, which is refused wherever a range is written.
+fn rangeRunsBackwards(
+    check: *Check,
+    range_node: Node.Index,
+    start: Value,
+    end: Value,
+) Allocator.Error!bool {
+    const low = check.countOf(start) orelse return false;
+    const high = check.countOf(end) orelse return false;
+    if (low <= high) return false;
+
+    try check.failToken(check.tree.nodeMainToken(range_node), .{
+        .code = .out_of_range,
+        .message = try check.comp.fmt(
+            "this range starts at {d} and ends at {d}, so it runs backwards",
+            .{ low, high },
+        ),
+        .label = "the ends cross",
+        .help = "a range runs from its start up to, but not including, its end",
+    });
     return true;
 }
 

@@ -71,3 +71,68 @@ fn cleanup(n: u32) u32 {
     }
     return count
 }
+
+// a range counts from its start up to, but not including, its end, and the
+// name is a 'let' for the pass, so nothing can move it under the body
+fn counted(n: u64) u64 {
+    var total: u64 = 0
+    loop i in 0..n {
+        total += i
+    }
+    return total
+}
+
+// the ends are read once, before the first pass
+fn summed(xs: []u32) u32 {
+    var total: u32 = 0
+    loop at in 0..xs.len {
+        total += xs[at]
+    }
+    return total
+}
+
+// the ends take each other's type, so a signed range counts signed
+fn stepping(from: i32, to: i32) i32 {
+    var last: i32 = 0
+    loop i in from..to {
+        last = i
+    }
+    return last
+}
+
+// 'continue' reaches the step, and 'break' leaves without taking it
+fn nested_ranges(n: u64) u64 {
+    var hits: u64 = 0
+    outer: loop row in 0..n {
+        loop column in 0..n {
+            if column == row {
+                continue :outer
+            }
+            if row > 2 {
+                break :outer
+            }
+            hits += 1
+        }
+    }
+    return hits
+}
+
+// a range loop ends on its own, so as a value it says what it is then
+fn past(xs: []u32, want: u32) u64 {
+    return loop at in 0..xs.len {
+        if xs[at] > want {
+            break at
+        }
+    } else {
+        xs.len
+    }
+}
+
+// an empty range runs no pass at all
+fn empty() u64 {
+    var hits: u64 = 0
+    loop i in 0..0 {
+        hits += 1
+    }
+    return hits
+}

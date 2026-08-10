@@ -1,0 +1,45 @@
+error[E0262]: this range starts at 5 and ends at 3, so it runs backwards
+ --> test/fail/loop_range.phi:2:16
+  |
+2 |     loop i in 5..3 {
+  |                ^^ the ends cross
+  |
+  = help: a range runs from its start up to, but not including, its end
+
+error[E0207]: '..' mixes u64 and u32
+ --> test/fail/loop_range.phi:9:19
+  |
+9 |     loop i in from..n {
+  |                   ^^ two different types
+  |
+  = help: the ends of a range take each other's type, and nothing converts on its own
+
+error[E0211]: an end of a range is a count, and this is true | false
+  --> test/fail/loop_range.phi:15:18
+   |
+15 |     loop i in 0..flag {
+   |                  ^^^^ not a count
+   |
+   = help: any integer counts, and nothing else does
+
+error[E0244]: '_' is not a name, and only discards a value
+  --> test/fail/loop_range.phi:21:10
+   |
+21 |     loop _ in 0..n {
+   |          ^ not a name
+   |
+   = help: write '_ = expression' to drop a value on purpose
+
+error[E0221]: 'i' was bound with 'let', so it cannot change
+  --> test/fail/loop_range.phi:28:9
+   |
+28 |         i = 3
+   |         ^ immutable
+   |
+   = help: declare it 'var' if it needs to change
+note: bound here
+  --> test/fail/loop_range.phi:27:10
+   |
+27 |     loop i in 0..n {
+   |          ^
+

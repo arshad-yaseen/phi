@@ -262,11 +262,19 @@ guessed at. The rule belongs to the base, not to the syntax, so anything
 that later knows a length inherits it and anything that does not is
 already answered.
 
+A loop counts one. `loop i in a..b` runs a pass per value, and `i` is a
+`let` for the pass, so nothing can move it under the body. Both ends are
+written, because a loop has no base to ask, and both are read once,
+before the first pass. The test the compiler inserts is its own, the way
+a match's member tests are, so a file with no `bool` in scope counts all
+the same.
+
 Refused: an implicit array-to-view edge, which hides the one moment a
 reader needs to see. An inclusive `a..=b` beside the exclusive form, two
 spellings whose difference is one character and a bug. A range as a
 value, which wants a type, iteration, and a library of its own to answer
-questions no program asked.
+questions no program asked. A counter the body may move, which counts
+something the header did not.
 
 ## Indexing, and bounds
 

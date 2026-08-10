@@ -54,3 +54,53 @@ root
               value: ident w
       return_expr
         value: ident x
+  fn_decl ranges
+    param n
+      type: ident i64
+    param xs
+      type: slice_type
+        child: ident u32
+    ret: ident i64
+    body: block
+      loop_expr
+        binds: ident i
+        over: range_expr
+          start: number_literal 0
+          end: ident n
+        body: block
+          continue_expr
+      loop_expr
+        binds: ident i
+        over: range_expr
+          start: number_literal 0
+          end: field_access len
+            lhs: ident xs
+        body: block
+          break_expr
+      loop_expr outer
+        binds: ident row
+        over: range_expr
+          start: number_literal 0
+          end: number_literal 2
+        body: block
+          loop_expr
+            binds: ident column
+            over: range_expr
+              start: number_literal 0
+              end: number_literal 3
+            body: block
+              break_expr outer
+      var_decl v let
+        type: ident i64
+        init: loop_expr
+          binds: ident i
+          over: range_expr
+            start: number_literal 0
+            end: ident n
+          body: block
+            break_expr
+              value: ident i
+          else: block
+            number_literal 0
+      return_expr
+        value: ident v

@@ -963,10 +963,17 @@ fn parseLoop(self: *Parse) Allocator.Error!Node.Index {
 
     const loop_token = self.nextToken();
 
-    const cond: Node.OptionalIndex = if (self.at(.l_brace))
-        .none
-    else
-        (try self.parseCondition()).toOptional();
+    var binding: Node.OptionalIndex = .none;
+    var head: Node.OptionalIndex = .none;
+    if (self.at(.l_brace) == false) {
+        if (self.at(.ident) and self.peek(1) == .kw_in) {
+            binding = (try self.addLeaf(.ident)).toOptional();
+            _ = self.eatToken(.kw_in).?;
+            head = (try self.parseLoopRange()).toOptional();
+        } else {
+            head = (try self.parseCondition()).toOptional();
+        }
+    }
 
     const body = try self.parseBlock();
     const else_node: Node.OptionalIndex = if (self.eatToken(.kw_else) != null)
@@ -975,13 +982,33 @@ fn parseLoop(self: *Parse) Allocator.Error!Node.Index {
         .none;
 
     const start = self.extraStart();
-    try self.extraOpt(cond);
+    try self.extraOpt(binding);
+    try self.extraOpt(head);
     try self.extraNode(body);
     try self.extraOpt(else_node);
     return self.addNode(.{
         .tag = .loop_expr,
         .main_token = loop_token,
         .data = .{ .extra = start },
+    });
+}
+
+fn parseLoopRange(self: *Parse) Allocator.Error!Node.Index {
+    const start = try self.parseCondition();
+    const dot_dot = self.eatToken(.dot_dot) orelse {
+        try self.errExpected(
+            .expected_token,
+            Token.Tag.dot_dot.symbol(),
+            "a loop counts a range, as in 'loop i in 0..n'",
+        );
+        return self.hole();
+    };
+    const end = try self.parseCondition();
+
+    return self.addNode(.{
+        .tag = .range_expr,
+        .main_token = dot_dot,
+        .data = .{ .node_and_opt_node = .{ start, end.toOptional() } },
     });
 }
 

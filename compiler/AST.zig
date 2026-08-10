@@ -439,12 +439,28 @@ pub const View = union(enum) {
         then_block: Node.Index,
         else_node: Node.OptionalIndex,
     };
-    /// `cond` is `.none` for a loop that runs until a `break`.
     pub const Loop = struct {
         label: ?Token.Index,
-        cond: Node.OptionalIndex,
+        head: LoopHead,
         body: Node.Index,
         else_node: Node.OptionalIndex,
+    };
+    /// What a loop runs on.
+    pub const LoopHead = union(enum) {
+        /// Runs until a `break`.
+        forever,
+        /// Runs while the condition holds.
+        cond: Node.Index,
+        /// Runs once per value of the range, the name bound for the pass.
+        range: struct { name: Node.Index, over: Node.Index },
+
+        /// Whether the loop can end without a `break`.
+        pub fn ends(head: LoopHead) bool {
+            return switch (head) {
+                .forever => false,
+                .cond, .range => true,
+            };
+        }
     };
     pub const Break = struct { label: ?Token.Index, value: Node.OptionalIndex };
     pub const Match = struct { scrutinee: Node.Index, arms: []const Node.Index };
@@ -554,9 +570,11 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         },
         .loop_expr => blk: {
             var payload = tree.fields(data.extra);
+            const binding = payload.optNode();
+            const head = payload.optNode();
             break :blk .{ .loop_expr = .{
                 .label = tree.loopLabel(main),
-                .cond = payload.optNode(),
+                .head = loopHead(binding, head),
                 .body = payload.node(),
                 .else_node = payload.optNode(),
             } };
@@ -672,6 +690,12 @@ fn isPub(tree: AST, main: Token.Index) bool {
 
     if (main == .first) return false;
     return tree.tokenTag(main.before(1)) == .kw_pub;
+}
+
+fn loopHead(binding: Node.OptionalIndex, head: Node.OptionalIndex) View.LoopHead {
+    const over = head.unwrap() orelse return .forever;
+    const name = binding.unwrap() orelse return .{ .cond = over };
+    return .{ .range = .{ .name = name, .over = over } };
 }
 
 /// The `outer` of `outer: loop`, read off the tokens before the keyword.

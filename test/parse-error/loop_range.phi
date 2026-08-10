@@ -1,0 +1,9 @@
+fn missing_end(n: u64) {
+    loop i in 0.. {
+    }
+}
+
+fn missing_range(n: u64) {
+    loop i in n {
+    }
+}
