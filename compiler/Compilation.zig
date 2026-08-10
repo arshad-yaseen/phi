@@ -712,7 +712,6 @@ pub fn instAt(comp: *const Compilation, at: u32) IR.Inst {
     return comp.insts.get(at);
 }
 
-/// The write side of `exprType`.
 pub fn rememberExprType(
     comp: *Compilation,
     instance: Pool.Instance,

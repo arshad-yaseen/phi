@@ -195,7 +195,7 @@ pub const Key = union(enum) {
     value_float: Float,
     /// Ordered elements. Borrowed from `extra`, stale at the next intern.
     value_aggregate: Aggregate,
-    /// The one value of a unit type.
+    /// The unit type, whose one value this is.
     value_unit: Index,
     /// A constant that knows its union. The union, then the member constant.
     value_union: Wrapped,

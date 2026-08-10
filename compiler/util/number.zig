@@ -12,7 +12,6 @@ pub const Decoded = union(enum) {
     refused: Refusal,
 };
 
-/// A refusal's words.
 pub const Refusal = struct {
     code: Diagnostic.Code,
     message: []const u8,

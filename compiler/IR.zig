@@ -159,16 +159,12 @@ pub const Inst = struct {
         field_val,
         /// Uses `bin`, what holds the elements and the index.
         elem_ptr,
-        /// Uses `bin`. Traps unless the index falls under the length.
-        ///
-        /// Sign-preserving widening, then an unsigned compare, so one test settles both edges.
+        /// Uses `bin`. Sign-widened then compared unsigned, so one test settles both edges.
         ///
         ///   written   widened to 64 bits    read as unsigned      verdict
         ///   i32   3   0x00000000_00000003                     3   3 < 4, passes
         ///   u64   3   0x00000000_00000003                     3   3 < 4, passes
         ///   i32  -1   0xffffffff_ffffffff  18446744073709551615   above 4, traps
-        ///
-        /// `Layout.negative_floor` is what keeps that last row out of reach.
         bounds_check,
         /// Uses `bin`, trapping unless the first is at most the second, widened as above.
         order_check,
