@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
 const Pool = @import("Pool.zig");
 
@@ -24,8 +25,23 @@ comptime {
 /// The most bytes a type may hold, which keeps every size a `u32`.
 pub const size_max = std.math.maxInt(u32);
 
+/// The lowest a negative index reads as once widened, the `i64` minimum.
+const negative_floor = 1 << 63;
+
+comptime {
+    // `bounds_check` reads a negative index above every length, which needs this cap
+    assert(size_max < negative_floor);
+    // a stride is at least one byte, so a byte cap is also an element cap
+    assert(@sizeOf(u8) == 1);
+}
+
 /// Far past any embedding chain the declaration limits admit.
 const depth_max = 512;
+
+comptime {
+    // a chain costs one `ensure` per link, and a type nests no deeper than the parser allows
+    assert(depth_max > Compilation.analyze_max + AST.nest_max);
+}
 
 pub const Result = union(enum) {
     layout: Layout,
@@ -176,16 +192,12 @@ fn ofUnion(
         }
     }
 
-    // the zero niche. the address a pointer or a view leads with is never zero,
-    // so that word itself encodes the unit member and no tag byte exists. the
-    // carrier keeps its own layout, so the saving is the tag and never the count
+    // the zero niche. no address is zero, so one unit member hides there and no tag exists
     //
-    //   0x0000000000000000                      none
-    //   0x00007f2e51c04150                      the *Node, the address as is
-    //   0x00007f2e51c04150 0x0000000000000004   the []u32, address then count
-    //
-    // a member test is one compare against zero, and a second non-unit member
-    // would need a second reserved value the zero cannot express
+    //   *Node | none      0x00007f2e51c04150                        the *Node
+    //                     0x0000000000000000                        none
+    //   []u32 | none      0x00007f2e51c04150  0x0000000000000004    the []u32
+    //                     0x0000000000000000  ------------------    none, count unread
     if (count == 2 and units == 1) {
         if (carrier) |only| return .{ .layout = only };
     }

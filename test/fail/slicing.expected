@@ -36,10 +36,30 @@ error[E0221]: this makes a view, which is a value and not a place
 31 |     a[0..2] = a
    |     ^^^^^^ nothing to write to or point at
 
-error[E0214]: a top-level binding must be a constant, and making a view happens at run time
-  --> test/fail/slicing.phi:36:14
+error[E0262]: this range starts at 3 and ends at 1, so it runs backwards
+  --> test/fail/slicing.phi:36:12
    |
-36 | let sliced = global[0..]
+36 |     _ = a[3..1]
+   |            ^^ the ends cross
+   |
+   = help: a range runs from its start up to, but not including, its end
+
+error[E0262]: this range ends at 9, and [4]u32 holds 4 elements
+  --> test/fail/slicing.phi:40:14
+   |
+40 |     _ = a[0..9]
+   |              ^ past the last element
+
+error[E0262]: an end of a range counts from zero, and this one is -1
+  --> test/fail/slicing.phi:45:14
+   |
+45 |     _ = a[i..-1]
+   |              ^^ before the first element
+
+error[E0214]: a top-level binding must be a constant, and making a view happens at run time
+  --> test/fail/slicing.phi:50:14
+   |
+50 | let sliced = global[0..]
    |              ^^^^^^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses

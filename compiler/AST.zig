@@ -792,7 +792,8 @@ const Edgewise = enum { leftmost, rightmost };
 fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
     var current = node;
     var depth: u32 = 0;
-    const depth_cap = 4096;
+    // a suffix chain adds a node per suffix inside every nesting level the parser allows
+    const depth_cap = nest_max * nest_max;
 
     while (depth < depth_cap) : (depth += 1) {
         const main = tree.nodeMainToken(current);

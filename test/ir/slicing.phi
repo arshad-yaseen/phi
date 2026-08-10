@@ -46,6 +46,21 @@ fn ends_take_the_start(a: [8]u32, i: u32) []u32 {
     return a[i..]
 }
 
+// an omitted end is the base's own length, so only the ends need ordering
+fn an_open_end(a: [4]u32, i: u64) []u32 {
+    return a[i..]
+}
+
+// a written one is answered against the base as well
+fn two_runtime_ends(a: [4]u32, i: u64, j: u64) []u32 {
+    return a[i..j]
+}
+
+// and a view answers from the word it carries
+fn of_a_view_at_runtime(xs: []u32, i: u64, j: u64) []u32 {
+    return xs[i..j]
+}
+
 // views alias, so two over one array see each other's writes
 fn aliased() u32 {
     var a: [4]u32 = [1, 2, 3, 4]

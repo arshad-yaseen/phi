@@ -315,6 +315,9 @@ comptime {
     assert(@sizeOf(Item.Tag) == 1);
     // the stated fold width is the stored width
     assert(fold_bits == @bitSizeOf(i128));
+    // every integer a program can write folds without truncating
+    assert(@bitSizeOf(u64) < fold_bits);
+    assert(@bitSizeOf(i64) < fold_bits);
 }
 
 pub fn init(pool: *Pool, gpa: Allocator) Allocator.Error!void {
@@ -461,7 +464,9 @@ fn smallIntSlot(key: Key) ?u32 {
     if (it.type.int() >= statics) return null;
     if (it.value < 0) return null;
     if (it.value >= small_int_range) return null;
-    return it.type.int() * small_int_range + @as(u32, @intCast(it.value));
+    const slot = it.type.int() * small_int_range + @as(u32, @intCast(it.value));
+    assert(slot < statics * small_int_range);
+    return slot;
 }
 
 pub fn keyOf(pool: *const Pool, index: Index) Key {
@@ -555,12 +560,10 @@ pub fn isUnion(pool: *const Pool, index: Index) bool {
     return pool.items.items(.tag)[index.int()] == .type_union;
 }
 
-/// Whether the union lists exactly this type among its members.
 pub fn unionHas(pool: *const Pool, union_index: Index, member: Index) bool {
     return pool.unionMemberPosition(union_index, member) != null;
 }
 
-/// Where the union lists this type, or null when it does not.
 pub fn unionMemberPosition(pool: *const Pool, union_index: Index, member: Index) ?u32 {
     assert(pool.isUnion(union_index));
     if (pool.isUnion(member)) return null;
@@ -648,7 +651,6 @@ pub fn string(pool: *Pool, gpa: Allocator, text: []const u8) Allocator.Error!Str
     return offset;
 }
 
-/// Whether an interned string spells this text.
 pub fn sameText(pool: *const Pool, name: String, text: []const u8) bool {
     assert(name.int() < pool.bytes.items.len);
     // guarded, because a scanning assert survives into release builds

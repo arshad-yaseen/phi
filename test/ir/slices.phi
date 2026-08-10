@@ -14,7 +14,8 @@ fn count(xs: []u32) u64 {
     return xs.len
 }
 
-// and an index reaches through the address it carries
+// and an index reaches through the address it carries, answered against the
+// length beside it, because a view covering nothing has no first element
 fn first(xs: []u32) u32 {
     return xs[0]
 }

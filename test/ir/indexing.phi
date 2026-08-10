@@ -51,6 +51,18 @@ fn a_signed_index(a: [4]u32, i: i32) u32 {
     return a[i]
 }
 
+// a write is answered the same way a read is
+fn a_runtime_write(i: u64) u32 {
+    var a: [4]u32 = [1, 2, 3, 4]
+    a[i] = 9
+    return a[0]
+}
+
+// no elements means no index passes
+fn never_in_range(a: [0]u64, i: u64) u64 {
+    return a[i]
+}
+
 // a field holds the elements, and an element is reached through it
 fn through_a_field(c: Cell) u32 {
     return c.slot[1]

@@ -91,8 +91,13 @@ pub const Code = enum(u16) {
     missing_arm = 259,
     duplicate_arm = 260,
     type_too_large = 261,
-    index_out_of_range = 262,
+    out_of_range = 262,
 };
+
+comptime {
+    // rendered as `E{d:0>4}`, so a wider code would reshape every diagnostic and golden
+    for (std.enums.values(Code)) |code| assert(@intFromEnum(code) < 10000);
+}
 
 pub const Color = enum { off, on };
 

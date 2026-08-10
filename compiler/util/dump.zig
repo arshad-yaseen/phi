@@ -12,6 +12,11 @@ const Node = AST.Node;
 /// Far above anything `Parse` can build.
 const depth_max = 1024;
 
+comptime {
+    // the parser bounds how deep a tree nests, so this walk never truncates one
+    assert(depth_max > AST.nest_max);
+}
+
 pub fn tree(t: AST, writer: *Writer) Writer.Error!void {
     assert(t.nodes.len > 0);
     assert(t.nodeTag(.root) == .root);
@@ -297,6 +302,8 @@ fn inst(
         },
         .store,
         .elem_ptr,
+        .bounds_check,
+        .order_check,
         .add,
         .sub,
         .mul,

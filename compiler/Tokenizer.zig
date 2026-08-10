@@ -267,7 +267,6 @@ fn numberEnd(source: [:0]const u8, start: u32) u32 {
     }
 }
 
-/// Where the scan is inside one token.
 const State = enum {
     start,
     ident,

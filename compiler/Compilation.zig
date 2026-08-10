@@ -132,7 +132,6 @@ pub const Loader = struct {
     }
 };
 
-/// A contiguous run in a table.
 pub const Range = struct {
     start: u32,
     len: u32,
@@ -433,7 +432,8 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
     }
 
     comp.setUnitState(unit, .in_progress);
-    // cannot fail, the depth check above holds it under `analyze_max`
+    // `init` reserved `analyze_max`, which the depth check above holds it under
+    assert(comp.stack.items.len < analyze_max);
     comp.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
     defer _ = comp.stack.pop();
 

@@ -18,7 +18,6 @@ pub const Tag = enum(u8) {
     doc_comment,
     file_doc_comment,
 
-    // `lexeme` holds every keyword's spelling
     kw_and,
     kw_break,
     kw_continue,

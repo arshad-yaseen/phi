@@ -30,15 +30,17 @@
   `a.len`, and may size another array. A literal has no type until it lands, so
   one written once fits wherever its value fits. `a[i]` names an element, which
   is read, written, and pointed at the way a field is, and a constant index past
-  the end is refused before anything runs.
+  the end is refused before anything runs, while every other index is checked
+  before the memory is touched.
 - `[]T` is a view of elements it does not own, two words wide, and `[]var T`
   also writes through and fits wherever a `[]T` is asked. It answers `len` and
   indexes the way an array does, holds no elements so a type may hold a view of
   itself, and `[]T | none` costs no more than the view alone.
 - `a[x..y]` makes one, the single bridge from storage to a view, spelled as an
   expression so a reader sees the moment it happens. `a..` runs to the base's
-  own length, the ends take each other's type, and what the view may write is
-  what the place it came from allowed.
+  own length, the ends take each other's type, what the view may write is what
+  the place it came from allowed, and a range that leaves its base is refused
+  before anything runs, or checked before the view is made.
 - A struct literal may leave out the type where what it lands on says it, so
   `let p: Point = .{ x: 1, y: 2 }` reads once instead of twice, as do an
   argument, a return, a field, and an element. It still names the type where

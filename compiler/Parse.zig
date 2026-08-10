@@ -1283,8 +1283,7 @@ fn parseBracket(self: *Parse, base: Node.Index) Allocator.Error!Node.Index {
     });
 }
 
-/// Only a type opens with `*` or `[`. Everything else parses as an expression,
-/// which `..` then makes a range. This is the one place a range is written.
+/// Only a type opens with `*` or `[`. This is the one place a range is written.
 fn parseBracketItem(self: *Parse) Allocator.Error!Node.Index {
     switch (self.current()) {
         .star, .l_bracket => return self.parseType(),
@@ -1472,7 +1471,6 @@ fn parseTypeMember(self: *Parse) Allocator.Error!Node.Index {
     }
 }
 
-/// `[N]T`
 fn parseArrayType(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.l_bracket));
     const lbracket = self.nextToken();
@@ -1483,7 +1481,6 @@ fn parseArrayType(self: *Parse) Allocator.Error!Node.Index {
     return self.addPair(.array_type, lbracket, length, child);
 }
 
-/// `[]T` and `[]var T`
 fn parseSliceType(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.l_bracket));
     assert(self.peek(1) == .r_bracket);

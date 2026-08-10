@@ -12,7 +12,7 @@ pub const InstList = std.MultiArrayList(Inst);
 
 pub const Call = struct { callee: Pool.Instance, args: []const Ref };
 
-/// One function's body, three ranges into the shared tables, every inner index relative to them.
+/// One body, three ranges into the shared tables, every inner index relative to them.
 pub const Func = struct {
     instance: Pool.Instance,
     insts: Compilation.Range,
@@ -63,7 +63,7 @@ pub fn callAt(extra: []const u32, at: ExtraIndex) Call {
 
 pub const SliceMake = struct { base: Ref, start: Ref, end: Ref };
 
-/// The base and the two ends
+/// The base and the two ends.
 pub fn sliceMakeAt(extra: []const u32, at: ExtraIndex) SliceMake {
     const start = @intFromEnum(at);
     assert(start + 3 <= extra.len);
@@ -159,6 +159,19 @@ pub const Inst = struct {
         field_val,
         /// Uses `bin`, what holds the elements and the index.
         elem_ptr,
+        /// Uses `bin`. Traps unless the index falls under the length.
+        ///
+        /// Sign-preserving widening, then an unsigned compare, so one test settles both edges.
+        ///
+        ///   written   widened to 64 bits    read as unsigned      verdict
+        ///   i32   3   0x00000000_00000003                     3   3 < 4, passes
+        ///   u64   3   0x00000000_00000003                     3   3 < 4, passes
+        ///   i32  -1   0xffffffff_ffffffff  18446744073709551615   above 4, traps
+        ///
+        /// `Layout.negative_floor` is what keeps that last row out of reach.
+        bounds_check,
+        /// Uses `bin`, trapping unless the first is at most the second, widened as above.
+        order_check,
         /// Uses `un`, a view. Produces the count it carries.
         slice_len,
         /// Uses `payload`, read by `sliceMakeAt`.
@@ -196,7 +209,7 @@ pub const Inst = struct {
 
         /// Uses `un`. A value entering a union that lists it, or a union widening.
         union_init,
-        /// Uses `probe`. Whether the union holds that member. Void where only a branch reads it.
+        /// Uses `probe`. Void where only a branch reads it.
         union_is,
         /// Uses `un`. A union retyped to what a passed test proved.
         union_narrow,
@@ -204,8 +217,7 @@ pub const Inst = struct {
         /// Uses `payload`, an `IR.Call`.
         call,
 
-        /// Uses `payload`, read by `aggregateInitAt`. An array or a struct, told
-        /// apart by the type, whose parts are not all constant.
+        /// Uses `payload`, read by `aggregateInitAt`. An array or a struct, told apart by the type.
         aggregate_init,
     };
 };

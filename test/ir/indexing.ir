@@ -67,9 +67,10 @@ b0:
   %1 = param i : u64
   %2 = local : *var [4]u32
   %3 = store %2, %0
-  %4 = elem_ptr %2, %1 : *u32
-  %5 = load %4 : u32
-  return %5
+  %4 = bounds_check %1, 4:u64
+  %5 = elem_ptr %2, %1 : *u32
+  %6 = load %5 : u32
+  return %6
 
 fn a_signed_index(a: [4]u32, i: i32) u32
 b0:
@@ -77,9 +78,33 @@ b0:
   %1 = param i : i32
   %2 = local : *var [4]u32
   %3 = store %2, %0
-  %4 = elem_ptr %2, %1 : *u32
-  %5 = load %4 : u32
-  return %5
+  %4 = bounds_check %1, 4:u64
+  %5 = elem_ptr %2, %1 : *u32
+  %6 = load %5 : u32
+  return %6
+
+fn a_runtime_write(i: u64) u32
+b0:
+  %0 = param i : u64
+  %1 = local a : *var [4]u32
+  %2 = store %1, [1:u32, 2:u32, 3:u32, 4:u32]
+  %3 = bounds_check %0, 4:u64
+  %4 = elem_ptr %1, %0 : *var u32
+  %5 = store %4, 9:u32
+  %6 = elem_ptr %1, 0:u64 : *var u32
+  %7 = load %6 : u32
+  return %7
+
+fn never_in_range(a: [0]u64, i: u64) u64
+b0:
+  %0 = param a : [0]u64
+  %1 = param i : u64
+  %2 = local : *var [0]u64
+  %3 = store %2, %0
+  %4 = bounds_check %1, 0:u64
+  %5 = elem_ptr %2, %1 : *u64
+  %6 = load %5 : u64
+  return %6
 
 fn through_a_field(c: Cell) u32
 b0:

@@ -31,6 +31,20 @@ fn not_a_place(a: [4]u32) {
     a[0..2] = a
 }
 
+// what the constants settle is answered before anything runs
+fn ends_cross(a: [4]u32) {
+    _ = a[3..1]
+}
+
+fn past_the_end(a: [4]u32) {
+    _ = a[0..9]
+}
+
+// a count never runs below zero, whichever end names it
+fn below_zero(a: [8]u32, i: i32) {
+    _ = a[i..-1]
+}
+
 // a top-level binding has nothing to take the address of
 let global: [4]u32 = [1, 2, 3, 4]
 let sliced = global[0..]
