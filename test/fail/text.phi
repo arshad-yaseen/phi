@@ -1,0 +1,31 @@
+fn no_closing_quote() []u8 {
+    return "hi
+}
+
+fn empty_character() u32 {
+    return ''
+}
+
+fn crowded_character() u32 {
+    return 'ab'
+}
+
+fn unknown_escape() []u8 {
+    return "a\qb"
+}
+
+fn short_byte_escape() []u8 {
+    return "\x4"
+}
+
+fn past_the_last_codepoint() []u8 {
+    return "\u{110000}"
+}
+
+fn half_a_surrogate() []u8 {
+    return "\u{D800}"
+}
+
+fn not_valid_utf8() u32 {
+    return '©'
+}

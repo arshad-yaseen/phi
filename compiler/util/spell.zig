@@ -345,7 +345,7 @@ fn node(
             if (operand.unwrap()) |value| try node(ast, writer, value, below, "value");
         },
 
-        .ident, .number_literal => |token| {
+        .ident, .number_literal, .string_literal, .char_literal => |token| {
             try writer.print(" {s}\n", .{ast.tokenSlice(token)});
         },
 

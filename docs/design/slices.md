@@ -323,7 +323,9 @@ if s[i] == 'a' { }                      // two numbers, no cast
 
 A literal fits `[]u8` and never `[]var u8`: the program's own bytes are
 read-only, and the view's own mutability is what enforces it, so read
-views share safely by construction.
+views share safely by construction. What it holds are bytes, so it lands
+on `[]u8` and on `[N]u8` and on no wider element, where the array literal
+`[104, 105]` would land on any width its values fit.
 
 The prelude names the convention in one line, and an alias is not a new
 type, so there is nothing to convert between:
@@ -332,10 +334,11 @@ type, so there is nothing to convert between:
 pub type str = []u8
 ```
 
-Escapes decode at compile time: `\n`, `\t`, `\\`, `\"`, `\x41` for a
-byte, `\u{1F980}` for a codepoint's UTF-8 bytes. A literal is UTF-8
-because source files are, and that is a convention, not a type
-invariant. The bytes of `"héllo"`:
+Escapes decode at compile time: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`,
+`\x41` for a byte, and `\u{1F980}` for a codepoint's UTF-8 bytes. A
+literal never crosses a line, so a quote left off costs one line rather
+than the rest of the file. A literal is UTF-8 because source files are,
+and that is a convention, not a type invariant. The bytes of `"héllo"`:
 
 ```
 //   h     é          l     l     o
@@ -365,7 +368,9 @@ type Codepoint = { value: u32 }
 Refused: a string type carrying a UTF-8 invariant, which makes every
 byte view a conversion and every conversion a check. A null terminator
 in the language, which is a calling convention and belongs in the
-function that calls out.
+function that calls out. A string whose element width follows what it
+lands on, which would let text arrive as `[]u32` and be read as
+something no one wrote.
 
 ## Equality, and where the library begins
 

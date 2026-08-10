@@ -1,0 +1,65 @@
+root
+  var_decl greeting let
+    init: string_literal "hello"
+  var_decl letter let
+    init: char_literal 'a'
+  fn_decl strings
+    param who
+      type: slice_type
+        child: ident u8
+    ret: slice_type
+      child: ident u8
+    body: block
+      var_decl escaped let
+        init: string_literal "a\tb\n"
+      var_decl quoted let
+        init: string_literal "she said \"hi\", once"
+      var_decl byte let
+        init: string_literal "\x41"
+      var_decl crab let
+        init: string_literal "\u{1F980}"
+      var_decl empty let
+        init: string_literal ""
+      return_expr
+        value: ident who
+  fn_decl characters
+    param s
+      type: slice_type
+        child: ident u8
+    ret: ident u32
+    body: block
+      var_decl newline let
+        init: char_literal '\n'
+      var_decl quote let
+        init: char_literal '\''
+      var_decl backslash let
+        init: char_literal '\\'
+      var_decl wide let
+        init: char_literal '🦀'
+      if_expr
+        cond: binary equal
+          lhs: bracket
+            base: ident s
+            arg: number_literal 0
+          rhs: char_literal 'a'
+        then: block
+          return_expr
+            value: number_literal 1
+      return_expr
+        value: number_literal 0
+  fn_decl positions
+    body: block
+      call
+        callee: ident strings
+        arg: string_literal "literal"
+      var_decl table let
+        init: array_literal
+          string_literal "one"
+          string_literal "two"
+      var_decl pair let
+        init: struct_literal
+          type: ident Header
+          struct_field_init magic
+            value: string_literal "hi"
+          struct_field_init first
+            value: char_literal 'x'

@@ -457,6 +457,7 @@ const TokenSet = std.EnumSet(Token.Tag);
 
 const starts_expr = TokenSet.initMany(&.{
     .ident,        .number,
+    .string,       .char,
     .l_paren,      .dot,
     .l_bracket,    .minus,
     .kw_not,       .tilde,
@@ -1310,6 +1311,8 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
         .kw_intrinsic => return self.addLeaf(.intrinsic),
         .ident => return self.addLeaf(.ident),
         .number => return self.addLeaf(.number_literal),
+        .string => return self.addLeaf(.string_literal),
+        .char => return self.addLeaf(.char_literal),
         .l_bracket => return self.parseArrayLiteral(),
         // `.{ ... }` takes the struct from wherever it lands
         .dot => {

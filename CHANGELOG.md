@@ -10,6 +10,11 @@
 - Every type answers its size and alignment: `bool` is one byte, and
   `*T | none` is one word, with `none` as the zero no valid pointer holds.
   A type past 4 GiB is refused with `E0261`.
+- A string is bytes and a character is a number, both written as constants that
+  fit where their values fit: `"text/plain"` returned as `[]u8` is bytes the
+  program owns, `let magic: [2]u8 = "hi"` is storage with its length checked,
+  and `s[i] == 'a'` compares two numbers. Escapes decode at compile time, and a
+  literal never crosses a line.
 - `std.mem` opens the standard library: `size_of[T]()` and `align_of[T]()`
   answer as constants, and `align_up` rounds an address to an alignment it
   asserts is a power of two.
@@ -18,9 +23,9 @@
   `is_power_of_two`.
 - A union may stand in a bracket, so `Box[u32 | none]` means the union it
   spells.
-- The prelude arrives: `none`, `true`, `false`, and `bool` are declared once
-  in `std.prelude` and visible in every file, so optionals and truth share
-  one identity across modules. A file's own declaration still wins.
+- The prelude arrives: `none`, `true`, `false`, `bool`, and `str` are declared
+  once in `std.prelude` and visible in every file, so optionals, truth, and
+  text share one identity across modules. A file's own declaration still wins.
 - What a call feeds may pin its type argument: in `let a: u64 =
   mem.align_up(11, 8)`, the annotation decides `T` where the arguments
   leave it open. An argument pins through whatever its parameter is

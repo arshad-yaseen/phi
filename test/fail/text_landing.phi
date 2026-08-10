@@ -1,0 +1,27 @@
+// the program's own bytes are read-only, so a constant never makes a writable view
+fn writable_view() []var u8 {
+    return "hi"
+}
+
+// storage takes the bytes, so the count has to match
+fn wrong_length() [3]u8 {
+    let magic: [3]u8 = "hi"
+    return magic
+}
+
+// a string is bytes, and bytes are not another width
+fn wrong_element() [2]u32 {
+    let wide: [2]u32 = "hi"
+    return wide
+}
+
+// a character is a number, so it answers to the type it lands on
+fn does_not_fit() u8 {
+    return '🦀'
+}
+
+// a constant with no type has no members to reach
+fn no_members() u64 {
+    let loose = "hi"
+    return loose.len
+}

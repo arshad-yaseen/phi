@@ -92,6 +92,7 @@ pub const Code = enum(u16) {
     duplicate_arm = 260,
     type_too_large = 261,
     out_of_range = 262,
+    bad_text = 263,
 };
 
 comptime {

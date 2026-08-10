@@ -6,3 +6,6 @@ pub type false
 
 /// What a condition asks and a comparison answers.
 pub type bool = true | false
+
+/// Text, which is a view of bytes.
+pub type str = []u8

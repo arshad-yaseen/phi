@@ -133,6 +133,8 @@ fn scan(tokenizer: *Tokenizer) Token {
             '0'...'9' => continue :state .number,
             // `//` opens a comment, so `/` cannot go through the table below
             '/' => continue :state .slash,
+            '"' => continue :state .string,
+            '\'' => continue :state .char,
             else => {
                 for (Token.punctuation[source[cursor]].candidates()) |candidate| {
                     const text = candidate.lexeme().?;
@@ -155,6 +157,18 @@ fn scan(tokenizer: *Tokenizer) Token {
             cursor = numberEnd(source, cursor);
             assert(cursor > start);
             break :state .number;
+        },
+
+        .string => {
+            cursor = quotedEnd(source, cursor, '"');
+            assert(cursor > start);
+            break :state .string;
+        },
+
+        .char => {
+            cursor = quotedEnd(source, cursor, '\'');
+            assert(cursor > start);
+            break :state .char;
         },
 
         .slash => {
@@ -225,6 +239,8 @@ pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
         .eof => return start,
         .ident => return identEnd(source, start),
         .number => return numberEnd(source, start),
+        .string => return quotedEnd(source, start, '"'),
+        .char => return quotedEnd(source, start, '\''),
         .comment, .doc_comment, .file_doc_comment => return endOfLine(source, start),
         .invalid => {
             assert(start < source.len);
@@ -242,6 +258,36 @@ fn identEnd(source: [:0]const u8, start: u32) u32 {
     var cursor = start;
     while (is_ident[source[cursor]]) cursor += 1;
     return cursor;
+}
+
+/// Past the closing quote, or at the line's end where the literal never closed.
+fn quotedEnd(source: [:0]const u8, start: u32, quote: u8) u32 {
+    assert(start < source.len);
+    assert(source[start] == quote);
+
+    const end = end: {
+        var cursor = start + 1;
+        while (cursor < source.len) {
+            switch (source[cursor]) {
+                '\n' => break :end cursor,
+                '\\' => {
+                    if (cursor + 1 == source.len) break;
+                    // the escape takes the byte after it, so a quote there does not close
+                    if (source[cursor + 1] == '\n') break :end cursor + 1;
+                    cursor += 2;
+                },
+                else => |byte| {
+                    cursor += 1;
+                    if (byte == quote) break :end cursor;
+                },
+            }
+        }
+        break :end @as(u32, @intCast(source.len));
+    };
+
+    assert(end > start);
+    assert(end <= source.len);
+    return end;
 }
 
 fn numberEnd(source: [:0]const u8, start: u32) u32 {
@@ -271,6 +317,8 @@ const State = enum {
     start,
     ident,
     number,
+    string,
+    char,
     slash,
     comment_start,
     line_comment,
@@ -292,6 +340,9 @@ const is_ident = classOf("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ
 /// Where a run of invalid bytes stops. Derived, so a new operator joins it.
 const is_token_start = build: {
     var table = classOf(" \t\r\n_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    // a quote opens a literal, which no lexeme names
+    table['"'] = true;
+    table['\''] = true;
     for (Token.punctuation, 0..) |group, byte| {
         if (group.count > 0) table[byte] = true;
     }

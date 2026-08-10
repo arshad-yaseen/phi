@@ -15,6 +15,7 @@ const intrinsic_limits = @import("Intrinsic.zig");
 const Token = @import("Token.zig");
 const number = @import("util/number.zig");
 const spell = @import("util/spell.zig");
+const literal = @import("util/text.zig");
 
 const Decl = Module.Decl;
 const Node = AST.Node;
@@ -1370,7 +1371,10 @@ fn checkVarDeclSlot(
         const example: ?[]const u8 = switch (comp.pool.keyOf(final.constant)) {
             .value_int => "i64",
             .value_float => "f64",
-            .value_aggregate => |it| try comp.fmt("[{d}]u32", .{it.elems.len}),
+            .value_aggregate => |it| try comp.fmt("[{d}]{s}", .{
+                it.elems.len,
+                try check.elementExample(it),
+            }),
             else => null,
         };
         if (example) |shape| {
@@ -1408,6 +1412,15 @@ fn checkVarDeclSlot(
         .payload = .{ .ref = slot },
         .type = value_type,
     }, node);
+}
+
+/// The element type a suggested annotation names, so the suggestion is one that fits.
+fn elementExample(check: *Check, aggregate: Pool.Key.Aggregate) Allocator.Error![]const u8 {
+    if (aggregate.elems.len == 0) return "u32";
+
+    const found = check.comp.pool.typeOfValue(aggregate.elems[0]);
+    if (Pool.isUntyped(found)) return "u32";
+    return check.comp.typeName(found);
 }
 
 fn declarePoisoned(check: *Check, name: Pool.String, node: Node.Index) Allocator.Error!void {
@@ -2648,6 +2661,8 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
         },
         .ident => return check.checkIdent(node),
         .number_literal => return check.checkNumber(node),
+        .string_literal => return check.checkString(node),
+        .char_literal => return check.checkChar(node),
         // a block reaches here as an arm
         .block => return check.checkBlockValue(node, hint),
         .if_expr => |view| return check.checkIf(node, view, hint),
@@ -2759,15 +2774,61 @@ fn checkNumber(check: *Check, node: Node.Index) Allocator.Error!Value {
             .value_float = .{ .type = .untyped_float_type, .value = value },
         }) },
         .refused => |refusal| {
-            try check.fail(node, .{
-                .code = refusal.code,
-                .message = refusal.message,
-                .label = refusal.label,
-                .help = refusal.help,
-            });
+            try check.failRefusal(node, refusal);
             return .poison;
         },
     }
+}
+
+fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
+    const comp = check.comp;
+
+    const mark = comp.pool.scratch.items.len;
+    defer comp.pool.scratch.shrinkRetainingCapacity(mark);
+
+    var reading = literal.bytesOf(check.mainTokenText(node));
+    while (reading.next()) |piece| switch (piece) {
+        // bytes, so a string never lands on a wider element than it spells
+        .bytes => |run| {
+            try comp.pool.scratch.ensureUnusedCapacity(comp.gpa, run.len);
+            for (run) |byte| try comp.pool.scratch.append(comp.gpa, try comp.pool.intern(
+                comp.gpa,
+                .{ .value_int = .{ .type = .u8_type, .value = byte } },
+            ));
+        },
+        .refused => |refusal| {
+            try check.failRefusal(node, refusal);
+            return .poison;
+        },
+    };
+
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{ .value_aggregate = .{
+        .type = .untyped_aggregate_type,
+        .elems = comp.pool.scratch.items[mark..],
+    } }) };
+}
+
+fn checkChar(check: *Check, node: Node.Index) Allocator.Error!Value {
+    const comp = check.comp;
+
+    switch (literal.decodeChar(check.mainTokenText(node))) {
+        .codepoint => |value| return .{ .constant = try comp.pool.intern(comp.gpa, .{
+            .value_int = .{ .type = .untyped_int_type, .value = value },
+        }) },
+        .refused => |refusal| {
+            try check.failRefusal(node, refusal);
+            return .poison;
+        },
+    }
+}
+
+fn failRefusal(check: *Check, node: Node.Index, refusal: literal.Refusal) Allocator.Error!void {
+    try check.fail(node, .{
+        .code = refusal.code,
+        .message = refusal.message,
+        .label = refusal.label,
+        .help = refusal.help,
+    });
 }
 
 /// Two checked operands and the operator between them.

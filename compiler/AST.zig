@@ -138,6 +138,8 @@ pub const Node = struct {
         intrinsic,
         ident,
         number_literal,
+        string_literal,
+        char_literal,
 
         field_access,
         /// `p.*`, what a pointer points at.
@@ -368,6 +370,8 @@ pub const View = union(enum) {
     intrinsic: Token.Index,
     ident: Token.Index,
     number_literal: Token.Index,
+    string_literal: Token.Index,
+    char_literal: Token.Index,
 
     field_access: FieldAccess,
     deref: Node.Index,
@@ -578,6 +582,8 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         .intrinsic => .{ .intrinsic = main },
         .ident => .{ .ident = main },
         .number_literal => .{ .number_literal = main },
+        .string_literal => .{ .string_literal = main },
+        .char_literal => .{ .char_literal = main },
         .field_access => .{ .field_access = .{ .lhs = data.node, .name_token = main.after(1) } },
         .deref => .{ .deref = data.node },
         .bracket => blk: {
@@ -801,6 +807,7 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
             .root => return if (side == .leftmost) .first else main,
             .err, .type_param => return main,
             .intrinsic, .ident, .number_literal => return main,
+            .string_literal, .char_literal => return main,
             .break_expr => |it| switch (side) {
                 .leftmost => return main,
                 .rightmost => {

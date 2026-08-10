@@ -12,6 +12,8 @@ pub const Tag = enum(u8) {
 
     ident,
     number,
+    string,
+    char,
 
     comment,
     /// Belongs to the declaration below.
@@ -90,7 +92,8 @@ pub const Tag = enum(u8) {
     pub fn lexeme(tag: Tag) ?[]const u8 {
         return switch (tag) {
             .invalid, .eof => null,
-            .ident, .number, .comment, .doc_comment, .file_doc_comment => null,
+            .ident, .number, .string, .char => null,
+            .comment, .doc_comment, .file_doc_comment => null,
 
             .kw_and => "and",
             .kw_break => "break",
@@ -222,7 +225,7 @@ comptime {
 /// Whether a line break after this tag ends a statement.
 pub fn endsStatement(tag: Tag) bool {
     return switch (tag) {
-        .ident, .number, .invalid => true,
+        .ident, .number, .string, .char, .invalid => true,
         .kw_intrinsic => true,
         .r_paren, .r_brace, .r_bracket => true,
         .dot_star => true,
@@ -299,6 +302,8 @@ const symbols: [tag_count][]const u8 = blk: {
             .eof => "end of file",
             .ident => "an identifier",
             .number => "a number",
+            .string => "a string",
+            .char => "a character",
             .comment => "a comment",
             .doc_comment => "a doc comment",
             .file_doc_comment => "a file doc comment",
