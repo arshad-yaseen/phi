@@ -456,16 +456,16 @@ fn extraList(self: *Parse, items: []const Node.Index) Allocator.Error!void {
 const TokenSet = std.EnumSet(Token.Tag);
 
 const starts_expr = TokenSet.initMany(&.{
-    .ident,        .number,
-    .string,       .char,
-    .l_paren,      .dot,
-    .l_bracket,    .minus,
-    .kw_not,       .tilde,
-    .ampersand,    .invalid,
-    .kw_if,        .kw_loop,
-    .kw_match,     .kw_return,
-    .kw_break,     .kw_continue,
-    .kw_intrinsic,
+    .ident,     .number,
+    .string,    .char,
+    .l_paren,   .dot,
+    .l_bracket, .minus,
+    .kw_not,    .tilde,
+    .ampersand, .invalid,
+    .kw_if,     .kw_loop,
+    .kw_match,  .kw_return,
+    .kw_break,  .kw_continue,
+    .builtin,
 });
 
 const starts_stmt = starts_expr.unionWith(TokenSet.initMany(&.{
@@ -1335,7 +1335,7 @@ fn parseBracketItem(self: *Parse) Allocator.Error!Node.Index {
 
 fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
     switch (self.current()) {
-        .kw_intrinsic => return self.addLeaf(.intrinsic),
+        .builtin => return self.addLeaf(.builtin),
         .ident => return self.addLeaf(.ident),
         .number => return self.addLeaf(.number_literal),
         .string => return self.addLeaf(.string_literal),

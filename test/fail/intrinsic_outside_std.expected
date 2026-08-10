@@ -1,8 +1,0 @@
-error[E0251]: only the standard library reaches 'intrinsic'
- --> test/fail/intrinsic_outside_std.phi:6:12
-  |
-6 |     return intrinsic.ptr_cast[Cell](cell)
-  |            ^^^^^^^^^ not available here
-  |
-  = help: std wraps each one in an ordinary declaration, so call that instead
-

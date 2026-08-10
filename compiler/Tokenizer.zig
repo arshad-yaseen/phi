@@ -135,6 +135,8 @@ fn scan(tokenizer: *Tokenizer) Token {
             '/' => continue :state .slash,
             '"' => continue :state .string,
             '\'' => continue :state .char,
+            // `@` opens a builtin only when a name follows, and is stray bytes otherwise
+            '@' => continue :state if (is_ident[source[cursor + 1]]) .builtin else .invalid,
             else => {
                 for (Token.punctuation[source[cursor]].candidates()) |candidate| {
                     const text = candidate.lexeme().?;
@@ -169,6 +171,12 @@ fn scan(tokenizer: *Tokenizer) Token {
             cursor = quotedEnd(source, cursor, '\'');
             assert(cursor > start);
             break :state .char;
+        },
+
+        .builtin => {
+            assert(source[cursor] == '@');
+            cursor = identEnd(source, cursor + 1);
+            break :state .builtin;
         },
 
         .slash => {
@@ -238,6 +246,8 @@ pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
     switch (tag) {
         .eof => return start,
         .ident => return identEnd(source, start),
+        // past the `@`, which the name follows
+        .builtin => return identEnd(source, start + 1),
         .number => return numberEnd(source, start),
         .string => return quotedEnd(source, start, '"'),
         .char => return quotedEnd(source, start, '\''),
@@ -319,6 +329,7 @@ const State = enum {
     number,
     string,
     char,
+    builtin,
     slash,
     comment_start,
     line_comment,
@@ -340,9 +351,10 @@ const is_ident = classOf("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ
 /// Where a run of invalid bytes stops. Derived, so a new operator joins it.
 const is_token_start = build: {
     var table = classOf(" \t\r\n_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
-    // a quote opens a literal, which no lexeme names
+    // a quote opens a literal and `@` opens a builtin, which no lexeme names
     table['"'] = true;
     table['\''] = true;
+    table['@'] = true;
     for (Token.punctuation, 0..) |group, byte| {
         if (group.count > 0) table[byte] = true;
     }

@@ -3,5 +3,5 @@ type Cell = {
 }
 
 fn reinterpret(cell: *var Cell) *var Cell {
-    return intrinsic.ptr_cast[Cell](cell)
+    return @ptr_cast[Cell](cell)
 }

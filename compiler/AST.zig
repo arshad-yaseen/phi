@@ -134,8 +134,8 @@ pub const Node = struct {
         /// `Member => body`, or `else => body` when no label is stored.
         match_arm,
 
-        /// The `intrinsic` keyword, which only a `.name` call may follow.
-        intrinsic,
+        /// `@name`, which only a call may follow.
+        builtin,
         ident,
         number_literal,
         string_literal,
@@ -367,7 +367,7 @@ pub const View = union(enum) {
     match_expr: Match,
     match_arm: MatchArm,
 
-    intrinsic: Token.Index,
+    builtin: Token.Index,
     ident: Token.Index,
     number_literal: Token.Index,
     string_literal: Token.Index,
@@ -598,7 +598,7 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
             .body = data.opt_node_and_node[1],
         } },
 
-        .intrinsic => .{ .intrinsic = main },
+        .builtin => .{ .builtin = main },
         .ident => .{ .ident = main },
         .number_literal => .{ .number_literal = main },
         .string_literal => .{ .string_literal = main },
@@ -831,7 +831,7 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
         switch (tree.viewOf(current)) {
             .root => return if (side == .leftmost) .first else main,
             .err, .type_param => return main,
-            .intrinsic, .ident, .number_literal => return main,
+            .builtin, .ident, .number_literal => return main,
             .string_literal, .char_literal => return main,
             .break_expr => |it| switch (side) {
                 .leftmost => return main,

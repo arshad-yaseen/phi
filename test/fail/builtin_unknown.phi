@@ -3,5 +3,5 @@ type Cell = {
 }
 
 fn typo(cell: *var Cell) *var Cell {
-    return intrinsic.ptr_cost[Cell](cell)
+    return @ptr_cost[Cell](cell)
 }

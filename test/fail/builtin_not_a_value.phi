@@ -1,0 +1,8 @@
+type Cell = {
+    value: i64
+}
+
+fn uncalled(cell: Cell) i64 {
+    let f = @size_of
+    return cell.value
+}

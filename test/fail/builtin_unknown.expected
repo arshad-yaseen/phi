@@ -1,0 +1,8 @@
+error[E0219]: there is no builtin named '@ptr_cost'
+ --> test/fail/builtin_unknown.phi:6:12
+  |
+6 |     return @ptr_cost[Cell](cell)
+  |            ^^^^^^^^^ no such builtin
+  |
+  = help: did you mean 'ptr_cast'?
+

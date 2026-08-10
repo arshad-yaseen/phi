@@ -1,0 +1,8 @@
+error[E0251]: only the standard library reaches '@ptr_cast'
+ --> test/fail/builtin_outside_std.phi:6:12
+  |
+6 |     return @ptr_cast[Cell](cell)
+  |            ^^^^^^^^^ not available here
+  |
+  = help: std wraps it in an ordinary declaration, so call that instead
+

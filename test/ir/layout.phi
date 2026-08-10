@@ -23,69 +23,69 @@ type Header = {
 }
 
 fn bool_is_the_tag_alone() u64 {
-    return intrinsic.size_of[bool]()
+    return @size_of[bool]()
 }
 
 fn the_zero_niche_is_one_word() u64 {
-    return intrinsic.size_of[*Node | none]()
+    return @size_of[*Node | none]()
 }
 
 fn a_node_is_two_words() u64 {
-    return intrinsic.size_of[Node]()
+    return @size_of[Node]()
 }
 
 fn an_integer_leaves_no_room() u64 {
-    return intrinsic.size_of[u32 | none]()
+    return @size_of[u32 | none]()
 }
 
 fn a_wide_payload_pads_its_tag() u64 {
-    return intrinsic.size_of[u64 | none]()
+    return @size_of[u64 | none]()
 }
 
 fn an_empty_struct_is_nothing() u64 {
-    return intrinsic.size_of[Empty]()
+    return @size_of[Empty]()
 }
 
 fn a_field_pads_up_to_its_alignment() u64 {
-    return intrinsic.size_of[Sandwich]()
+    return @size_of[Sandwich]()
 }
 
 fn an_array_is_its_elements() u64 {
-    return intrinsic.size_of[[4]u32]()
+    return @size_of[[4]u32]()
 }
 
 fn arrays_nest_by_multiplying() u64 {
-    return intrinsic.size_of[[2][3]u8]()
+    return @size_of[[2][3]u8]()
 }
 
 fn an_array_aligns_like_its_element() u64 {
-    return intrinsic.align_of[[4]u32]()
+    return @align_of[[4]u32]()
 }
 
 fn no_elements_is_no_bytes() u64 {
-    return intrinsic.size_of[[0]u64]()
+    return @size_of[[0]u64]()
 }
 
 fn an_array_field_sits_inline() u64 {
-    return intrinsic.size_of[Header]()
+    return @size_of[Header]()
 }
 
 fn an_array_member_leaves_no_niche() u64 {
-    return intrinsic.size_of[[2]u32 | none]()
+    return @size_of[[2]u32 | none]()
 }
 
 fn alignments() u64 {
-    return intrinsic.align_of[u8]() + intrinsic.align_of[Node]()
+    return @align_of[u8]() + @align_of[Node]()
 }
 
 fn a_view_is_two_words() u64 {
-    return intrinsic.size_of[[]u32]()
+    return @size_of[[]u32]()
 }
 
 fn an_optional_view_keeps_the_niche() u64 {
-    return intrinsic.size_of[[]u32 | none]()
+    return @size_of[[]u32 | none]()
 }
 
 fn a_view_aligns_like_a_pointer() u64 {
-    return intrinsic.align_of[[]u8]()
+    return @align_of[[]u8]()
 }

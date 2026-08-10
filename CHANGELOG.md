@@ -4,6 +4,9 @@
 
 ### Language
 
+- An operation the compiler performs itself is written `@name`, so `intrinsic`
+  is no longer a keyword. Only one that could break a guarantee the checker
+  made, `@ptr_cast`, is still the standard library's alone.
 - Reaching a member by the wrong kind is refused: calling a field used to
   compile silently, reading a method now says to call it, and a missed name
   suggests methods as well as fields.
@@ -15,12 +18,12 @@
   program owns, `let magic: [2]u8 = "hi"` is storage with its length checked,
   and `s[i] == 'a'` compares two numbers. Escapes decode at compile time, and a
   literal never crosses a line.
-- `std.mem` opens the standard library: `size_of[T]()` and `align_of[T]()`
-  answer as constants, and `align_up` rounds an address to an alignment it
-  asserts is a power of two.
-- `std.debug.assert(ok)` arrives over a new `intrinsic.trap()`: a violated
-  contract stops the program where it stands. `std.math` opens with
-  `is_power_of_two`.
+- `@size_of[T]()` and `@align_of[T]()` answer as constants that fit wherever
+  their value fits, so `let n: u32 = @size_of[Node]()` needs no conversion.
+- `std.mem` opens the standard library with `align_up`, which rounds an address
+  to an alignment it asserts is a power of two.
+- `std.debug.assert(ok)` arrives over `@trap()`: a violated contract stops the
+  program where it stands. `std.math` opens with `is_power_of_two`.
 - A union may stand in a bracket, so `Box[u32 | none]` means the union it
   spells.
 - The prelude arrives: `none`, `true`, `false`, `bool`, and `str` are declared

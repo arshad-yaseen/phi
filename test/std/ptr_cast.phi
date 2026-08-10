@@ -8,15 +8,15 @@ type Payload = {
 }
 
 fn reinterpret(header: *var Header) *var Payload {
-    return intrinsic.ptr_cast[Payload](header)
+    return @ptr_cast[Payload](header)
 }
 
 fn keeps_read_only(header: *Header) *Payload {
-    return intrinsic.ptr_cast[Payload](header)
+    return @ptr_cast[Payload](header)
 }
 
 fn through_a_field(header: *var Header) i64 {
-    let payload = intrinsic.ptr_cast[Payload](header)
+    let payload = @ptr_cast[Payload](header)
     payload.value = 1
     return payload.extra
 }

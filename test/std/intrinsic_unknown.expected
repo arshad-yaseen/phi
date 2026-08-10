@@ -1,8 +1,0 @@
-error[E0219]: there is no intrinsic named 'ptr_cost'
- --> test/std/intrinsic_unknown.phi:6:22
-  |
-6 |     return intrinsic.ptr_cost[Cell](cell)
-  |                      ^^^^^^^^ no such intrinsic
-  |
-  = help: did you mean 'ptr_cast'?
-

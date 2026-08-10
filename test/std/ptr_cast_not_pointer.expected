@@ -1,6 +1,6 @@
-error[E0206]: 'ptr_cast' needs a pointer, and this is i64
- --> test/std/ptr_cast_not_pointer.phi:6:37
+error[E0206]: '@ptr_cast' needs a pointer, and this is i64
+ --> test/std/ptr_cast_not_pointer.phi:6:28
   |
-6 |     return intrinsic.ptr_cast[Cell](n)
-  |                                     ^ not a pointer
+6 |     return @ptr_cast[Cell](n)
+  |                            ^ not a pointer
 

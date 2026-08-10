@@ -3,13 +3,13 @@ type Cell = {
 }
 
 fn too_many_types(cell: *var Cell) *var Cell {
-    return intrinsic.ptr_cast[Cell, Cell](cell)
+    return @ptr_cast[Cell, Cell](cell)
 }
 
 fn no_types(cell: *var Cell) *var Cell {
-    return intrinsic.ptr_cast(cell)
+    return @ptr_cast(cell)
 }
 
 fn too_many_args(cell: *var Cell) *var Cell {
-    return intrinsic.ptr_cast[Cell](cell, cell)
+    return @ptr_cast[Cell](cell, cell)
 }

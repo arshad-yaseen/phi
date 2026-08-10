@@ -1,8 +1,0 @@
-error[E0251]: an intrinsic is not a value, so call it
- --> test/std/intrinsic_not_a_value.phi:6:13
-  |
-6 |     let f = intrinsic.ptr_cast
-  |             ^^^^^^^^^^^^^^^^^^ missing the call
-  |
-  = help: write 'intrinsic.name(...)', with its type arguments if it takes any
-

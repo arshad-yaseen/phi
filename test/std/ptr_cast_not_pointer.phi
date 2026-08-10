@@ -3,5 +3,5 @@ type Cell = {
 }
 
 fn from_a_number(n: i64) *var Cell {
-    return intrinsic.ptr_cast[Cell](n)
+    return @ptr_cast[Cell](n)
 }

@@ -1,0 +1,6 @@
+error[E0261]: 'B28' is larger than the 4 GiB a type may hold
+  --> test/fail/type_too_large.phi:32:12
+   |
+32 |     return @size_of[B28]()
+   |            ^^^^^^^^^^^^^^^ too large
+

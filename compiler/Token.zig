@@ -14,6 +14,8 @@ pub const Tag = enum(u8) {
     number,
     string,
     char,
+    /// `@name`, an operation the compiler performs itself.
+    builtin,
 
     comment,
     /// Belongs to the declaration below.
@@ -29,7 +31,6 @@ pub const Tag = enum(u8) {
     kw_if,
     kw_import,
     kw_in,
-    kw_intrinsic,
     kw_is,
     kw_let,
     kw_loop,
@@ -93,7 +94,7 @@ pub const Tag = enum(u8) {
     pub fn lexeme(tag: Tag) ?[]const u8 {
         return switch (tag) {
             .invalid, .eof => null,
-            .ident, .number, .string, .char => null,
+            .ident, .number, .string, .char, .builtin => null,
             .comment, .doc_comment, .file_doc_comment => null,
 
             .kw_and => "and",
@@ -105,7 +106,6 @@ pub const Tag = enum(u8) {
             .kw_if => "if",
             .kw_import => "import",
             .kw_in => "in",
-            .kw_intrinsic => "intrinsic",
             .kw_is => "is",
             .kw_let => "let",
             .kw_loop => "loop",
@@ -227,8 +227,7 @@ comptime {
 /// Whether a line break after this tag ends a statement.
 pub fn endsStatement(tag: Tag) bool {
     return switch (tag) {
-        .ident, .number, .string, .char, .invalid => true,
-        .kw_intrinsic => true,
+        .ident, .number, .string, .char, .builtin, .invalid => true,
         .r_paren, .r_brace, .r_bracket => true,
         .dot_star => true,
         .kw_return, .kw_break, .kw_continue => true,
@@ -306,6 +305,7 @@ const symbols: [tag_count][]const u8 = blk: {
             .number => "a number",
             .string => "a string",
             .char => "a character",
+            .builtin => "a builtin",
             .comment => "a comment",
             .doc_comment => "a doc comment",
             .file_doc_comment => "a file doc comment",

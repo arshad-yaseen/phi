@@ -331,7 +331,7 @@ fn node(
             if (it.label.unwrap()) |label| try node(ast, writer, label, below, "label");
             try node(ast, writer, it.body, below, "body");
         },
-        .intrinsic, .err => {
+        .err => {
             try writer.writeByte('\n');
         },
         .return_expr => |operand| {
@@ -339,7 +339,7 @@ fn node(
             if (operand.unwrap()) |value| try node(ast, writer, value, below, "value");
         },
 
-        .ident, .number_literal, .string_literal, .char_literal => |token| {
+        .builtin, .ident, .number_literal, .string_literal, .char_literal => |token| {
             try writer.print(" {s}\n", .{ast.tokenSlice(token)});
         },
 

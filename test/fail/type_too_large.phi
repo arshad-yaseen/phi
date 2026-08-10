@@ -29,5 +29,5 @@ type B27 = { a: B26, b: B26 }
 type B28 = { a: B27, b: B27 }
 
 fn probe() u64 {
-    return intrinsic.size_of[B28]()
+    return @size_of[B28]()
 }

@@ -13,7 +13,7 @@ const Kind = enum {
     fail,
     /// A directory of modules entered at `main.phi`.
     multi,
-    /// Compiled as though it were the standard library, so `intrinsic` resolves.
+    /// Compiled as though it were the standard library, so a std-only builtin resolves.
     std,
 
     fn extension(kind: Kind) []const u8 {

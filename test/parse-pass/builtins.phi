@@ -1,13 +1,13 @@
 fn cast(p: *var u8) *var i64 {
-    return intrinsic.ptr_cast[i64](p)
+    return @ptr_cast[i64](p)
 }
 
 fn nested(p: *var u8) *var i64 {
-    return intrinsic.ptr_cast[i64](intrinsic.ptr_cast[u8](p))
+    return @ptr_cast[i64](@ptr_cast[u8](p))
 }
 
 fn as_an_argument(p: *var u8) i64 {
-    return take(intrinsic.ptr_cast[i64](p))
+    return take(@ptr_cast[i64](p))
 }
 
 fn take(p: *var i64) i64 {

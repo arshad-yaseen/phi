@@ -9,8 +9,7 @@ root
       return_expr
         value: call
           callee: bracket
-            base: field_access ptr_cast
-              lhs: intrinsic
+            base: builtin @ptr_cast
             arg: ident i64
           arg: ident p
   fn_decl nested
@@ -23,13 +22,11 @@ root
       return_expr
         value: call
           callee: bracket
-            base: field_access ptr_cast
-              lhs: intrinsic
+            base: builtin @ptr_cast
             arg: ident i64
           arg: call
             callee: bracket
-              base: field_access ptr_cast
-                lhs: intrinsic
+              base: builtin @ptr_cast
               arg: ident u8
             arg: ident p
   fn_decl as_an_argument
@@ -43,8 +40,7 @@ root
           callee: ident take
           arg: call
             callee: bracket
-              base: field_access ptr_cast
-                lhs: intrinsic
+              base: builtin @ptr_cast
               arg: ident i64
             arg: ident p
   fn_decl take
