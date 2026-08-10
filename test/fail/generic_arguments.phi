@@ -19,3 +19,12 @@ fn too_many(b: Box[i64, u8]) i64 {
 fn on_a_plain_function() i64 {
     return plain[i64]()
 }
+
+// the argument must be shaped the way the parameter was written
+fn viewed[T](xs: []T) u64 {
+    return xs.len
+}
+
+fn wrong_shape(n: u64) u64 {
+    return viewed(n)
+}

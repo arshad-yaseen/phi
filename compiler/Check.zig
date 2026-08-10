@@ -3453,7 +3453,7 @@ fn peelPointer(pool: *const Pool, from: Pool.Index) Peeled {
     }
 }
 
-/// What a `.name` reaches, past one pointer. Every site asks here, so there is one answer.
+/// What a `.name` reaches, past one pointer. Every site asks here, so the answer is one.
 const Reach = struct {
     pointer: ?Pool.Key.Pointer,
     owner: Pool.Index,
@@ -3641,7 +3641,6 @@ fn checkBracketExpr(
     }
 }
 
-/// A bracket's base past one pointer, and what holds its elements.
 const Elements = struct {
     base: Place,
     pointer: ?Pool.Key.Pointer,
@@ -3683,7 +3682,7 @@ const Indexed = struct {
     };
 };
 
-/// `a[i]` names a place, so a read is a load. An element of a constant array is a constant.
+/// `a[i]` names a place, so a read is a load from it.
 fn checkIndexExpr(
     check: *Check,
     node: Node.Index,
@@ -3842,7 +3841,6 @@ fn checkRangeKnown(
     return true;
 }
 
-/// The count a constant end names, null for a runtime one.
 fn countOf(check: *const Check, value: Value) ?i128 {
     if (value != .constant) return null;
     return switch (check.comp.pool.keyOf(value.constant)) {
@@ -3902,14 +3900,14 @@ fn baseLength(check: *Check, elements: Elements, through: Through) Allocator.Err
     }
 }
 
-/// The range a bracket holds. `a[i]` and `a[x..y]` are one node, and the inside says which.
+/// The range a bracket holds, since only what stands inside says which a bracket is.
 fn rangeIn(check: *const Check, view: AST.View.Bracket) ?AST.View.Range {
     if (view.args.len != 1) return null;
     if (check.tree.nodeTag(view.args[0]) != .range_expr) return null;
     return check.tree.viewOf(view.args[0]).range_expr;
 }
 
-/// What stands inside the brackets, checked once the base turned out to be the mistake.
+/// What stands inside the brackets, checked once the base was the mistake.
 fn checkBracketArgs(check: *Check, view: AST.View.Bracket) Allocator.Error!void {
     for (view.args) |argument| {
         if (check.tree.nodeTag(argument) == .range_expr) {
@@ -4028,7 +4026,7 @@ fn checkIndexOperand(
     return .{ .ref = ref, .at = at };
 }
 
-/// A constant that has not landed is a missing annotation, so every question ends here.
+/// A constant that has not landed is a missing annotation, not an empty type.
 const not_landed_help = "give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and " ++
     "everything it holds can be reached";
 
@@ -4995,7 +4993,7 @@ fn inferTypeArguments(
         }
 
         const pinned = comp.operands.items[early + pin.argument].value;
-        var found = check.typeOf(pinned);
+        const found = check.typeOf(pinned);
         if (found == .poison) return false;
         if (Pool.isUntyped(found)) {
             if (from_hint) |pinned_type| {
@@ -5004,7 +5002,7 @@ fn inferTypeArguments(
             }
             try check.fail(args[pin.argument], .{
                 .code = .inference_failed,
-                .message = "a bare number has no type to read",
+                .message = "a constant that has not landed has no type to read",
                 .label = try comp.fmt("what type is '{s}'?", .{wanted}),
                 .help = try comp.fmt(
                     "write the type argument, '{s}[i64](...)', type the value first, " ++
@@ -5014,16 +5012,23 @@ fn inferTypeArguments(
             });
             return false;
         }
-        if (pin.through_pointer) {
-            switch (comp.pool.keyOf(found)) {
-                .type_pointer => |pointer| found = pointer.child,
-                else => {
-                    _ = try check.reportMismatch(args[pin.argument], pinned, .poison);
-                    return false;
-                },
-            }
-        }
-        out[param_position] = found;
+        out[param_position] = peelToTypeParam(&comp.pool, owner_tree, pin.written, found) orelse {
+            // the parameter as it was written, which names the shape without knowing T
+            const span = owner_tree.nodeSpan(pin.written);
+            try check.fail(args[pin.argument], .{
+                .code = .inference_failed,
+                .message = try comp.fmt("'{s}' takes '{s}' here, so {s} cannot pin '{s}'", .{
+                    fn_name,
+                    owner_tree.source[span.start..span.end],
+                    try comp.typeName(found),
+                    wanted,
+                }),
+                .label = "the wrong shape to read a type from",
+                .help = try comp.fmt("pass what the parameter is written as, or write " ++
+                    "the type argument '{s}[...](...)'", .{fn_name}),
+            });
+            return false;
+        };
     }
     return true;
 }
@@ -5047,9 +5052,30 @@ fn hintFor(
     return usable;
 }
 
-const Pin = struct { argument: u32, through_pointer: bool };
+const Pin = struct { argument: u32, written: Node.Index };
 
-/// The first parameter declared as the type parameter, or a pointer to it.
+/// One set, so a new wrapper joins both walks at once.
+const Wrapper = enum { pointer, slice, array };
+
+fn wrapperOf(tree: *const AST, node: Node.Index) ?struct { kind: Wrapper, child: Node.Index } {
+    return switch (tree.nodeTag(node)) {
+        .pointer_type => .{ .kind = .pointer, .child = tree.viewOf(node).pointer_type.child },
+        .slice_type => .{ .kind = .slice, .child = tree.viewOf(node).slice_type.child },
+        .array_type => .{ .kind = .array, .child = tree.viewOf(node).array_type.child },
+        else => null,
+    };
+}
+
+fn unwrap(pool: *const Pool, kind: Wrapper, type_index: Pool.Index) ?Pool.Index {
+    const key = pool.keyOf(type_index);
+    return switch (kind) {
+        .pointer => if (key == .type_pointer) key.type_pointer.child else null,
+        .slice => if (key == .type_slice) key.type_slice.child else null,
+        .array => if (key == .type_array) key.type_array.child else null,
+    };
+}
+
+/// The first parameter written as wrappers down to it, so `*T` and `[]T` both pin.
 fn pinFor(
     tree: *const AST,
     fn_view: AST.View.FnDecl,
@@ -5060,20 +5086,43 @@ fn pinFor(
         if (tree.nodeTag(param_node) != .param) continue;
         if (position < receiver_rows) continue;
         const param = tree.viewOf(param_node).param;
+        if (namesTypeParam(tree, param.type_expr, wanted) == false) continue;
+        return .{
+            .argument = @intCast(position - receiver_rows),
+            .written = param.type_expr,
+        };
+    }
+    return null;
+}
 
-        var type_node = param.type_expr;
-        var through_pointer = false;
-        if (tree.nodeTag(type_node) == .pointer_type) {
-            type_node = tree.viewOf(type_node).pointer_type.child;
-            through_pointer = true;
+fn namesTypeParam(tree: *const AST, written: Node.Index, wanted: []const u8) bool {
+    var node = written;
+    var depth: u32 = 0;
+    while (depth < type_depth_max) : (depth += 1) {
+        if (wrapperOf(tree, node)) |it| {
+            node = it.child;
+            continue;
         }
-        if (tree.nodeTag(type_node) != .ident) continue;
-        if (std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(type_node)), wanted)) {
-            return .{
-                .argument = @intCast(position - receiver_rows),
-                .through_pointer = through_pointer,
-            };
-        }
+        if (tree.nodeTag(node) != .ident) return false;
+        return std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(node)), wanted);
+    }
+    return false;
+}
+
+/// The argument's type with the written wrappers off. Null where the shapes disagree.
+fn peelToTypeParam(
+    pool: *const Pool,
+    tree: *const AST,
+    written: Node.Index,
+    found: Pool.Index,
+) ?Pool.Index {
+    var node = written;
+    var current = found;
+    var depth: u32 = 0;
+    while (depth < type_depth_max) : (depth += 1) {
+        const it = wrapperOf(tree, node) orelse return current;
+        node = it.child;
+        current = unwrap(pool, it.kind, current) orelse return null;
     }
     return null;
 }
@@ -5441,7 +5490,7 @@ fn settledAgainstBase(elements: Elements, count: Ref) bool {
     return refIsConstant(count);
 }
 
-/// The count a check reads against, a `u64`. Storage answers from its type, a view from data.
+/// The count a check reads against, always a `u64`.
 fn baseLengthRef(check: *Check, elements: Elements, through: Through) Allocator.Error!Ref {
     const comp = check.comp;
     return switch (elements.holds) {

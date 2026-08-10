@@ -16,3 +16,25 @@ fn drive(wide: Wide) i64 {
     let pointer = through(&mine)
     return copied.a + pointer.a
 }
+
+// a wrapper the parameter is written in comes off the argument's own type, so a
+// view, an array, a pointer, and a pointer to a view all pin what they hold
+fn counted[T](xs: []T) u64 {
+    return xs.len
+}
+
+fn triple[T](a: [3]T) u64 {
+    return a.len
+}
+
+fn behind[T](p: *[]T) u64 {
+    return p.len
+}
+
+fn both_ends[T](a: []T, b: []T) u64 {
+    return a.len + b.len
+}
+
+fn pinned_by_a_wrapper(xs: []u32, arr: [3]i16, p: *[]u8) u64 {
+    return counted(xs) + triple(arr) + behind(p) + both_ends(xs, xs)
+}
