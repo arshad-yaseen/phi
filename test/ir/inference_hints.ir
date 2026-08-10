@@ -14,6 +14,12 @@ b0:
   %1 = call round[u16](%0, 4:u16) : u16
   return %1
 
+fn returned_through_a_view(c: *var Cell[u32]) []var u32
+b0:
+  %0 = param c : *var Cell[u32]
+  %1 = call all[u32](%0) : []var u32
+  return %1
+
 fn round[u64](addr: u64, alignment: u64) u64
 b0:
   %0 = param addr : u64
@@ -46,3 +52,10 @@ b0:
   %5 = bit_not %4 : u16
   %6 = bit_and %3, %5 : u16
   return %6
+
+fn all[u32](c: *var Cell[u32]) []var u32
+b0:
+  %0 = param c : *var Cell[u32]
+  %1 = field_ptr %0, .items : *var [4]u32
+  %2 = slice_make %1, 0:u64, 4:u64 : []var u32
+  return %2

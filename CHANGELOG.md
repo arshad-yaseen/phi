@@ -31,8 +31,9 @@
   leave it open. An argument pins through whatever its parameter is
   written in, so `T`, `*T`, `[]T`, and `[N]T` all read what they hold,
   and every parameter written in it is read until one has a type to give,
-  so a bare number may sit beside the argument that pins it. A width
-  stated nowhere still refuses.
+  so a bare number may sit beside the argument that pins it. The return
+  type reads the same way, so an annotation reaches a type argument no
+  parameter mentions. A width stated nowhere still refuses.
 - `[N]T` is an array, N values of one type laid out end to end and written
   `[1, 2, 3]`. The length lives in the type, so it costs no memory, answers as
   `a.len`, and may size another array. A literal has no type until it lands, so

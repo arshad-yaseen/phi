@@ -5144,7 +5144,7 @@ fn inferTypeArguments(
     const receiver_rows: u32 = if (has_receiver) 1 else 0;
     for (fn_view.type_params, 0..) |type_param, param_position| {
         const wanted = owner_tree.tokenSlice(owner_tree.nodeMainToken(type_param));
-        const from_hint = hintFor(owner_tree, fn_view, wanted, hint);
+        const from_hint = hintFor(&comp.pool, owner_tree, fn_view, wanted, hint);
 
         const pin = switch (check.pinnedType(
             owner_tree,
@@ -5270,8 +5270,9 @@ fn pinnedType(
     return .{ .unread = named };
 }
 
-/// The hint, when the declared return type is exactly this type parameter.
+/// The hint, read through whatever the return type is written in, as an argument is.
 fn hintFor(
+    pool: *const Pool,
     tree: *const AST,
     fn_view: AST.View.FnDecl,
     wanted: []const u8,
@@ -5282,11 +5283,9 @@ fn hintFor(
     if (usable == .poison) return null;
 
     const returned = fn_view.return_type.unwrap() orelse return null;
-    if (tree.nodeTag(returned) != .ident) return null;
-    if (std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(returned)), wanted) == false) {
-        return null;
-    }
-    return usable;
+    // a union names no one member, so only the wrappers down to the parameter are read
+    if (namesTypeParam(tree, returned, wanted) == false) return null;
+    return peelToTypeParam(pool, tree, returned, usable);
 }
 
 const Pin = struct { parameter: u32, argument: u32, written: Node.Index };

@@ -14,3 +14,17 @@ fn returned() u32 {
 fn argument_pins(n: u16) u16 {
     return round(n, 4)
 }
+
+type Cell[T] = {
+    items: [4]T
+}
+
+// a type argument no parameter pins is read off the return type, through
+// whatever that type is written in
+fn all[T](c: *var Cell[T]) []var T {
+    return c.items[0..]
+}
+
+fn returned_through_a_view(c: *var Cell[u32]) []var u32 {
+    return all(c)
+}
