@@ -200,9 +200,6 @@ pub const Inst = struct {
         /// Uses `un`. Retypes a pointer and emits nothing.
         ptr_cast,
 
-        /// Uses `none`. Stops the program where it stands.
-        trap,
-
         /// Uses `un`. A value entering a union that lists it, or a union widening.
         union_init,
         /// Uses `probe`. Void where only a branch reads it.
@@ -251,6 +248,8 @@ pub const Terminator = union(enum) {
     branch: struct { cond: Ref, then_block: Block.Index, else_block: Block.Index },
     /// `.none` returns nothing.
     ret: Ref,
+    /// Stops the program where it stands, so nothing follows it.
+    trap,
 };
 
 comptime {

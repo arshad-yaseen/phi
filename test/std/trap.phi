@@ -1,3 +1,37 @@
+type none
+
 fn stop() {
     intrinsic.trap()
+}
+
+// a trap never continues, so what follows the branch that trapped still runs
+fn guarded(n: u32) u32 {
+    if n == 0 {
+        intrinsic.trap()
+    }
+    return n
+}
+
+fn find(n: u32) u32 | none {
+    if n == 0 {
+        return none
+    }
+    return n
+}
+
+// and it ends a path, so a function owing a value need not return on it
+fn must(n: u32) u32 {
+    let found = find(n)
+    if found is u32 {
+        return found
+    }
+    intrinsic.trap()
+}
+
+// which is what lets a handler stand where a value is owed
+fn must_or(n: u32) u32 {
+    return find(n) or e {
+        _ = e
+        intrinsic.trap()
+    }
 }

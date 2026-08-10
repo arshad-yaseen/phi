@@ -5031,8 +5031,10 @@ fn checkIntrinsic(
         .ptr_cast => return check.intrinsicPtrCast(args[0], types[0], values[0]),
         .size_of, .align_of => return check.intrinsicLayoutOf(node, which, types[0]),
         .trap => {
-            _ = try check.emit(.trap, .void_type, .{ .none = {} });
-            return .void_value;
+            // a trap never continues, so it ends its block the way `return` does
+            try check.reopenDead();
+            check.endBlock(.trap);
+            return .diverged;
         },
     }
 }
@@ -6350,7 +6352,7 @@ fn finishFunc(check: *Check) Allocator.Error!void {
                 finishFuncVisit(map, &builder.frontier, branch.then_block.int());
                 finishFuncVisit(map, &builder.frontier, branch.else_block.int());
             },
-            .ret => {},
+            .ret, .trap => {},
         }
     }
 
@@ -6380,6 +6382,7 @@ fn finishFunc(check: *Check) Allocator.Error!void {
                     .else_block = @enumFromInt(map[branch.else_block.int()]),
                 } },
                 .ret => |value| .{ .ret = value },
+                .trap => .trap,
             },
         });
     }
