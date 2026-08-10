@@ -30,7 +30,9 @@
   mem.align_up(11, 8)`, the annotation decides `T` where the arguments
   leave it open. An argument pins through whatever its parameter is
   written in, so `T`, `*T`, `[]T`, and `[N]T` all read what they hold,
-  and a width stated nowhere still refuses.
+  and every parameter written in it is read until one has a type to give,
+  so a bare number may sit beside the argument that pins it. A width
+  stated nowhere still refuses.
 - `[N]T` is an array, N values of one type laid out end to end and written
   `[1, 2, 3]`. The length lives in the type, so it costs no memory, answers as
   `a.len`, and may size another array. A literal has no type until it lands, so

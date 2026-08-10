@@ -5022,27 +5022,44 @@ fn inferTypeArguments(
         const wanted = owner_tree.tokenSlice(owner_tree.nodeMainToken(type_param));
         const from_hint = hintFor(owner_tree, fn_view, wanted, hint);
 
-        const pin = pinFor(owner_tree, fn_view, wanted, receiver_rows) orelse {
-            if (from_hint) |pinned_type| {
-                out[param_position] = pinned_type;
+        const pin = switch (check.pinnedType(
+            owner_tree,
+            fn_view,
+            wanted,
+            receiver_rows,
+            @intCast(args.len),
+            early,
+        )) {
+            .type => |found| {
+                out[param_position] = found;
                 continue;
-            }
-            try check.fail(node, .{
-                .code = .inference_failed,
-                .message = try comp.fmt(
-                    "no value parameter of '{s}' pins '{s}', so it must be written",
-                    .{ fn_name, wanted },
-                ),
-                .label = "cannot be inferred",
-                .help = try comp.fmt("write the call '{s}[...](...)'", .{fn_name}),
-            });
-            return false;
+            },
+            .poison => return false,
+            .unread => |named| named,
+            .none => {
+                if (from_hint) |pinned_type| {
+                    out[param_position] = pinned_type;
+                    continue;
+                }
+                try check.fail(node, .{
+                    .code = .inference_failed,
+                    .message = try comp.fmt(
+                        "no value parameter of '{s}' pins '{s}', so it must be written",
+                        .{ fn_name, wanted },
+                    ),
+                    .label = "cannot be inferred",
+                    .help = try comp.fmt("write the call '{s}[...](...)'", .{fn_name}),
+                });
+                return false;
+            },
         };
+
+        if (from_hint) |pinned_type| {
+            out[param_position] = pinned_type;
+            continue;
+        }
+
         if (pin.argument >= args.len) {
-            if (from_hint) |pinned_type| {
-                out[param_position] = pinned_type;
-                continue;
-            }
             try check.fail(node, .{
                 .code = .inference_failed,
                 .message = try comp.fmt("'{s}' would be pinned by an argument this call lacks", .{
@@ -5053,14 +5070,8 @@ fn inferTypeArguments(
             return false;
         }
 
-        const pinned = comp.operands.items[early + pin.argument].value;
-        const found = check.typeOf(pinned);
-        if (found == .poison) return false;
+        const found = check.typeOf(comp.operands.items[early + pin.argument].value);
         if (Pool.isUntyped(found)) {
-            if (from_hint) |pinned_type| {
-                out[param_position] = pinned_type;
-                continue;
-            }
             try check.fail(args[pin.argument], .{
                 .code = .inference_failed,
                 .message = "a constant that has not landed has no type to read",
@@ -5073,25 +5084,66 @@ fn inferTypeArguments(
             });
             return false;
         }
-        out[param_position] = peelToTypeParam(&comp.pool, owner_tree, pin.written, found) orelse {
-            // the parameter as it was written, which names the shape without knowing T
-            const span = owner_tree.nodeSpan(pin.written);
-            try check.fail(args[pin.argument], .{
-                .code = .inference_failed,
-                .message = try comp.fmt("'{s}' takes '{s}' here, so {s} cannot pin '{s}'", .{
-                    fn_name,
-                    owner_tree.source[span.start..span.end],
-                    try comp.typeName(found),
-                    wanted,
-                }),
-                .label = "the wrong shape to read a type from",
-                .help = try comp.fmt("pass what the parameter is written as, or write " ++
-                    "the type argument '{s}[...](...)'", .{fn_name}),
-            });
-            return false;
-        };
+
+        // the parameter as it was written, which names the shape without knowing T
+        const span = owner_tree.nodeSpan(pin.written);
+        try check.fail(args[pin.argument], .{
+            .code = .inference_failed,
+            .message = try comp.fmt("'{s}' takes '{s}' here, so {s} cannot pin '{s}'", .{
+                fn_name,
+                owner_tree.source[span.start..span.end],
+                try comp.typeName(found),
+                wanted,
+            }),
+            .label = "the wrong shape to read a type from",
+            .help = try comp.fmt("pass what the parameter is written as, or write " ++
+                "the type argument '{s}[...](...)'", .{fn_name}),
+        });
+        return false;
     }
     return true;
+}
+
+/// What the arguments said about one type parameter.
+const Pinned = union(enum) {
+    type: Pool.Index,
+    /// No argument had a type to read, and this is the parameter a report names.
+    unread: Pin,
+    /// An argument was already refused.
+    poison,
+    /// No value parameter is written in the type parameter.
+    none,
+};
+
+/// Each parameter written in the type parameter is read until one has a type to give.
+fn pinnedType(
+    check: *Check,
+    tree: *const AST,
+    fn_view: AST.View.FnDecl,
+    wanted: []const u8,
+    receiver_rows: u32,
+    args_len: u32,
+    early: u32,
+) Pinned {
+    const comp = check.comp;
+
+    var first: ?Pin = null;
+    var from: u32 = 0;
+    while (pinFor(tree, fn_view, wanted, receiver_rows, from)) |pin| {
+        from = pin.parameter + 1;
+        if (first == null) first = pin;
+        if (pin.argument >= args_len) continue;
+
+        const found = check.typeOf(comp.operands.items[early + pin.argument].value);
+        if (found == .poison) return .poison;
+        if (Pool.isUntyped(found)) continue;
+
+        const peeled = peelToTypeParam(&comp.pool, tree, pin.written, found) orelse continue;
+        return .{ .type = peeled };
+    }
+
+    const named = first orelse return .none;
+    return .{ .unread = named };
 }
 
 /// The hint, when the declared return type is exactly this type parameter.
@@ -5113,7 +5165,7 @@ fn hintFor(
     return usable;
 }
 
-const Pin = struct { argument: u32, written: Node.Index };
+const Pin = struct { parameter: u32, argument: u32, written: Node.Index };
 
 /// One set, so a new wrapper joins both walks at once.
 const Wrapper = enum { pointer, slice, array };
@@ -5136,19 +5188,22 @@ fn unwrap(pool: *const Pool, kind: Wrapper, type_index: Pool.Index) ?Pool.Index 
     };
 }
 
-/// The first parameter written as wrappers down to it, so `*T` and `[]T` both pin.
+/// The first parameter from `from` on written as wrappers down to it, `*T` and `[]T` alike.
 fn pinFor(
     tree: *const AST,
     fn_view: AST.View.FnDecl,
     wanted: []const u8,
     receiver_rows: u32,
+    from: u32,
 ) ?Pin {
     for (fn_view.params, 0..) |param_node, position| {
+        if (position < from) continue;
         if (tree.nodeTag(param_node) != .param) continue;
         if (position < receiver_rows) continue;
         const param = tree.viewOf(param_node).param;
         if (namesTypeParam(tree, param.type_expr, wanted) == false) continue;
         return .{
+            .parameter = @intCast(position),
             .argument = @intCast(position - receiver_rows),
             .written = param.type_expr,
         };
