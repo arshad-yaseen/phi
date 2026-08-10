@@ -199,6 +199,8 @@ pub const Key = union(enum) {
     value_unit: Index,
     /// A constant that knows its union. The union, then the member constant.
     value_union: Wrapped,
+    /// A view of bytes the program owns, which is what a constant becomes on a `[]T`.
+    value_slice: Viewed,
 
     pub const Pointer = struct { child: Index, mutable: bool };
     /// A length no layout can hold is refused where the size is asked, not here.
@@ -207,6 +209,8 @@ pub const Key = union(enum) {
     pub const Int = struct { type: Index, value: i128 };
     pub const Float = struct { type: Index, value: f64 };
     pub const Wrapped = struct { type: Index, value: Index };
+    /// The view's own type, and the array constant holding the bytes it views.
+    pub const Viewed = struct { type: Index, data: Index };
     pub const Aggregate = struct { type: Index, elems: []const Index };
 
     fn hash(key: Key) u64 {
@@ -238,6 +242,7 @@ pub const Key = union(enum) {
             },
             .value_unit => |unit_type| return hashWords(seed, .{unit_type.int()}),
             .value_union => |it| return hashWords(seed, .{ it.type.int(), it.value.int() }),
+            .value_slice => |it| return hashWords(seed, .{ it.type.int(), it.data.int() }),
             .value_int => |it| {
                 const value: [4]u32 = @bitCast(it.value);
                 return hashWords(seed, .{ it.type.int(), value[0], value[1], value[2], value[3] });
@@ -272,6 +277,8 @@ pub const Key = union(enum) {
             .value_unit => |unit_type| unit_type == other.value_unit,
             .value_union => |it| it.type == other.value_union.type and
                 it.value == other.value_union.value,
+            .value_slice => |it| it.type == other.value_slice.type and
+                it.data == other.value_slice.data,
             .value_int => |it| it.type == other.value_int.type and
                 it.value == other.value_int.value,
             // by bits, so float equality is never asked
@@ -308,6 +315,8 @@ const Item = struct {
         value_unit,
         /// `data` points at `extra`. The union, then the member constant.
         value_union,
+        /// `data` points at `extra`. The view type, then the array it views.
+        value_slice,
     };
 };
 
@@ -424,6 +433,15 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.value.int()}),
             };
         },
+        .value_slice => |it| item: {
+            assert(pool.keyOf(it.type) == .type_slice);
+            // the bytes are an array constant, so the view has a length and a layout
+            assert(pool.keyOf(it.data) == .value_aggregate);
+            break :item .{
+                .tag = .value_slice,
+                .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.data.int()}),
+            };
+        },
         .value_aggregate => |it| item: {
             assert(pool.isType(it.type));
             for (it.elems) |element| assert(pool.isType(element) == false);
@@ -496,6 +514,10 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
         .value_union => .{ .value_union = .{
             .type = @enumFromInt(pool.extra.items[data]),
             .value = @enumFromInt(pool.extra.items[data + 1]),
+        } },
+        .value_slice => .{ .value_slice = .{
+            .type = @enumFromInt(pool.extra.items[data]),
+            .data = @enumFromInt(pool.extra.items[data + 1]),
         } },
         .value_int => .{ .value_int = .{
             .type = @enumFromInt(pool.extra.items[data]),
@@ -685,6 +707,7 @@ pub fn typeOfValue(pool: *const Pool, value: Index) Index {
         .value_aggregate => |it| it.type,
         .value_unit => |unit_type| unit_type,
         .value_union => |it| it.type,
+        .value_slice => |it| it.type,
         .type_simple => |simple| simple: {
             assert(simple == .poison);
             break :simple .poison;
@@ -699,7 +722,7 @@ pub fn isType(pool: *const Pool, index: Index) bool {
         .type_simple, .type_pointer, .type_array, .type_slice => true,
         .type_struct, .type_unit, .type_union => true,
         .value_int, .value_float, .value_aggregate => false,
-        .value_unit, .value_union => false,
+        .value_unit, .value_union, .value_slice => false,
     };
 }
 
@@ -935,14 +958,18 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
             return .wrong_kind;
         },
         .value_aggregate => |it| {
+            // one that already landed is storage, which is sliced rather than viewed
             if (isUntyped(it.type) == false) {
                 return if (type_index == it.type) .{ .value = value } else .wrong_kind;
             }
-            const array = switch (pool.keyOf(type_index)) {
-                .type_array => |found| found,
+            switch (pool.keyOf(type_index)) {
+                .type_array => |array| return pool.fitAggregate(gpa, value, array, type_index),
+                .type_slice => |view| return pool.fitView(gpa, value, view, type_index),
                 else => return .wrong_kind,
-            };
-            return pool.fitAggregate(gpa, value, array, type_index);
+            }
+        },
+        .value_slice => |it| {
+            return if (type_index == it.type) .{ .value = value } else .wrong_kind;
         },
         .value_unit => |unit_type| {
             return if (type_index == unit_type) .{ .value = value } else .wrong_kind;
@@ -950,6 +977,28 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
         .type_simple, .type_pointer, .type_array, .type_slice => unreachable,
         .type_struct, .type_unit, .type_union => unreachable,
     }
+}
+
+/// The bytes the program owns, and a view of them, which is never writable.
+fn fitView(
+    pool: *Pool,
+    gpa: Allocator,
+    value: Index,
+    view: Key.Slice,
+    type_index: Index,
+) Allocator.Error!Fit {
+    if (view.mutable) return .wrong_kind;
+
+    const array: Key.Array = .{ .child = view.child, .len = pool.aggregateLen(value) };
+    const array_type = try pool.intern(gpa, .{ .type_array = array });
+    const data = switch (try pool.fitAggregate(gpa, value, array, array_type)) {
+        .value => |fitted| fitted,
+        .does_not_fit => return .does_not_fit,
+        .wrong_kind => return .wrong_kind,
+    };
+    return .{ .value = try pool.intern(gpa, .{
+        .value_slice = .{ .type = type_index, .data = data },
+    }) };
 }
 
 fn fitAggregate(

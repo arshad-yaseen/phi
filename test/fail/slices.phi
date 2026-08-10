@@ -39,3 +39,19 @@ fn nearly_the_length(xs: []u32) u64 {
 fn assign_a_length(xs: []var u32) {
     xs.len = 3
 }
+
+// a view is an address, and only what the program owns has one to give
+fn runtime_part(n: u32) []u32 {
+    return [n, 3, 5, 7]
+}
+
+// the program's own bytes are read-only
+fn writable() []var u32 {
+    return [2, 3]
+}
+
+// storage is sliced rather than viewed, so the bridge is still written out
+fn sealed() []u32 {
+    let a: [4]u32 = [2, 3, 5, 7]
+    return a
+}

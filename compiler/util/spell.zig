@@ -47,7 +47,7 @@ pub fn writeType(comp: *const Compilation, writer: *Writer, index: Pool.Index) W
                 return;
             },
             .value_int, .value_float, .value_aggregate => unreachable,
-            .value_unit, .value_union => unreachable,
+            .value_unit, .value_union, .value_slice => unreachable,
         }
     }
     try writer.writeAll("...");
@@ -177,6 +177,12 @@ pub fn writeConstant(
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
         // the member the union holds, which the context types
         .value_union => |it| try writeConstant(comp, writer, it.value),
+        // the bytes, then the view, so storage and a view of it never print alike
+        .value_slice => |it| {
+            try writeConstant(comp, writer, it.data);
+            try writer.writeByte(':');
+            try writeType(comp, writer, it.type);
+        },
         .type_pointer, .type_array, .type_slice => unreachable,
         .type_struct, .type_unit, .type_union => unreachable,
     }

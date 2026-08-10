@@ -92,7 +92,7 @@ fn ofBounded(
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
         .type_union => try ofUnion(comp, origin, index, depth),
         .value_int, .value_float, .value_aggregate => unreachable,
-        .value_unit, .value_union => unreachable,
+        .value_unit, .value_union, .value_slice => unreachable,
     };
 
     if (result == .layout) {

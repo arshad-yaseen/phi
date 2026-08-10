@@ -1,0 +1,43 @@
+fn takes(xs: []u32) u64
+b0:
+  %0 = param xs : []u32
+  %1 = slice_len %0 : u64
+  return %1
+
+fn returned() []u32
+b0:
+  return [2:u32, 3:u32, 5:u32, 7:u32]:[]u32
+
+fn argument() u64
+b0:
+  %0 = call takes([2:u32, 3:u32, 5:u32, 7:u32]:[]u32) : u64
+  return %0
+
+fn bound() u64
+b0:
+  %0 = slice_len [2:u32, 3:u32, 5:u32, 7:u32]:[]u32 : u64
+  return %0
+
+fn field() Config
+b0:
+  return Config.{ primes: [2:u32, 3:u32, 5:u32, 7:u32]:[]u32 }
+
+fn optional() []u32 | none
+b0:
+  return [2:u32, 3:u32, 5:u32, 7:u32]:[]u32
+
+fn indexed() u32
+b0:
+  %0 = slice_len [2:u32, 3:u32, 5:u32, 7:u32]:[]u32 : u64
+  %1 = bounds_check 1:u64, %0
+  %2 = elem_ptr [2:u32, 3:u32, 5:u32, 7:u32]:[]u32, 1:u64 : *u32
+  %3 = load %2 : u32
+  return %3
+
+fn empty() []u32
+b0:
+  return []:[]u32
+
+fn stored() [4]u32
+b0:
+  return [2:u32, 3:u32, 5:u32, 7:u32]

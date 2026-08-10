@@ -52,3 +52,27 @@ error[E0221]: 'len' is a value and not a place
    |
    = help: an array's length is in its type, and a view keeps its own
 
+error[E0214]: a view needs bytes the program owns, and part of this array is settled at run time
+  --> test/fail/slices.phi:45:12
+   |
+45 |     return [n, 3, 5, 7]
+   |            ^^^^^^^^^^^ not a constant
+   |
+   = help: bind it to storage first and slice that, as in 'var a: [4]u32 = ...' then 'a[0..]'
+
+error[E0206]: expected []var u32, found an untyped array
+  --> test/fail/slices.phi:50:12
+   |
+50 |     return [2, 3]
+   |            ^^^^^ the wrong type
+   |
+   = help: a constant makes '[]T' and never '[]var T', because the program's own bytes are read-only
+
+error[E0206]: expected []u32, found [4]u32
+  --> test/fail/slices.phi:56:12
+   |
+56 |     return a
+   |            ^ the wrong type
+   |
+   = help: slice it to make a view of it, as in 'a[0..]'
+

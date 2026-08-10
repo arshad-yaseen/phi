@@ -216,7 +216,7 @@ fn walkEmbedded(
         },
         .type_simple, .type_unit, .type_pointer, .type_slice => {},
         .value_int, .value_float, .value_aggregate => unreachable,
-        .value_unit, .value_union => unreachable,
+        .value_unit, .value_union, .value_slice => unreachable,
     }
 }
 
@@ -4281,12 +4281,19 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     const elements = check.tree.viewOf(node).array_literal;
 
     // a literal names no type, so where it lands is the only thing that can
-    const target: ?Pool.Key.Array = target: {
-        const found = hint orelse break :target null;
-        break :target switch (comp.pool.keyOf(found)) {
-            .type_array => |array| array,
-            else => null,
-        };
+    var target: ?Pool.Key.Array = null;
+    var viewed = false;
+
+    if (hint) |found| switch (comp.pool.keyOf(found)) {
+        .type_array => |array| target = array,
+        .type_slice => viewed = true,
+        else => {},
+    };
+
+    const element_hint: ?Pool.Index = element: {
+        if (target) |array| break :element array.child;
+        if (viewed) break :element comp.pool.keyOf(hint.?).type_slice.child;
+        break :element null;
     };
 
     const start = comp.operands.items.len;
@@ -4297,7 +4304,7 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     var diverged = false;
     var all_constant = true;
     for (elements) |element| {
-        const value = try check.checkExpr(element, if (target) |array| array.child else null);
+        const value = try check.checkExpr(element, element_hint);
         switch (value) {
             .constant => {},
             .runtime => all_constant = false,
@@ -4324,6 +4331,18 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
         // nothing chose, so the literal stays unchosen and fits where it lands
         if (all_constant) {
             return check.internAggregate(.untyped_aggregate_type, comp.operands.items[start..]);
+        }
+        // a view is an address, and only what the program owns has one to give
+        if (viewed) {
+            try check.fail(node, .{
+                .code = .not_constant,
+                .message = "a view needs bytes the program owns, and part of this " ++
+                    "array is settled at run time",
+                .label = "not a constant",
+                .help = "bind it to storage first and slice that, as in " ++
+                    "'var a: [4]u32 = ...' then 'a[0..]'",
+            });
+            return .poison;
         }
         try check.fail(node, .{
             .code = .var_needs_type,
@@ -5846,6 +5865,10 @@ fn reportMismatch(
         if (check.needsBridge(found, wanted)) {
             break :help "slice it to make a view of it, as in 'a[0..]'";
         }
+        if (check.wantsWritableView(found, wanted)) {
+            break :help "a constant makes '[]T' and never '[]var T', because the " ++
+                "program's own bytes are read-only";
+        }
         break :help "nothing converts on its own";
     };
 
@@ -5859,6 +5882,15 @@ fn reportMismatch(
         .help = help,
     });
     return .poison;
+}
+
+/// Whether a constant that has not landed was asked for a view it may write through.
+fn wantsWritableView(check: *const Check, found: Pool.Index, wanted: Pool.Index) bool {
+    if (found != .untyped_aggregate_type) return false;
+    return switch (check.comp.pool.keyOf(wanted)) {
+        .type_slice => |slice| slice.mutable,
+        else => false,
+    };
 }
 
 /// Whether storage was handed over where a view of it was asked for

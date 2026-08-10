@@ -36,6 +36,10 @@
   also writes through and fits wherever a `[]T` is asked. It answers `len` and
   indexes the way an array does, holds no elements so a type may hold a view of
   itself, and `[]T | none` costs no more than the view alone.
+- A constant that lands on a view gets bytes the program owns, so `[2, 3, 5, 7]`
+  fits a `[]u32` and one written twice is one set of bytes. It never fits a
+  `[]var T`, and an array with a part settled at run time is refused rather
+  than viewed from a frame that is about to leave.
 - `a[x..y]` makes one, the single bridge from storage to a view, spelled as an
   expression so a reader sees the moment it happens. `a..` runs to the base's
   own length, the ends take each other's type, what the view may write is what

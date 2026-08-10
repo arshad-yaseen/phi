@@ -1136,6 +1136,34 @@ test "the deepest nesting that reaches analysis does not overflow the stack" {
     try testing.expectEqual(0, comp.diagnostics.items.len);
 }
 
+test "one constant view is one entry, however often it is written" {
+    const gpa = testing.allocator;
+
+    var comp: Compilation = undefined;
+    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    defer comp.deinit();
+
+    try comp.compile(try testSource(gpa,
+        \\fn here() []u32 {
+        \\    return [2, 3, 5, 7]
+        \\}
+        \\fn there() []u32 {
+        \\    return [2, 3, 5, 7]
+        \\}
+        \\
+    ));
+    try testing.expectEqual(0, comp.diagnostics.items.len);
+    try testing.expectEqual(2, comp.funcs.items.len);
+
+    // interning is what shares the bytes, so the two sites return one constant
+    const here = comp.funcBlocks(comp.funcAt(.from(0)))[0].terminator.ret;
+    const there = comp.funcBlocks(comp.funcAt(.from(1)))[0].terminator.ret;
+    try testing.expectEqual(here, there);
+
+    const viewed = comp.pool.keyOf(here.unwrap().constant).value_slice;
+    try testing.expectEqual(4, comp.pool.aggregateLen(viewed.data));
+}
+
 test "a diagnostic renders across files" {
     const gpa = testing.allocator;
 
