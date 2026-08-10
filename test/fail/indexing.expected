@@ -1,0 +1,87 @@
+error[E0262]: this index is 4, and [4]u32 holds 4 elements
+ --> test/fail/indexing.phi:9:14
+  |
+9 |     return a[4]
+  |              ^ past the last element
+
+error[E0262]: an index counts from zero, and this one is -1
+  --> test/fail/indexing.phi:13:14
+   |
+13 |     return a[-1]
+   |              ^^ before the first element
+
+error[E0262]: this index is 9, and [4]u32 holds 4 elements
+  --> test/fail/indexing.phi:17:18
+   |
+17 |     return table[9]
+   |                  ^ past the last element
+
+error[E0252]: Point cannot be indexed
+  --> test/fail/indexing.phi:22:12
+   |
+22 |     return p[0]
+   |            ^^^ not something to index
+   |
+   = help: an index reaches an element, and an array is what holds elements
+
+error[E0252]: this array has no type yet, so it has no elements to reach
+  --> test/fail/indexing.phi:27:12
+   |
+27 |     return loose[0]
+   |            ^^^^^^^ no type in sight
+   |
+   = help: give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and everything it holds can be reached
+
+error[E0211]: an index is a count, and this is an untyped float
+  --> test/fail/indexing.phi:32:14
+   |
+32 |     return a[1.5]
+   |              ^^^ not a count
+   |
+   = help: any integer indexes, and nothing else does
+
+error[E0221]: 'a' was bound with 'let', so it cannot change
+  --> test/fail/indexing.phi:38:5
+   |
+38 |     a[0] = 9
+   |     ^^^ immutable
+   |
+   = help: declare it 'var' if it needs to change
+note: bound here
+  --> test/fail/indexing.phi:37:5
+   |
+37 |     let a: [4]u32 = [1, 2, 3, 4]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0221]: 'a' is a parameter, and a parameter is a copy that dies with the call
+  --> test/fail/indexing.phi:42:5
+   |
+42 |     a[0] = 9
+   |     ^^^ immutable
+   |
+   = help: take '*var T' to write the caller's value, or copy it into a 'var' first
+
+error[E0222]: this writes through a '*[4]u32', which is read-only
+  --> test/fail/indexing.phi:46:5
+   |
+46 |     p[0] = 9
+   |     ^^^ read-only
+   |
+   = help: take '*var [4]u32' to write through it
+
+error[E0213]: an index is one value, and this writes 2
+  --> test/fail/indexing.phi:51:12
+   |
+51 |     return g[1, 2]
+   |            ^^^^^^ the wrong number of values
+   |
+   = help: reach through one step at a time, as in 'grid[1][2]'
+
+error[E0219]: this array has no type yet, so it has no members to reach
+  --> test/fail/indexing.phi:57:18
+   |
+57 |     return loose.len
+   |                  ^^^ no type in sight
+   |
+   = help: give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and everything it holds can be reached
+

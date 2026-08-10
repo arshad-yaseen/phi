@@ -1,0 +1,44 @@
+error[E0219]: i64 has no field named 'len'
+ --> test/fail/array_len.phi:2:14
+  |
+2 |     return n.len
+  |              ^^^ no such field
+
+error[E0221]: 'len' is a value and not a place
+ --> test/fail/array_len.phi:6:7
+  |
+6 |     a.len = 5
+  |       ^^^ nothing to write to or point at
+  |
+  = help: an array's length is in its type, and a view keeps its own
+
+error[E0221]: 'len' is a value and not a place
+  --> test/fail/array_len.phi:10:16
+   |
+10 |     let p = &a.len
+   |                ^^^ nothing to write to or point at
+   |
+   = help: an array's length is in its type, and a view keeps its own
+
+error[E0219]: 'len' is a length, so it is read rather than called
+  --> test/fail/array_len.phi:14:14
+   |
+14 |     return a.len()
+   |              ^^^ not a method
+
+error[E0219]: [4]u32 has no field named 'lens'
+  --> test/fail/array_len.phi:18:14
+   |
+18 |     return a.lens
+   |              ^^^^ no such field
+   |
+   = help: did you mean 'len'?
+
+error[E0206]: expected u32, found u64
+  --> test/fail/array_len.phi:23:12
+   |
+23 |     return a.len
+   |            ^^^^^ the wrong type
+   |
+   = help: nothing converts on its own
+

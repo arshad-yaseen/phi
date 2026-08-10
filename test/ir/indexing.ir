@@ -1,0 +1,133 @@
+fn read(a: [4]u32) u32
+b0:
+  %0 = param a : [4]u32
+  %1 = local : *var [4]u32
+  %2 = store %1, %0
+  %3 = elem_ptr %1, 1:u64 : *u32
+  %4 = load %3 : u32
+  return %4
+
+fn write() u32
+b0:
+  %0 = local a : *var [4]u32
+  %1 = store %0, [1:u32, 2:u32, 3:u32, 4:u32]
+  %2 = elem_ptr %0, 0:u64 : *var u32
+  %3 = store %2, 9:u32
+  %4 = elem_ptr %0, 1:u64 : *var u32
+  %5 = load %4 : u32
+  %6 = add %5, 1:u32 : u32
+  %7 = store %4, %6
+  %8 = elem_ptr %0, 0:u64 : *var u32
+  %9 = load %8 : u32
+  return %9
+
+fn address(a: [4]u32) u32
+b0:
+  %0 = param a : [4]u32
+  %1 = local : *var [4]u32
+  %2 = store %1, %0
+  %3 = elem_ptr %1, 0:u64 : *u32
+  %4 = load %3 : u32
+  return %4
+
+fn nested(g: [2][3]u8) u8
+b0:
+  %0 = param g : [2][3]u8
+  %1 = local : *var [2][3]u8
+  %2 = store %1, %0
+  %3 = elem_ptr %1, 1:u64 : *[3]u8
+  %4 = elem_ptr %3, 2:u64 : *u8
+  %5 = load %4 : u8
+  return %5
+
+fn nested_write() u8
+b0:
+  %0 = local g : *var [2][3]u8
+  %1 = store %0, [[1:u8, 2:u8, 3:u8], [4:u8, 5:u8, 6:u8]]
+  %2 = elem_ptr %0, 1:u64 : *var [3]u8
+  %3 = elem_ptr %2, 2:u64 : *var u8
+  %4 = store %3, 7:u8
+  %5 = elem_ptr %0, 1:u64 : *var [3]u8
+  %6 = elem_ptr %5, 2:u64 : *var u8
+  %7 = load %6 : u8
+  return %7
+
+fn through_a_pointer(p: *var [4]u32) u32
+b0:
+  %0 = param p : *var [4]u32
+  %1 = elem_ptr %0, 0:u64 : *var u32
+  %2 = store %1, 1:u32
+  %3 = elem_ptr %0, 0:u64 : *var u32
+  %4 = load %3 : u32
+  return %4
+
+fn a_runtime_index(a: [4]u32, i: u64) u32
+b0:
+  %0 = param a : [4]u32
+  %1 = param i : u64
+  %2 = local : *var [4]u32
+  %3 = store %2, %0
+  %4 = bounds_check %1, 4:u64
+  %5 = elem_ptr %2, %1 : *u32
+  %6 = load %5 : u32
+  return %6
+
+fn a_signed_index(a: [4]u32, i: i32) u32
+b0:
+  %0 = param a : [4]u32
+  %1 = param i : i32
+  %2 = local : *var [4]u32
+  %3 = store %2, %0
+  %4 = bounds_check %1, 4:u64
+  %5 = elem_ptr %2, %1 : *u32
+  %6 = load %5 : u32
+  return %6
+
+fn a_runtime_write(i: u64) u32
+b0:
+  %0 = param i : u64
+  %1 = local a : *var [4]u32
+  %2 = store %1, [1:u32, 2:u32, 3:u32, 4:u32]
+  %3 = bounds_check %0, 4:u64
+  %4 = elem_ptr %1, %0 : *var u32
+  %5 = store %4, 9:u32
+  %6 = elem_ptr %1, 0:u64 : *var u32
+  %7 = load %6 : u32
+  return %7
+
+fn never_in_range(a: [0]u64, i: u64) u64
+b0:
+  %0 = param a : [0]u64
+  %1 = param i : u64
+  %2 = local : *var [0]u64
+  %3 = store %2, %0
+  %4 = bounds_check %1, 0:u64
+  %5 = elem_ptr %2, %1 : *u64
+  %6 = load %5 : u64
+  return %6
+
+fn through_a_field(c: Cell) u32
+b0:
+  %0 = param c : Cell
+  %1 = local : *var Cell
+  %2 = store %1, %0
+  %3 = field_ptr %1, .slot : *[2]u32
+  %4 = elem_ptr %3, 1:u64 : *u32
+  %5 = load %4 : u32
+  return %5
+
+fn into_a_field() u32
+b0:
+  %0 = local c : *var Cell
+  %1 = store %0, Cell.{ slot: [1:u32, 2:u32] }
+  %2 = field_ptr %0, .slot : *var [2]u32
+  %3 = elem_ptr %2, 0:u64 : *var u32
+  %4 = store %3, 3:u32
+  %5 = field_ptr %0, .slot : *var [2]u32
+  %6 = elem_ptr %5, 0:u64 : *var u32
+  %7 = load %6 : u32
+  return %7
+
+fn folded() u32
+b0:
+  return 5:u32

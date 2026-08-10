@@ -1,0 +1,19 @@
+fn not_a_constant(n: u64, a: [4]u32) {
+    let b: [n]u32 = a
+}
+
+fn negative(a: [4]u32) {
+    let b: [-1]u32 = a
+}
+
+fn fractional(a: [4]u32) {
+    let b: [1.5]u32 = a
+}
+
+fn past_a_count(a: [4]u32) {
+    let b: [18446744073709551616]u32 = a
+}
+
+fn not_a_value(a: [4]u32) {
+    let b: [u32]u32 = a
+}

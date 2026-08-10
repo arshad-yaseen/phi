@@ -1,0 +1,57 @@
+fn fill(xs: []var u32) {
+    xs[0] = 1
+}
+
+fn count(xs: []u32) u64 {
+    return xs.len
+}
+
+// the edge runs one way, so a read-only view does not fit a writable one
+fn narrow(xs: []u32) {
+    fill(xs)
+}
+
+// nor may one be written through
+fn write(xs: []u32) {
+    xs[0] = 1
+}
+
+// a view of one element type is not a view of another
+fn wrong_element(xs: []var u8) {
+    fill(xs)
+}
+
+// storage is not a view, and the bridge between them is written out
+fn no_bridge(a: [4]u32) u64 {
+    return count(a)
+}
+
+// a view answers 'len' and nothing else
+fn no_such_member(xs: []u32) u32 {
+    return xs.first
+}
+
+fn nearly_the_length(xs: []u32) u64 {
+    return xs.ln
+}
+
+// and a length is answered rather than written
+fn assign_a_length(xs: []var u32) {
+    xs.len = 3
+}
+
+// a view is an address, and only what the program owns has one to give
+fn runtime_part(n: u32) []u32 {
+    return [n, 3, 5, 7]
+}
+
+// the program's own bytes are read-only
+fn writable() []var u32 {
+    return [2, 3]
+}
+
+// storage is sliced rather than viewed, so the bridge is still written out
+fn sealed() []u32 {
+    let a: [4]u32 = [2, 3, 5, 7]
+    return a
+}

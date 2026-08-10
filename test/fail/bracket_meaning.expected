@@ -4,7 +4,7 @@ error[E0252]: u32 cannot be indexed
 17 |     return n[0]
    |            ^^^ not something to index
    |
-   = help: no type holds more than one value yet, so nothing can be indexed
+   = help: an index reaches an element, and an array is what holds elements
 
 error[E0252]: u32 cannot be indexed
   --> test/fail/bracket_meaning.phi:21:12
@@ -12,7 +12,7 @@ error[E0252]: u32 cannot be indexed
 21 |     return top[0]
    |            ^^^^^ not something to index
    |
-   = help: no type holds more than one value yet, so nothing can be indexed
+   = help: an index reaches an element, and an array is what holds elements
 
 error[E0246]: only a generic struct or function takes type arguments
   --> test/fail/bracket_meaning.phi:25:12

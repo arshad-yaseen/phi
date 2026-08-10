@@ -1,5 +1,4 @@
 //! The operations the compiler performs itself, reached as `intrinsic.name`.
-//! Shape from the table here, meaning in `Check.checkIntrinsic`.
 
 const std = @import("std");
 const assert = std.debug.assert;

@@ -43,6 +43,8 @@ rows: std.ArrayList(Row),
 rows_scratch: std.ArrayList(Row),
 /// Bodies never nest, so one builder serves them all.
 body_builder: Check.Builder,
+/// Staged literal parts and call arguments, marked and restored.
+operands: std.ArrayList(Check.Operand),
 body_queue: std.ArrayList(Pool.Instance),
 funcs: std.ArrayList(IR.Func),
 /// Every function's instructions, blocks, and extra words, which each `Func` ranges into.
@@ -130,7 +132,6 @@ pub const Loader = struct {
     }
 };
 
-/// A contiguous run in a table.
 pub const Range = struct {
     start: u32,
     len: u32,
@@ -237,6 +238,7 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .rows = .empty,
         .rows_scratch = .empty,
         .body_builder = .empty,
+        .operands = .empty,
         .body_queue = .empty,
         .funcs = .empty,
         .insts = .empty,
@@ -279,6 +281,7 @@ pub fn deinit(comp: *Compilation) void {
     comp.blocks.deinit(gpa);
 
     comp.body_builder.deinit(gpa);
+    comp.operands.deinit(gpa);
     comp.body_queue.deinit(gpa);
     comp.pool.deinit(gpa);
     comp.decls.deinit(gpa);
@@ -429,7 +432,8 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
     }
 
     comp.setUnitState(unit, .in_progress);
-    // cannot fail, the depth check above holds it under `analyze_max`
+    // `init` reserved `analyze_max`, which the depth check above holds it under
+    assert(comp.stack.items.len < analyze_max);
     comp.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
     defer _ = comp.stack.pop();
 
@@ -708,7 +712,6 @@ pub fn instAt(comp: *const Compilation, at: u32) IR.Inst {
     return comp.insts.get(at);
 }
 
-/// The write side of `exprType`.
 pub fn rememberExprType(
     comp: *Compilation,
     instance: Pool.Instance,
@@ -1132,6 +1135,34 @@ test "the deepest nesting that reaches analysis does not overflow the stack" {
     try testing.expectEqual(0, comp.diagnostics.items.len);
 }
 
+test "one constant view is one entry, however often it is written" {
+    const gpa = testing.allocator;
+
+    var comp: Compilation = undefined;
+    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    defer comp.deinit();
+
+    try comp.compile(try testSource(gpa,
+        \\fn here() []u32 {
+        \\    return [2, 3, 5, 7]
+        \\}
+        \\fn there() []u32 {
+        \\    return [2, 3, 5, 7]
+        \\}
+        \\
+    ));
+    try testing.expectEqual(0, comp.diagnostics.items.len);
+    try testing.expectEqual(2, comp.funcs.items.len);
+
+    // interning is what shares the bytes, so the two sites return one constant
+    const here = comp.funcBlocks(comp.funcAt(.from(0)))[0].terminator.ret;
+    const there = comp.funcBlocks(comp.funcAt(.from(1)))[0].terminator.ret;
+    try testing.expectEqual(here, there);
+
+    const viewed = comp.pool.keyOf(here.unwrap().constant).value_slice;
+    try testing.expectEqual(4, comp.pool.aggregateLen(viewed.data));
+}
+
 test "a diagnostic renders across files" {
     const gpa = testing.allocator;
 
@@ -1171,6 +1202,25 @@ test "a diagnostic names the unit that produced it" {
     const entry = comp.diagnostics.items[0];
     try testing.expect(entry.unit != null);
     try testing.expectEqual(Unit.Kind.body, entry.unit.?.kind);
+}
+
+test "a program built without the standard library says where std would be" {
+    const gpa = testing.allocator;
+
+    var comp: Compilation = undefined;
+    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    defer comp.deinit();
+
+    try comp.compile(try testSource(gpa, "import std.mem\n"));
+
+    var out: Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try comp.renderAll(&out.writer, .off);
+    try testing.expect(std.mem.indexOf(
+        u8,
+        out.written(),
+        "the standard library was not found",
+    ) != null);
 }
 
 test "a file with a parse error is still checked" {

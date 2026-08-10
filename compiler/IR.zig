@@ -12,7 +12,7 @@ pub const InstList = std.MultiArrayList(Inst);
 
 pub const Call = struct { callee: Pool.Instance, args: []const Ref };
 
-/// One function's body, three ranges into the shared tables, every inner index relative to them.
+/// One body, three ranges into the shared tables, every inner index relative to them.
 pub const Func = struct {
     instance: Pool.Instance,
     insts: Compilation.Range,
@@ -61,8 +61,21 @@ pub fn callAt(extra: []const u32, at: ExtraIndex) Call {
     };
 }
 
-/// Fields in declaration order.
-pub fn structInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
+pub const SliceMake = struct { base: Ref, start: Ref, end: Ref };
+
+/// The base and the two ends.
+pub fn sliceMakeAt(extra: []const u32, at: ExtraIndex) SliceMake {
+    const start = @intFromEnum(at);
+    assert(start + 3 <= extra.len);
+    return .{
+        .base = @enumFromInt(extra[start]),
+        .start = @enumFromInt(extra[start + 1]),
+        .end = @enumFromInt(extra[start + 2]),
+    };
+}
+
+/// Elements in order, or fields in declaration order.
+pub fn aggregateInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
     const start = @intFromEnum(at);
     assert(start + 1 <= extra.len);
     return refsAt(extra, start + 1, extra[start]);
@@ -144,6 +157,21 @@ pub const Inst = struct {
         field_ptr,
         /// Uses `field`. Produces the field's value.
         field_val,
+        /// Uses `bin`, what holds the elements and the index.
+        elem_ptr,
+        /// Uses `bin`. Sign-widened then compared unsigned, so one test settles both edges.
+        ///
+        ///   written   widened to 64 bits    read as unsigned      verdict
+        ///   i32   3   0x00000000_00000003                     3   3 < 4, passes
+        ///   u64   3   0x00000000_00000003                     3   3 < 4, passes
+        ///   i32  -1   0xffffffff_ffffffff  18446744073709551615   above 4, traps
+        bounds_check,
+        /// Uses `bin`, trapping unless the first is at most the second, widened as above.
+        order_check,
+        /// Uses `un`, a view. Produces the count it carries.
+        slice_len,
+        /// Uses `payload`, read by `sliceMakeAt`.
+        slice_make,
 
         // all `bin`
         add,
@@ -177,7 +205,7 @@ pub const Inst = struct {
 
         /// Uses `un`. A value entering a union that lists it, or a union widening.
         union_init,
-        /// Uses `probe`. Whether the union holds that member. Void where only a branch reads it.
+        /// Uses `probe`. Void where only a branch reads it.
         union_is,
         /// Uses `un`. A union retyped to what a passed test proved.
         union_narrow,
@@ -185,8 +213,8 @@ pub const Inst = struct {
         /// Uses `payload`, an `IR.Call`.
         call,
 
-        /// Uses `payload`, read by `structInitAt`.
-        struct_init,
+        /// Uses `payload`, read by `aggregateInitAt`. An array or a struct, told apart by the type.
+        aggregate_init,
     };
 };
 

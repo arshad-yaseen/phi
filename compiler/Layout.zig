@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
 const Pool = @import("Pool.zig");
 
@@ -24,8 +25,23 @@ comptime {
 /// The most bytes a type may hold, which keeps every size a `u32`.
 pub const size_max = std.math.maxInt(u32);
 
+/// The lowest a negative index reads as once widened, the `i64` minimum.
+const negative_floor = 1 << 63;
+
+comptime {
+    // `bounds_check` reads a negative index above every length, which needs this cap
+    assert(size_max < negative_floor);
+    // a stride is at least one byte, so a byte cap is also an element cap
+    assert(@sizeOf(u8) == 1);
+}
+
 /// Far past any embedding chain the declaration limits admit.
 const depth_max = 512;
+
+comptime {
+    // a chain costs one `ensure` per link, and a type nests no deeper than the parser allows
+    assert(depth_max > Compilation.analyze_max + AST.nest_max);
+}
 
 pub const Result = union(enum) {
     layout: Layout,
@@ -60,16 +76,23 @@ fn ofBounded(
             .i32, .u32, .f32 => .{ .layout = .{ .size = 4, .alignment = 4 } },
             .i64, .u64, .f64 => .{ .layout = .{ .size = 8, .alignment = 8 } },
             // a written type is never void or untyped
-            .void, .untyped_int, .untyped_float => unreachable,
+            .void, .untyped_int, .untyped_float, .untyped_aggregate => unreachable,
         },
         .type_pointer => .{ .layout = .{
             .size = pointer_size,
             .alignment = pointer_size,
         } },
+        // an address and a count, two words
+        .type_slice => .{ .layout = .{
+            .size = 2 * pointer_size,
+            .alignment = pointer_size,
+        } },
         .type_unit => .{ .layout = .{ .size = 0, .alignment = 1 } },
+        .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
         .type_union => try ofUnion(comp, origin, index, depth),
-        .value_int, .value_float, .value_unit, .value_union => unreachable,
+        .value_int, .value_float, .value_aggregate => unreachable,
+        .value_unit, .value_union, .value_slice => unreachable,
     };
 
     if (result == .layout) {
@@ -78,6 +101,24 @@ fn ofBounded(
         try comp.layouts.put(comp.gpa, index, result.layout);
     }
     return result;
+}
+
+fn ofArray(
+    comp: *Compilation,
+    origin: Compilation.Origin,
+    array: Pool.Key.Array,
+    depth: u32,
+) Allocator.Error!Result {
+    const element = switch (try ofBounded(comp, origin, array.child, depth + 1)) {
+        .layout => |found| found,
+        .poison => return .poison,
+        .too_large => return .too_large,
+    };
+    assert(element.size % element.alignment == 0);
+
+    const total = std.math.mul(u64, array.len, element.size) catch return .too_large;
+    if (total > size_max) return .too_large;
+    return .{ .layout = .{ .size = @intCast(total), .alignment = element.alignment } };
 }
 
 fn ofStruct(
@@ -95,8 +136,7 @@ fn ofStruct(
     var size: u64 = 0;
     var alignment: u32 = 1;
     const rows = comp.instanceAt(instance).rows;
-    // fields lie in falling alignment, and every size is a multiple of its
-    // own alignment, so no field needs padding before it and the sum is exact
+
     for (rows.start..rows.end()) |raw| {
         // by index, because a field's own layout can grow the rows table
         const row = comp.rowAt(.from(raw));
@@ -105,6 +145,7 @@ fn ofStruct(
             .poison => return .poison,
             .too_large => return .too_large,
         };
+        size = std.mem.alignForward(u64, size, field.alignment);
         size += field.size;
         if (size > size_max) return .too_large;
         alignment = @max(alignment, field.alignment);
@@ -129,7 +170,8 @@ fn ofUnion(
 
     var payload_size: u32 = 0;
     var payload_alignment: u32 = 1;
-    var pointers: u32 = 0;
+    // the one member that could hide a tag in the address it carries
+    var carrier: ?Layout = null;
     var units: u32 = 0;
     var at: u32 = 0;
 
@@ -143,25 +185,21 @@ fn ofUnion(
         payload_size = @max(payload_size, found.size);
         payload_alignment = @max(payload_alignment, found.alignment);
         switch (pool.keyOf(member)) {
-            .type_pointer => pointers += 1,
+            // a pointer and a view both lead with an address that is never zero
+            .type_pointer, .type_slice => carrier = found,
             .type_unit => units += 1,
             else => {},
         }
     }
 
-    // the zero niche. a pointer member is never zero, so the zero word itself
-    // encodes the unit member and no tag byte exists. `*Node | none` stores as
+    // the zero niche. no address is zero, so one unit member hides there and no tag exists
     //
-    //   0x0000000000000000   none
-    //   0x00007f2e51c04150   the *Node, the address as is
-    //
-    // one word where tag and payload would take sixteen bytes, and a member
-    // test is one compare against zero
-    if (count == 2 and pointers == 1 and units == 1) {
-        return .{ .layout = .{
-            .size = pointer_size,
-            .alignment = pointer_size,
-        } };
+    //   *Node | none      0x00007f2e51c04150                        the *Node
+    //                     0x0000000000000000                        none
+    //   []u32 | none      0x00007f2e51c04150  0x0000000000000004    the []u32
+    //                     0x0000000000000000  ------------------    none, count unread
+    if (count == 2 and units == 1) {
+        if (carrier) |only| return .{ .layout = only };
     }
 
     const total = std.mem.alignForward(

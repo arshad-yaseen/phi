@@ -78,7 +78,6 @@ pub const Code = enum(u16) {
     defer_cannot_leave = 245,
     generic_arguments = 246,
     bad_number = 247,
-    not_a_number = 248,
     analysis_too_deep = 249,
     unreachable_code = 250,
     intrinsic_outside_std = 251,
@@ -92,7 +91,13 @@ pub const Code = enum(u16) {
     missing_arm = 259,
     duplicate_arm = 260,
     type_too_large = 261,
+    out_of_range = 262,
 };
+
+comptime {
+    // rendered as `E{d:0>4}`, so a wider code would reshape every diagnostic and golden
+    for (std.enums.values(Code)) |code| assert(@intFromEnum(code) < 10000);
+}
 
 pub const Color = enum { off, on };
 

@@ -1,0 +1,8 @@
+type Point = {
+    x: i64
+}
+
+fn f() Point {
+    let p = .x
+    return p
+}

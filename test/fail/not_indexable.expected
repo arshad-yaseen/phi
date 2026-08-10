@@ -4,5 +4,5 @@ error[E0252]: i64 cannot be indexed
 2 |     return n[0]
   |            ^^^ not something to index
   |
-  = help: no type holds more than one value yet, so nothing can be indexed
+  = help: an index reaches an element, and an array is what holds elements
 

@@ -1,7 +1,7 @@
 fn fill(value: i64) Box[i64]
 b0:
   %0 = param value : i64
-  %1 = struct_init .{ item: %0 } : Box[i64]
+  %1 = aggregate_init .{ item: %0 } : Box[i64]
   %2 = local box : *var Box[i64]
   %3 = store %2, %1
   %4 = field_ptr %2, .item : *var i64

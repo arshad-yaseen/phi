@@ -14,6 +14,12 @@ pub const padding = 1;
 
 pub const bytes_max = std.math.maxInt(u32) - padding - 1;
 
+comptime {
+    // every token start, span, and line start is a `u32`, so a wider cap would truncate
+    assert(bytes_max <= std.math.maxInt(u32));
+    assert(bytes_max + padding <= std.math.maxInt(u32));
+}
+
 pub const LoadError = error{ SourceTooLarge, OutOfMemory, ReadFailed };
 
 /// Both counted from one.

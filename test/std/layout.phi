@@ -11,6 +11,17 @@ type Node = {
     next: *Node | none
 }
 
+type Sandwich = {
+    small: u8
+    wide: u32
+    after: u8
+}
+
+type Header = {
+    magic: [4]u8
+    version: u32
+}
+
 fn bool_is_the_tag_alone() u64 {
     return intrinsic.size_of[bool]()
 }
@@ -35,6 +46,46 @@ fn an_empty_struct_is_nothing() u64 {
     return intrinsic.size_of[Empty]()
 }
 
+fn a_field_pads_up_to_its_alignment() u64 {
+    return intrinsic.size_of[Sandwich]()
+}
+
+fn an_array_is_its_elements() u64 {
+    return intrinsic.size_of[[4]u32]()
+}
+
+fn arrays_nest_by_multiplying() u64 {
+    return intrinsic.size_of[[2][3]u8]()
+}
+
+fn an_array_aligns_like_its_element() u64 {
+    return intrinsic.align_of[[4]u32]()
+}
+
+fn no_elements_is_no_bytes() u64 {
+    return intrinsic.size_of[[0]u64]()
+}
+
+fn an_array_field_sits_inline() u64 {
+    return intrinsic.size_of[Header]()
+}
+
+fn an_array_member_leaves_no_niche() u64 {
+    return intrinsic.size_of[[2]u32 | none]()
+}
+
 fn alignments() u64 {
     return intrinsic.align_of[u8]() + intrinsic.align_of[Node]()
+}
+
+fn a_view_is_two_words() u64 {
+    return intrinsic.size_of[[]u32]()
+}
+
+fn an_optional_view_keeps_the_niche() u64 {
+    return intrinsic.size_of[[]u32 | none]()
+}
+
+fn a_view_aligns_like_a_pointer() u64 {
+    return intrinsic.align_of[[]u8]()
 }

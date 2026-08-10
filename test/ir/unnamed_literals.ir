@@ -1,0 +1,76 @@
+fn from_a_return() Point
+b0:
+  return Point.{ x: 1:u32, y: 2:u32 }
+
+fn takes(p: Point) u32
+b0:
+  %0 = param p : Point
+  %1 = field_val %0, .x : u32
+  return %1
+
+fn from_an_argument() u32
+b0:
+  %0 = call takes(Point.{ x: 1:u32, y: 2:u32 }) : u32
+  return %0
+
+fn from_a_field() Frame
+b0:
+  return Frame.{ origin: Point.{ x: 0:u32, y: 0:u32 }, size: Point.{ x: 1:u32, y: 1:u32 } }
+
+fn from_an_element() [2]Point
+b0:
+  return [Point.{ x: 0:u32, y: 0:u32 }, Point.{ x: 1:u32, y: 1:u32 }]
+
+fn from_a_binding(n: u32) u32
+b0:
+  %0 = param n : u32
+  %1 = aggregate_init .{ x: 3:u32, y: %0 } : Point
+  %2 = local p : *var Point
+  %3 = store %2, %1
+  %4 = field_ptr %2, .x : *var u32
+  %5 = store %4, 5:u32
+  %6 = load %2 : Point
+  %7 = field_val %6, .x : u32
+  return %7
+
+fn from_an_arm(f: true | false) Point
+b0:
+  %0 = param f : true | false
+  %1 = local : *var Point
+  branch %0, b1, b2
+b1:
+  %2 = store %1, Point.{ x: 1:u32, y: 1:u32 }
+  jump b3
+b2:
+  %3 = store %1, Point.{ x: 2:u32, y: 2:u32 }
+  jump b3
+b3:
+  %4 = load %1 : Point
+  return %4
+
+fn named_where_nothing_says(n: u32) u32
+b0:
+  %0 = param n : u32
+  %1 = aggregate_init .{ x: 3:u32, y: %0 } : Point
+  %2 = local here : *var Point
+  %3 = store %2, %1
+  %4 = field_ptr %2, .x : *var u32
+  %5 = store %4, 5:u32
+  %6 = load %2 : Point
+  %7 = field_val %6, .x : u32
+  return %7
+
+fn named_into_a_union(f: true | false) Point | none
+b0:
+  %0 = param f : true | false
+  branch %0, b1, b2
+b1:
+  return Point.{ x: 1:u32, y: 2:u32 }
+b2:
+  jump b3
+b3:
+  return none
+
+fn named_where_the_hint_agrees() Point
+b0:
+  return Point.{ x: 9:u32, y: 9:u32 }

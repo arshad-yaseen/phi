@@ -14,7 +14,7 @@ type Counter = {
     }
 
     fn zero() Counter {
-        return Counter.{ hits: 0 }
+        return .{ hits: 0 }
     }
 }
 

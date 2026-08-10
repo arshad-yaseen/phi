@@ -77,8 +77,8 @@ pub fn next(tokenizer: *Tokenizer) Token {
     const token = tokenizer.scan();
     switch (token.tag) {
         .comment, .doc_comment, .file_doc_comment => return token,
-        // a line that opens with a selector continues the line above
-        .dot, .dot_star => {},
+        // a line that opens with a selector or a range continues the one above
+        .dot, .dot_star, .dot_dot => {},
         else => if (tokenizer.insertedSemi(token)) |semi| return semi,
     }
 
@@ -267,7 +267,6 @@ fn numberEnd(source: [:0]const u8, start: u32) u32 {
     }
 }
 
-/// Where the scan is inside one token.
 const State = enum {
     start,
     ident,

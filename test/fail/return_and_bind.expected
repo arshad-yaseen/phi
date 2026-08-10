@@ -1,0 +1,28 @@
+error[E0206]: this function returns nothing, and this 'return' carries a value
+ --> test/fail/return_and_bind.phi:4:5
+  |
+4 |     return 1
+  |     ^^^^^^^^ nothing expected
+  |
+  = help: drop the value, or give the function a return type
+
+error[E0206]: this produces nothing, so there is nothing to bind
+ --> test/fail/return_and_bind.phi:8:13
+  |
+8 |     let x = nothing()
+  |             ^^^^^^^^^ no value here
+
+error[E0206]: '.*' needs a pointer, and this is i64
+  --> test/fail/return_and_bind.phi:13:13
+   |
+13 |     let x = n.*
+   |             ^^^ not a pointer
+   |
+   = help: '.*' reads what a pointer points at, and a field is reached with '.name'
+
+error[E0256]: 'or' with a handler splits a union, and this is i64
+  --> test/fail/return_and_bind.phi:18:13
+   |
+18 |     let x = n or e {
+   |             ^^^^^^^^ not a union
+

@@ -12,6 +12,20 @@ b0:
   %9 = add %6, %8 : i64
   return %9
 
+fn pinned_by_a_wrapper(xs: []u32, arr: [3]i16, p: *[]u8) u64
+b0:
+  %0 = param xs : []u32
+  %1 = param arr : [3]i16
+  %2 = param p : *[]u8
+  %3 = call counted[u32](%0) : u64
+  %4 = call triple[i16](%1) : u64
+  %5 = add %3, %4 : u64
+  %6 = call behind[u8](%2) : u64
+  %7 = add %5, %6 : u64
+  %8 = call both_ends[u32](%0, %0) : u64
+  %9 = add %7, %8 : u64
+  return %9
+
 fn direct[Wide](value: Wide) Wide
 b0:
   %0 = param value : Wide
@@ -21,3 +35,30 @@ fn through[Wide](value: *var Wide) *var Wide
 b0:
   %0 = param value : *var Wide
   return %0
+
+fn counted[u32](xs: []u32) u64
+b0:
+  %0 = param xs : []u32
+  %1 = slice_len %0 : u64
+  return %1
+
+fn triple[i16](a: [3]i16) u64
+b0:
+  %0 = param a : [3]i16
+  return 3:u64
+
+fn behind[u8](p: *[]u8) u64
+b0:
+  %0 = param p : *[]u8
+  %1 = load %0 : []u8
+  %2 = slice_len %1 : u64
+  return %2
+
+fn both_ends[u32](a: []u32, b: []u32) u64
+b0:
+  %0 = param a : []u32
+  %1 = param b : []u32
+  %2 = slice_len %0 : u64
+  %3 = slice_len %1 : u64
+  %4 = add %2, %3 : u64
+  return %4

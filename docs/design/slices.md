@@ -225,8 +225,9 @@ anywhere gives its pointer back.
 ## Slicing, and ranges
 
 Slicing takes a view: `arr[a..b]` is `ptr = base + a * stride` and
-`len = b - a`, pointer arithmetic and nothing more, the same cost for
-four elements as for four million. Slicing a view covers the same bytes.
+`len = b - a`, pointer arithmetic over ends the compiler has answered,
+the same cost for four elements as for four million. Slicing a view
+covers the same bytes.
 
 ```phi
 fn sum(xs: []u32) u32 {
@@ -290,9 +291,20 @@ constant index into an array is refused at compile time, because the
 answer is already known. A runtime index traps in safe builds, by the
 rule that what the compiler inserted may vanish in a fast build.
 
+A range is answered the same way, and before the view is made, because
+the view's own length is what every later index is answered against. Two
+tests bound both ends, `a <= b` and `b <= len`, and between them the near
+edge needs no test of its own, since a count below zero reads above every
+length and fails whichever test reads it on the right. What the constants
+settle is refused where it is written, and what they do not is tested
+where the view is made.
+
 ```phi
 let arr: [4]u32 = [10, 20, 30, 40]
 let bad = arr[9]                        // refused, before anything runs
+let gap = arr[3..1]                     // refused, the ends cross
+let past = arr[0..9]                    // refused, past the last element
+let all = arr[0..4]                     // the whole of it, and free
 ```
 
 ## Text

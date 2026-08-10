@@ -12,6 +12,11 @@ const Node = AST.Node;
 /// Far above anything `Parse` can build.
 const depth_max = 1024;
 
+comptime {
+    // the parser bounds how deep a tree nests, so this walk never truncates one
+    assert(depth_max > AST.nest_max);
+}
+
 pub fn tree(t: AST, writer: *Writer) Writer.Error!void {
     assert(t.nodes.len > 0);
     assert(t.nodeTag(.root) == .root);
@@ -163,8 +168,17 @@ fn node(
         },
         .struct_literal => |it| {
             try writer.writeByte('\n');
-            try node(ast, writer, it.type_expr, below, "type");
+            if (it.type_expr.unwrap()) |written| try node(ast, writer, written, below, "type");
             for (it.fields) |field| try node(ast, writer, field, below, "");
+        },
+        .array_literal => |elements| {
+            try writer.writeByte('\n');
+            for (elements) |element| try node(ast, writer, element, below, "");
+        },
+        .range_expr => |it| {
+            try writer.writeByte('\n');
+            try node(ast, writer, it.start, below, "start");
+            if (it.end.unwrap()) |end| try node(ast, writer, end, below, "end");
         },
         .struct_field_init => |it| {
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
@@ -190,6 +204,16 @@ fn node(
             try node(ast, writer, it.lhs, below, "lhs");
             try node(ast, writer, it.binder, below, "binds");
             try node(ast, writer, it.block, below, "handler");
+        },
+        .array_type => |it| {
+            try writer.writeByte('\n');
+            try node(ast, writer, it.length, below, "length");
+            try node(ast, writer, it.child, below, "child");
+        },
+        .slice_type => |it| {
+            try flag(writer, it.is_mutable, "var");
+            try writer.writeByte('\n');
+            try node(ast, writer, it.child, below, "child");
         },
         .pointer_type => |it| {
             try flag(writer, it.is_mutable, "var");
@@ -259,6 +283,7 @@ fn inst(
             if (data.name != .empty) try writer.print(" {s}", .{comp.pool.stringText(data.name)});
         },
         .load,
+        .slice_len,
         .ptr_cast,
         .union_init,
         .union_narrow,
@@ -276,6 +301,9 @@ fn inst(
             try spell.writeType(comp, writer, data.probe.member);
         },
         .store,
+        .elem_ptr,
+        .bounds_check,
+        .order_check,
         .add,
         .sub,
         .mul,
@@ -314,15 +342,38 @@ fn inst(
             }
             try writer.writeByte(')');
         },
-        .struct_init => {
-            const rows = comp.instanceAt(comp.pool.keyOf(it.type).type_struct).rows;
-            try writer.writeAll(" .{ ");
-            for (IR.structInitAt(comp.funcExtra(body), data.payload), 0..) |operand, position| {
-                if (position > 0) try writer.writeAll(", ");
-                try writer.print("{s}: ", .{comp.rowName(.from(rows.at(@intCast(position))))});
-                try ref(comp, operand, writer);
+        .slice_make => {
+            const made = IR.sliceMakeAt(comp.funcExtra(body), data.payload);
+            try writer.writeByte(' ');
+            try ref(comp, made.base, writer);
+            try writer.writeAll(", ");
+            try ref(comp, made.start, writer);
+            try writer.writeAll(", ");
+            try ref(comp, made.end, writer);
+        },
+        .aggregate_init => {
+            const operands = IR.aggregateInitAt(comp.funcExtra(body), data.payload);
+            switch (comp.pool.keyOf(it.type)) {
+                .type_struct => |instance| {
+                    const rows = comp.instanceAt(instance).rows;
+                    try writer.writeAll(" .{ ");
+                    for (operands, 0..) |operand, position| {
+                        if (position > 0) try writer.writeAll(", ");
+                        const row: Compilation.Row.Index = .from(rows.at(@intCast(position)));
+                        try writer.print("{s}: ", .{comp.rowName(row)});
+                        try ref(comp, operand, writer);
+                    }
+                    try writer.writeAll(" }");
+                },
+                else => {
+                    try writer.writeAll(" [");
+                    for (operands, 0..) |operand, position| {
+                        if (position > 0) try writer.writeAll(", ");
+                        try ref(comp, operand, writer);
+                    }
+                    try writer.writeByte(']');
+                },
             }
-            try writer.writeAll(" }");
         },
     }
 

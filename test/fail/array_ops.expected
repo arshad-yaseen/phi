@@ -1,0 +1,30 @@
+error[E0211]: '==' cannot be applied to [2]u32
+ --> test/fail/array_ops.phi:3:14
+  |
+3 |     return a == b
+  |              ^^ wrong operand type
+
+error[E0211]: '+' cannot be applied to [2]u32
+ --> test/fail/array_ops.phi:7:14
+  |
+7 |     return a + b
+  |              ^ wrong operand type
+
+error[E0211]: '-' needs a signed number, and this is [2]u32
+  --> test/fail/array_ops.phi:11:12
+   |
+11 |     return -a
+   |            ^ wrong operand type
+
+error[E0211]: '==' cannot be applied to an untyped array
+  --> test/fail/array_ops.phi:15:23
+   |
+15 |     let both = [1, 2] == [1, 2]
+   |                       ^^ wrong operand type
+
+error[E0211]: '==' cannot be applied to Point
+  --> test/fail/array_ops.phi:24:14
+   |
+24 |     return p == q
+   |              ^^ wrong operand type
+

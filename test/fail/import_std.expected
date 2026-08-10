@@ -1,0 +1,8 @@
+error[E0235]: 'std' is a directory of modules, not a module
+ --> test/fail/import_std.phi:1:8
+  |
+1 | import std
+  |        ^^^ name one
+  |
+  = help: 'use std.mem' imports the memory module
+

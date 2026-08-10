@@ -1,0 +1,34 @@
+// 256 distinct members, one past the flat cap a union may hold
+type T0; type T1; type T2; type T3; type T4; type T5; type T6; type T7; type T8; type T9; type T10; type T11; type T12; type T13; type T14; type T15
+type T16; type T17; type T18; type T19; type T20; type T21; type T22; type T23; type T24; type T25; type T26; type T27; type T28; type T29; type T30; type T31
+type T32; type T33; type T34; type T35; type T36; type T37; type T38; type T39; type T40; type T41; type T42; type T43; type T44; type T45; type T46; type T47
+type T48; type T49; type T50; type T51; type T52; type T53; type T54; type T55; type T56; type T57; type T58; type T59; type T60; type T61; type T62; type T63
+type T64; type T65; type T66; type T67; type T68; type T69; type T70; type T71; type T72; type T73; type T74; type T75; type T76; type T77; type T78; type T79
+type T80; type T81; type T82; type T83; type T84; type T85; type T86; type T87; type T88; type T89; type T90; type T91; type T92; type T93; type T94; type T95
+type T96; type T97; type T98; type T99; type T100; type T101; type T102; type T103; type T104; type T105; type T106; type T107; type T108; type T109; type T110; type T111
+type T112; type T113; type T114; type T115; type T116; type T117; type T118; type T119; type T120; type T121; type T122; type T123; type T124; type T125; type T126; type T127
+type T128; type T129; type T130; type T131; type T132; type T133; type T134; type T135; type T136; type T137; type T138; type T139; type T140; type T141; type T142; type T143
+type T144; type T145; type T146; type T147; type T148; type T149; type T150; type T151; type T152; type T153; type T154; type T155; type T156; type T157; type T158; type T159
+type T160; type T161; type T162; type T163; type T164; type T165; type T166; type T167; type T168; type T169; type T170; type T171; type T172; type T173; type T174; type T175
+type T176; type T177; type T178; type T179; type T180; type T181; type T182; type T183; type T184; type T185; type T186; type T187; type T188; type T189; type T190; type T191
+type T192; type T193; type T194; type T195; type T196; type T197; type T198; type T199; type T200; type T201; type T202; type T203; type T204; type T205; type T206; type T207
+type T208; type T209; type T210; type T211; type T212; type T213; type T214; type T215; type T216; type T217; type T218; type T219; type T220; type T221; type T222; type T223
+type T224; type T225; type T226; type T227; type T228; type T229; type T230; type T231; type T232; type T233; type T234; type T235; type T236; type T237; type T238; type T239
+type T240; type T241; type T242; type T243; type T244; type T245; type T246; type T247; type T248; type T249; type T250; type T251; type T252; type T253; type T254; type T255
+
+type Wide = T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 | T12 | T13 | T14 | T15 |
+    T16 | T17 | T18 | T19 | T20 | T21 | T22 | T23 | T24 | T25 | T26 | T27 | T28 | T29 | T30 | T31 |
+    T32 | T33 | T34 | T35 | T36 | T37 | T38 | T39 | T40 | T41 | T42 | T43 | T44 | T45 | T46 | T47 |
+    T48 | T49 | T50 | T51 | T52 | T53 | T54 | T55 | T56 | T57 | T58 | T59 | T60 | T61 | T62 | T63 |
+    T64 | T65 | T66 | T67 | T68 | T69 | T70 | T71 | T72 | T73 | T74 | T75 | T76 | T77 | T78 | T79 |
+    T80 | T81 | T82 | T83 | T84 | T85 | T86 | T87 | T88 | T89 | T90 | T91 | T92 | T93 | T94 | T95 |
+    T96 | T97 | T98 | T99 | T100 | T101 | T102 | T103 | T104 | T105 | T106 | T107 | T108 | T109 | T110 | T111 |
+    T112 | T113 | T114 | T115 | T116 | T117 | T118 | T119 | T120 | T121 | T122 | T123 | T124 | T125 | T126 | T127 |
+    T128 | T129 | T130 | T131 | T132 | T133 | T134 | T135 | T136 | T137 | T138 | T139 | T140 | T141 | T142 | T143 |
+    T144 | T145 | T146 | T147 | T148 | T149 | T150 | T151 | T152 | T153 | T154 | T155 | T156 | T157 | T158 | T159 |
+    T160 | T161 | T162 | T163 | T164 | T165 | T166 | T167 | T168 | T169 | T170 | T171 | T172 | T173 | T174 | T175 |
+    T176 | T177 | T178 | T179 | T180 | T181 | T182 | T183 | T184 | T185 | T186 | T187 | T188 | T189 | T190 | T191 |
+    T192 | T193 | T194 | T195 | T196 | T197 | T198 | T199 | T200 | T201 | T202 | T203 | T204 | T205 | T206 | T207 |
+    T208 | T209 | T210 | T211 | T212 | T213 | T214 | T215 | T216 | T217 | T218 | T219 | T220 | T221 | T222 | T223 |
+    T224 | T225 | T226 | T227 | T228 | T229 | T230 | T231 | T232 | T233 | T234 | T235 | T236 | T237 | T238 | T239 |
+    T240 | T241 | T242 | T243 | T244 | T245 | T246 | T247 | T248 | T249 | T250 | T251 | T252 | T253 | T254 | T255

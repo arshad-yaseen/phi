@@ -1,0 +1,38 @@
+error[E0212]: a function is not a value, so call it
+  --> test/fail/not_a_value.phi:16:13
+   |
+16 |     let f = helper
+   |             ^^^^^^ missing the call
+   |
+   = help: there are no function values in the language
+
+error[E0219]: a function has no fields, so call it first
+  --> test/fail/not_a_value.phi:20:13
+   |
+20 |     let n = helper.field
+   |             ^^^^^^^^^^^^ '.' on a function
+
+error[E0203]: a module is not a value
+  --> test/fail/not_a_value.phi:24:13
+   |
+24 |     let m = mem
+   |             ^^^ a module, where a value belongs
+
+error[E0212]: a module is not callable, so name a function inside it
+  --> test/fail/not_a_value.phi:28:13
+   |
+28 |     let n = mem()
+   |             ^^^ a module
+
+error[E0212]: a type is not callable, and there are no conversions to call
+  --> test/fail/not_a_value.phi:32:13
+   |
+32 |     let n = i64()
+   |             ^^^ a type
+
+error[E0246]: this is generic, so write its arguments before reaching in
+  --> test/fail/not_a_value.phi:36:13
+   |
+36 |     let n = Box.get()
+   |             ^^^ missing type arguments
+

@@ -45,7 +45,7 @@ b1:
 b2:
   %6 = load %2 : u32 | none
   %7 = union_narrow %6 : u32
-  %8 = struct_init .{ item: %7 } : Box[u32]
+  %8 = aggregate_init .{ item: %7 } : Box[u32]
   %9 = call widen(%0) : u32 | Timeout | none
   %10 = call Box[u32].get(%8) : u32
   %11 = call find(%0) : u32 | none

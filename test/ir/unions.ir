@@ -26,14 +26,13 @@ b0:
   %0 = param flag : true | false
   branch %0, b1, b2
 b1:
-  %1 = struct_init .{ value: 3:u32 } : Slot
-  return %1
+  return Slot.{ value: 3:u32 }
 b2:
   jump b3
 b3:
-  %2 = call find(%0) : u32 | none
-  %3 = struct_init .{ value: %2 } : Slot
-  return %3
+  %1 = call find(%0) : u32 | none
+  %2 = aggregate_init .{ value: %1 } : Slot
+  return %2
 
 fn drive(flag: true | false) u32 | Timeout | none
 b0:

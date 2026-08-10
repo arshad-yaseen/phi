@@ -76,3 +76,45 @@ root
       assign =
         lhs: ident _
         rhs: ident a
+  fn_decl unnamed
+    param a
+      type: ident i64
+    ret: ident Wrapper
+    body: block
+      var_decl named let
+        type: ident Point
+        init: struct_literal
+          type: ident Point
+          struct_field_init x
+            value: ident a
+          struct_field_init y
+            value: number_literal 2
+      var_decl bare let
+        type: ident Point
+        init: struct_literal
+          struct_field_init x
+            value: ident a
+          struct_field_init y
+            value: number_literal 2
+      var_decl empty let
+        type: ident Point
+        init: struct_literal
+      assign =
+        lhs: ident _
+        rhs: ident named
+      assign =
+        lhs: ident _
+        rhs: ident bare
+      assign =
+        lhs: ident _
+        rhs: ident empty
+      return_expr
+        value: struct_literal
+          struct_field_init inner
+            value: struct_literal
+              struct_field_init x
+                value: number_literal 1
+              struct_field_init y
+                value: number_literal 2
+          struct_field_init tag
+            value: number_literal 9

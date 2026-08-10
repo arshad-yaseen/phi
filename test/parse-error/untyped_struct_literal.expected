@@ -1,8 +1,0 @@
-error[E0102]: a struct literal names the type it builds
- --> test/parse-error/untyped_struct_literal.phi:7:12
-  |
-7 |     return .{ x: 1, y: 2 }
-  |            ^ nothing here says which struct
-  |
-  = help: write it as 'Point.{ field: value }'
-

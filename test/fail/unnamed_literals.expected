@@ -1,0 +1,54 @@
+error[E0215]: nothing here says which struct this builds
+  --> test/fail/unnamed_literals.phi:12:13
+   |
+12 |     let p = .{ x: 1, y: 2 }
+   |             ^^^^^^^^^^^^^ no type in sight
+   |
+   = help: name it, as in 'Point.{ x: 1 }', or annotate what it feeds
+
+error[E0215]: nothing here says which struct this builds
+  --> test/fail/unnamed_literals.phi:18:5
+   |
+18 |     .{ x: 1, y: 2 }
+   |     ^^^^^^^^^^^^^ no type in sight
+   |
+   = help: name it, as in 'Point.{ x: 1 }', or annotate what it feeds
+
+error[E0215]: nothing here says which struct this builds
+  --> test/fail/unnamed_literals.phi:22:9
+   |
+22 |     _ = .{ x: 1, y: 2 }
+   |         ^^^^^^^^^^^^^ no type in sight
+   |
+   = help: name it, as in 'Point.{ x: 1 }', or annotate what it feeds
+
+error[E0215]: this lands on 'Point | Other', which lists several types, and nothing says which is built
+  --> test/fail/unnamed_literals.phi:27:12
+   |
+27 |     return .{ x: 1, y: 2 }
+   |            ^^^^^^^^^^^^^ which member?
+   |
+   = help: name the struct, as in 'Point.{ x: 1 }'
+
+error[E0215]: this lands on 'Point | none', which lists several types, and nothing says which is built
+  --> test/fail/unnamed_literals.phi:32:12
+   |
+32 |     return .{ x: 1, y: 2 }
+   |            ^^^^^^^^^^^^^ which member?
+   |
+   = help: name the struct, as in 'Point.{ x: 1 }'
+
+error[E0202]: u32 has no fields to give
+  --> test/fail/unnamed_literals.phi:37:18
+   |
+37 |     let n: u32 = .{ x: 1 }
+   |                  ^^^^^^^ not a struct
+
+error[E0206]: expected Point, found Other
+  --> test/fail/unnamed_literals.phi:43:12
+   |
+43 |     return Other.{ x: 1 }
+   |            ^^^^^^^^^^^^ the wrong type
+   |
+   = help: nothing converts on its own
+

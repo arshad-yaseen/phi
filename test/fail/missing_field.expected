@@ -1,8 +1,8 @@
 error[E0218]: this literal leaves out 'y'
  --> test/fail/missing_field.phi:7:12
   |
-7 |     return Point.{ x: 1 }
-  |            ^^^^^^^^^^^^ incomplete
+7 |     return .{ x: 1 }
+  |            ^^^^^^^ incomplete
   |
   = help: every field of the struct must be present, and there are no defaults
 

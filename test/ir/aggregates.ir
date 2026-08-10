@@ -1,0 +1,29 @@
+fn corners() [2]Point
+b0:
+  return [Point.{ x: 0:u32, y: 0:u32 }, Point.{ x: 1:u32, y: 1:u32 }]
+
+fn mixed(n: u32) Point
+b0:
+  %0 = param n : u32
+  %1 = aggregate_init .{ x: 1:u32, y: %0 } : Point
+  return %1
+
+fn runtime_elements(n: u32) [2]u32
+b0:
+  %0 = param n : u32
+  %1 = aggregate_init [1:u32, %0] : [2]u32
+  return %1
+
+fn folded_field() u32
+b0:
+  return 0:u32
+
+fn varies() u32
+b0:
+  %0 = local here : *var Point
+  %1 = store %0, Point.{ x: 3:u32, y: 4:u32 }
+  %2 = field_ptr %0, .x : *var u32
+  %3 = store %2, 5:u32
+  %4 = load %0 : Point
+  %5 = field_val %4, .x : u32
+  return %5

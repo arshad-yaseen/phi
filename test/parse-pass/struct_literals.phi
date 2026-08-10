@@ -25,3 +25,16 @@ fn places(p: *var Point, a: i64) {
     p.x = 1
     _ = a
 }
+
+fn unnamed(a: i64) Wrapper {
+    let named: Point = Point.{ x: a, y: 2 }
+    let bare: Point = .{ x: a, y: 2 }
+    let empty: Point = .{}
+    _ = named
+    _ = bare
+    _ = empty
+    return .{
+        inner: .{ x: 1, y: 2 },
+        tag: 9,
+    }
+}

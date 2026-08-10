@@ -1,0 +1,8 @@
+error[E0233]: 'Grid' holds itself by value, so it has no size
+ --> test/fail/array_cycle.phi:5:5
+  |
+5 |     cells: [4]Grid
+  |     ^^^^^^^^^^^^^^ the circle closes here
+  |
+  = help: break the cycle with a pointer: '*Grid' or '*Grid | none'
+

@@ -1,0 +1,24 @@
+fn no_members(n: i64) u64 {
+    return n.len
+}
+
+fn not_a_place(a: [4]u32) {
+    a.len = 5
+}
+
+fn no_address(a: [4]u32) {
+    let p = &a.len
+}
+
+fn not_callable(a: [4]u32) u64 {
+    return a.len()
+}
+
+fn near_miss(a: [4]u32) u64 {
+    return a.lens
+}
+
+// a length reads as u64 wherever it lands, so it is not a constant that adapts
+fn always_a_u64(a: [4]u32) u32 {
+    return a.len
+}

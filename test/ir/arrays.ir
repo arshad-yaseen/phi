@@ -1,0 +1,31 @@
+fn echo(a: [4]u32) [4]u32
+b0:
+  %0 = param a : [4]u32
+  return %0
+
+fn echo_grid(g: [2][3]u8) [2][3]u8
+b0:
+  %0 = param g : [2][3]u8
+  return %0
+
+fn version(h: Header) u32
+b0:
+  %0 = param h : Header
+  %1 = field_val %0, .version : u32
+  return %1
+
+fn hold(b: Buffer[u32]) Buffer[u32]
+b0:
+  %0 = param b : Buffer[u32]
+  return %0
+
+fn computed(a: [6]u8) [6]u8
+b0:
+  %0 = param a : [6]u8
+  return %0
+
+fn drive(a: [4]u32) [4]u32
+b0:
+  %0 = param a : [4]u32
+  %1 = call echo(%0) : [4]u32
+  return %1

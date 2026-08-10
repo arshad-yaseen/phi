@@ -24,8 +24,7 @@ b0:
 
 fn Counter.zero() Counter
 b0:
-  %0 = struct_init .{ hits: 0:i64 } : Counter
-  return %0
+  return Counter.{ hits: 0:i64 }
 
 fn drive() i64
 b0:

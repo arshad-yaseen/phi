@@ -18,7 +18,6 @@ pub const Tag = enum(u8) {
     doc_comment,
     file_doc_comment,
 
-    // `lexeme` holds every keyword's spelling
     kw_and,
     kw_break,
     kw_continue,
@@ -49,6 +48,8 @@ pub const Tag = enum(u8) {
     dot,
     /// One token, so a line ending in `p.*` ends its statement.
     dot_star,
+    /// `a..b`, the ends of a range.
+    dot_dot,
     colon,
     /// Written, or inserted at a line break.
     semi,
@@ -120,6 +121,7 @@ pub const Tag = enum(u8) {
             .comma => ",",
             .dot => ".",
             .dot_star => ".*",
+            .dot_dot => "..",
             .colon => ":",
             .semi => ";",
             .pipe => "|",

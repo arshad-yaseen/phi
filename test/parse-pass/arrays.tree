@@ -1,0 +1,122 @@
+root
+  alias_decl Grid
+    type: array_type
+      length: number_literal 2
+      child: array_type
+        length: number_literal 3
+        child: ident u8
+  alias_decl Pointers
+    type: array_type
+      length: number_literal 8
+      child: pointer_type var
+        child: ident Node
+  alias_decl Boxed
+    type: array_type
+      length: number_literal 4
+      child: bracket
+        base: ident Box
+        arg: ident u32
+  alias_decl Either
+    type: union_type
+      array_type
+        length: number_literal 2
+        child: ident u32
+      ident none
+  struct_decl Header
+    field magic
+      type: array_type
+        length: number_literal 4
+        child: ident u8
+    field version
+      type: ident u32
+  fn_decl take
+    param a
+      type: array_type
+        length: number_literal 4
+        child: ident u32
+    ret: array_type
+      length: number_literal 4
+      child: ident u32
+    body: block
+      return_expr
+        value: ident a
+  fn_decl nested
+    param g
+      type: array_type
+        length: number_literal 2
+        child: array_type
+          length: number_literal 3
+          child: ident u8
+    ret: array_type
+      length: number_literal 1
+      child: bracket
+        base: ident Box
+        arg: array_type
+          length: number_literal 2
+          child: ident u8
+    body: block
+      return_expr
+        value: ident g
+  fn_decl computed
+    param a
+      type: array_type
+        length: binary add
+          lhs: number_literal 1
+          rhs: binary mul
+            lhs: number_literal 2
+            rhs: number_literal 3
+        child: ident u8
+    ret: ident u8
+    body: block
+      return_expr
+        value: number_literal 0
+  fn_decl in_a_bracket
+    param b
+      type: bracket
+        base: ident Box
+        arg: array_type
+          length: number_literal 4
+          child: ident u32
+    ret: ident u8
+    body: block
+      return_expr
+        value: number_literal 0
+  alias_decl Bytes
+    type: slice_type
+      child: ident u8
+  alias_decl Writable
+    type: slice_type var
+      child: ident u8
+  alias_decl Views
+    type: slice_type
+      child: slice_type
+        child: ident u32
+  alias_decl ViewOfArrays
+    type: slice_type
+      child: array_type
+        length: number_literal 4
+        child: ident u32
+  alias_decl MaybeView
+    type: union_type
+      slice_type
+        child: ident u32
+      ident none
+  fn_decl views
+    param xs
+      type: slice_type
+        child: ident u32
+    param ys
+      type: slice_type var
+        child: bracket
+          base: ident Box
+          arg: ident u32
+    param zs
+      type: bracket
+        base: ident Box
+        arg: slice_type
+          child: ident u8
+    ret: slice_type
+      child: ident u8
+    body: block
+      return_expr
+        value: ident xs

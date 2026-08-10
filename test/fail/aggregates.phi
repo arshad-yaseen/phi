@@ -1,0 +1,11 @@
+fn no_type(n: u32) {
+    let pair = [1, n]
+}
+
+fn wrong_count(n: u32) {
+    let three: [3]u32 = [1, n]
+}
+
+fn element_disagrees(n: u64) {
+    let pair: [2]u32 = [1, n]
+}

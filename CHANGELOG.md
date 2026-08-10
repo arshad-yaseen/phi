@@ -23,8 +23,45 @@
   one identity across modules. A file's own declaration still wins.
 - What a call feeds may pin its type argument: in `let a: u64 =
   mem.align_up(11, 8)`, the annotation decides `T` where the arguments
-  leave it open. Typed arguments still pin first, and a width stated
-  nowhere still refuses.
+  leave it open. An argument pins through whatever its parameter is
+  written in, so `T`, `*T`, `[]T`, and `[N]T` all read what they hold,
+  and a width stated nowhere still refuses.
+- `[N]T` is an array, N values of one type laid out end to end and written
+  `[1, 2, 3]`. The length lives in the type, so it costs no memory, answers as
+  `a.len`, and may size another array. A literal has no type until it lands, so
+  one written once fits wherever its value fits. `a[i]` names an element, which
+  is read, written, and pointed at the way a field is, and a constant index past
+  the end is refused before anything runs, while every other index is checked
+  before the memory is touched.
+- `[]T` is a view of elements it does not own, two words wide, and `[]var T`
+  also writes through and fits wherever a `[]T` is asked. It answers `len` and
+  indexes the way an array does, holds no elements so a type may hold a view of
+  itself, and `[]T | none` costs no more than the view alone.
+- A constant that lands on a view gets bytes the program owns, so `[2, 3, 5, 7]`
+  fits a `[]u32` and one written twice is one set of bytes. It never fits a
+  `[]var T`, and an array with a part settled at run time is refused rather
+  than viewed from a frame that is about to leave.
+- `a[x..y]` makes one, the single bridge from storage to a view, spelled as an
+  expression so a reader sees the moment it happens. `a..` runs to the base's
+  own length, the ends take each other's type, what the view may write is what
+  the place it came from allowed, and a range that leaves its base is refused
+  before anything runs, or checked before the view is made.
+- A struct literal may leave out the type where what it lands on says it, so
+  `let p: Point = .{ x: 1, y: 2 }` reads once instead of twice, as do an
+  argument, a return, a field, and an element. It still names the type where
+  nothing lands it, and where what lands it is a union.
+- A literal folds where its parts are constant, whether it builds an array or a
+  struct, so `Point.{ x: 1, y: 2 }` binds at the top level, sits inside an
+  array, and costs no instruction, while one with a runtime part is built where
+  it stands.
+- A `var` no longer asks a sealed constant for the type it already carries:
+  `let n: u64 = 2` followed by `var c = n` used to be refused.
+
+### Compiler
+
+- `E0248` retires. It named a byte a number cannot contain, which the
+  tokenizer never puts inside one, so no program could reach it. What it
+  described is `E0247` along with every other malformed number.
 
 ## [0.2.0] - 2026-08-08
 

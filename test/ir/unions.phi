@@ -28,9 +28,9 @@ fn take(value: u32 | none) u32 | none {
 
 fn fill(flag: bool) Slot {
     if flag {
-        return Slot.{ value: 3 }
+        return .{ value: 3 }
     }
-    return Slot.{ value: find(flag) }
+    return .{ value: find(flag) }
 }
 
 fn drive(flag: bool) Reply {

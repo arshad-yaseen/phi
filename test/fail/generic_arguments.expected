@@ -23,3 +23,11 @@ note: declared here
  5 | fn plain() i64 {
    | ^^^^^^^^^^^^^^^^
 
+error[E0242]: 'viewed' takes '[]T' here, so u64 cannot pin 'T'
+  --> test/fail/generic_arguments.phi:29:19
+   |
+29 |     return viewed(n)
+   |                   ^ the wrong shape to read a type from
+   |
+   = help: pass what the parameter is written as, or write the type argument 'viewed[...](...)'
+

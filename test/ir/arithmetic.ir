@@ -1,0 +1,88 @@
+fn divide(a: i64, b: i64) i64
+b0:
+  %0 = param a : i64
+  %1 = param b : i64
+  %2 = div %0, %1 : i64
+  return %2
+
+fn remainder(a: i64, b: i64) i64
+b0:
+  %0 = param a : i64
+  %1 = param b : i64
+  %2 = mod %0, %1 : i64
+  return %2
+
+fn negated(a: i64) i64
+b0:
+  %0 = param a : i64
+  %1 = negate %0 : i64
+  return %1
+
+fn negated_float(a: f64) f64
+b0:
+  %0 = param a : f64
+  %1 = negate %0 : f64
+  return %1
+
+fn float_arithmetic(a: f64, b: f64) f64
+b0:
+  %0 = param a : f64
+  %1 = param b : f64
+  %2 = div %0, %1 : f64
+  return %2
+
+fn equal(a: i64, b: i64) true | false
+b0:
+  %0 = param a : i64
+  %1 = param b : i64
+  %2 = cmp_eq %0, %1 : true | false
+  return %2
+
+fn not_equal(a: i64, b: i64) true | false
+b0:
+  %0 = param a : i64
+  %1 = param b : i64
+  %2 = cmp_ne %0, %1 : true | false
+  return %2
+
+fn ordered(a: i64, b: i64) true | false
+b0:
+  %0 = param a : i64
+  %1 = param b : i64
+  %2 = cmp_lt %0, %1 : true | false
+  %3 = cmp_le %0, %1 : true | false
+  %4 = cmp_gt %0, %1 : true | false
+  %5 = cmp_ge %0, %1 : true | false
+  %6 = local : *var true | false
+  %7 = store %6, %2
+  branch %2, b1, b2
+b1:
+  %8 = store %6, %3
+  jump b2
+b2:
+  %9 = load %6 : true | false
+  %10 = local : *var true | false
+  %11 = store %10, %9
+  branch %9, b3, b4
+b3:
+  %12 = store %10, %4
+  jump b4
+b4:
+  %13 = load %10 : true | false
+  %14 = local : *var true | false
+  %15 = store %14, %13
+  branch %13, b5, b6
+b5:
+  %16 = store %14, %5
+  jump b6
+b6:
+  %17 = load %14 : true | false
+  return %17
+
+fn unsigned_edges(a: u8, b: u8) u8
+b0:
+  %0 = param a : u8
+  %1 = param b : u8
+  %2 = div %0, %1 : u8
+  %3 = mod %2, %0 : u8
+  return %3

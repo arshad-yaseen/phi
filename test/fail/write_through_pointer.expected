@@ -2,7 +2,7 @@ error[E0222]: this writes through a '*Counter', which is read-only
  --> test/fail/write_through_pointer.phi:6:5
   |
 6 |     counter.hits = 0
-  |     ^^^^^^^^^^^^ read-only pointer
+  |     ^^^^^^^^^^^^ read-only
   |
   = help: take '*var Counter' to write through it
 

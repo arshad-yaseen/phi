@@ -1,0 +1,63 @@
+root
+  fn_decl shapes
+    param a
+      type: array_type
+        length: number_literal 8
+        child: ident u32
+    param i
+      type: ident u64
+    body: block
+      assign =
+        lhs: ident _
+        rhs: bracket
+          base: ident a
+          arg: range_expr
+            start: number_literal 1
+            end: number_literal 3
+      assign =
+        lhs: ident _
+        rhs: bracket
+          base: ident a
+          arg: range_expr
+            start: number_literal 0
+      assign =
+        lhs: ident _
+        rhs: bracket
+          base: ident a
+          arg: range_expr
+            start: ident i
+            end: binary add
+              lhs: ident i
+              rhs: number_literal 1
+      assign =
+        lhs: ident _
+        rhs: bracket
+          base: ident a
+          arg: range_expr
+            start: binary mul
+              lhs: ident i
+              rhs: number_literal 2
+            end: field_access len
+              lhs: ident a
+      assign =
+        lhs: ident _
+        rhs: bracket
+          base: bracket
+            base: ident a
+            arg: range_expr
+              start: number_literal 0
+          arg: range_expr
+            start: number_literal 1
+  fn_decl wrapped
+    param a
+      type: array_type
+        length: number_literal 8
+        child: ident u32
+    body: block
+      assign =
+        lhs: ident _
+        rhs: bracket
+          base: ident a
+          arg: range_expr
+            start: number_literal 0
+            end: number_literal 2

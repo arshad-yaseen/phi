@@ -1,4 +1,4 @@
-error[E0242]: a bare number has no type to read
+error[E0242]: a constant that has not landed has no type to read
  --> test/fail/inference_bare_number.phi:6:25
   |
 6 |     let planted = plant(5)

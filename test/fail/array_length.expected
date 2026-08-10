@@ -1,0 +1,40 @@
+error[E0214]: an array's length is part of its type, so it is known before anything runs
+ --> test/fail/array_length.phi:2:13
+  |
+2 |     let b: [n]u32 = a
+  |             ^ not a constant
+  |
+  = help: write the length itself, or another array's length
+
+error[E0208]: -1 does not fit in u64
+ --> test/fail/array_length.phi:6:13
+  |
+6 |     let b: [-1]u32 = a
+  |             ^^ past the type's edge
+  |
+  = help: an untyped constant takes any type its value fits, and this value does not fit this one
+
+error[E0208]: 1.5 does not fit in u64
+  --> test/fail/array_length.phi:10:13
+   |
+10 |     let b: [1.5]u32 = a
+   |             ^^^ past the type's edge
+   |
+   = help: an untyped constant takes any type its value fits, and this value does not fit this one
+
+error[E0208]: 18446744073709551616 does not fit in u64
+  --> test/fail/array_length.phi:14:13
+   |
+14 |     let b: [18446744073709551616]u32 = a
+   |             ^^^^^^^^^^^^^^^^^^^^ past the type's edge
+   |
+   = help: an untyped constant takes any type its value fits, and this value does not fit this one
+
+error[E0203]: types are not values
+  --> test/fail/array_length.phi:18:13
+   |
+18 |     let b: [u32]u32 = a
+   |             ^^^ a type, where a value belongs
+   |
+   = help: a type appears in type positions, and as the base of a '.' access
+
