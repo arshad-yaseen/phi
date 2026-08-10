@@ -9,7 +9,7 @@ const Compilation = @import("Compilation.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Token = @import("Token.zig");
-const edit_distance = @import("util/edit_distance.zig");
+const spell = @import("util/spell.zig");
 
 const Range = Compilation.Range;
 
@@ -671,7 +671,7 @@ fn suggestIn(
     module: *const Module,
     name: []const u8,
 ) Allocator.Error!?[]const u8 {
-    var closest: edit_distance.Closest = .{ .target = name };
+    var closest: spell.Closest = .{ .target = name };
     for (comp.declsIn(module.decls)) |decl| {
         if (decl.owner != .none) continue;
         closest.consider(comp.pool.stringText(decl.name));

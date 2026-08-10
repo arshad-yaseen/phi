@@ -14,8 +14,6 @@ const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Token = @import("Token.zig");
-const dump = @import("util/dump.zig");
-const edit_distance = @import("util/edit_distance.zig");
 const spell = @import("util/spell.zig");
 
 const Decl = Module.Decl;
@@ -943,7 +941,7 @@ pub fn fmt(
 
 pub fn didYouMean(
     comp: *Compilation,
-    closest: edit_distance.Closest,
+    closest: spell.Closest,
 ) Allocator.Error!?[]const u8 {
     const found = closest.best orelse return null;
     return try comp.fmt("did you mean '{s}'?", .{found});
@@ -969,7 +967,7 @@ pub fn dumpIR(comp: *const Compilation, writer: *Writer) Writer.Error!void {
         const index = instance.func.unwrap() orelse continue;
         if (printed) try writer.writeByte('\n');
         printed = true;
-        try dump.func(comp, comp.funcAt(index), writer);
+        try spell.writeFunc(comp, comp.funcAt(index), writer);
     }
 }
 

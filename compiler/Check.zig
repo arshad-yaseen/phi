@@ -13,8 +13,8 @@ const Pool = @import("Pool.zig");
 const Intrinsic = @import("Intrinsic.zig").Intrinsic;
 const intrinsic_limits = @import("Intrinsic.zig");
 const Token = @import("Token.zig");
-const edit_distance = @import("util/edit_distance.zig");
 const number = @import("util/number.zig");
+const spell = @import("util/spell.zig");
 
 const Decl = Module.Decl;
 const Node = AST.Node;
@@ -3559,7 +3559,7 @@ fn suggestMember(
     name_text: []const u8,
 ) Allocator.Error!?[]const u8 {
     const comp = check.comp;
-    var closest: edit_distance.Closest = .{ .target = name_text };
+    var closest: spell.Closest = .{ .target = name_text };
 
     switch (comp.pool.keyOf(owner)) {
         .type_array, .type_slice => closest.consider(length_name),
@@ -4911,7 +4911,7 @@ fn failIntrinsicNotValue(check: *Check, node: Node.Index) Allocator.Error!void {
 }
 
 fn suggestIntrinsic(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
-    var closest: edit_distance.Closest = .{ .target = text };
+    var closest: spell.Closest = .{ .target = text };
     for (Intrinsic.names) |candidate| closest.consider(candidate);
     return check.comp.didYouMean(closest);
 }
@@ -6059,7 +6059,7 @@ fn reportUndefined(check: *Check, node: Node.Index, text: []const u8) Allocator.
 /// Among locals, type parameters, this file's declarations, and the prelude.
 fn suggestName(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     const comp = check.comp;
-    var closest: edit_distance.Closest = .{ .target = text };
+    var closest: spell.Closest = .{ .target = text };
 
     if (check.builder) |builder| {
         for (builder.locals.items) |local| {
