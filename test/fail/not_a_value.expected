@@ -7,10 +7,10 @@ error[E0212]: a function is not a value, so call it
    = help: there are no function values in the language
 
 error[E0219]: a function has no fields, so call it first
-  --> test/fail/not_a_value.phi:20:13
+  --> test/fail/not_a_value.phi:20:20
    |
 20 |     let n = helper.field
-   |             ^^^^^^^^^^^^ '.' on a function
+   |                    ^^^^^ '.' on a function
 
 error[E0203]: a module is not a value
   --> test/fail/not_a_value.phi:24:13

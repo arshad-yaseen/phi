@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const Writer = std.Io.Writer;
 
 const AST = @import("../AST.zig");
+const Token = @import("../Token.zig");
 const Compilation = @import("../Compilation.zig");
 const IR = @import("../IR.zig");
 const Pool = @import("../Pool.zig");
@@ -81,7 +82,7 @@ pub fn writeInstance(
     try writeArgs(comp, writer, args[skip..]);
 }
 
-pub fn writeArgs(
+fn writeArgs(
     comp: *const Compilation,
     writer: *Writer,
     args: []const Pool.Index,
@@ -100,7 +101,7 @@ pub fn writeArgs(
 }
 
 /// `(a: i64, b: bool) i64`, for the IR header.
-pub fn writeSignature(
+fn writeSignature(
     comp: *const Compilation,
     writer: *Writer,
     index: Pool.Instance,
@@ -123,7 +124,7 @@ pub fn writeSignature(
 
 const aggregate_shown_max = 8;
 
-pub fn writeConstant(
+fn writeConstant(
     comp: *const Compilation,
     writer: *Writer,
     value: Pool.Index,
@@ -249,32 +250,18 @@ fn node(
             try node(ast, writer, it.path, below, "path");
         },
         .struct_decl => |it| {
-            try writer.print(" {s}", .{ast.tokenSlice(it.name_token)});
-            try flag(writer, it.is_pub, "pub");
-            try writer.writeByte('\n');
-            try docs(ast, writer, index, below);
+            try declHead(ast, writer, index, below, it.name_token, it.is_pub);
             for (it.type_params) |param| try node(ast, writer, param, below, "");
             for (it.members) |member| try node(ast, writer, member, below, "");
         },
         .alias_decl => |it| {
-            try writer.print(" {s}", .{ast.tokenSlice(it.name_token)});
-            try flag(writer, it.is_pub, "pub");
-            try writer.writeByte('\n');
-            try docs(ast, writer, index, below);
+            try declHead(ast, writer, index, below, it.name_token, it.is_pub);
             for (it.type_params) |param| try node(ast, writer, param, below, "");
             try node(ast, writer, it.aliased, below, "type");
         },
-        .unit_decl => |it| {
-            try writer.print(" {s}", .{ast.tokenSlice(it.name_token)});
-            try flag(writer, it.is_pub, "pub");
-            try writer.writeByte('\n');
-            try docs(ast, writer, index, below);
-        },
+        .unit_decl => |it| try declHead(ast, writer, index, below, it.name_token, it.is_pub),
         .fn_decl => |it| {
-            try writer.print(" {s}", .{ast.tokenSlice(it.name_token)});
-            try flag(writer, it.is_pub, "pub");
-            try writer.writeByte('\n');
-            try docs(ast, writer, index, below);
+            try declHead(ast, writer, index, below, it.name_token, it.is_pub);
             for (it.type_params) |param| try node(ast, writer, param, below, "");
             for (it.params) |param| try node(ast, writer, param, below, "");
             if (it.return_type.unwrap()) |returned| try node(ast, writer, returned, below, "ret");
@@ -433,6 +420,21 @@ fn node(
             try node(ast, writer, child, below, "child");
         },
     }
+}
+
+/// The name, whether it is exported, and the docs written above it.
+fn declHead(
+    ast: AST,
+    writer: *Writer,
+    index: Node.Index,
+    depth: u32,
+    name_token: Token.Index,
+    is_pub: bool,
+) Writer.Error!void {
+    try writer.print(" {s}", .{ast.tokenSlice(name_token)});
+    try flag(writer, is_pub, "pub");
+    try writer.writeByte('\n');
+    try docs(ast, writer, index, depth);
 }
 
 fn docs(ast: AST, writer: *Writer, index: Node.Index, depth: u32) Writer.Error!void {

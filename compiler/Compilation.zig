@@ -1013,6 +1013,11 @@ fn pathInside(outer: []const u8, inner: []const u8) bool {
 
 const testing = std.testing;
 
+/// One compilation over one file, which every test below stands up the same way.
+fn testInit(comp: *Compilation, gpa: Allocator) Allocator.Error!void {
+    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+}
+
 fn testSource(gpa: Allocator, text: []const u8) Allocator.Error!Source {
     const buffer = try gpa.alloc(u8, text.len + Source.padding);
     @memcpy(buffer[0..text.len], text);
@@ -1024,7 +1029,7 @@ test "instantiation identity is index equality" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     try comp.compile(try testSource(gpa,
@@ -1058,7 +1063,7 @@ test "a generic alias is the type it names, not a new one" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     // `return b` compiles only because the alias and the union are one type
@@ -1100,7 +1105,7 @@ test "a call chain compiles at any depth" {
     try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
     try comp.compile(try testSource(gpa, deep.written()));
     try testing.expectEqual(0, comp.diagnostics.items.len);
@@ -1127,7 +1132,7 @@ test "the deepest nesting that reaches analysis does not overflow the stack" {
     try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
     try comp.compile(try testSource(gpa, deep.written()));
     try testing.expectEqual(0, comp.diagnostics.items.len);
@@ -1137,7 +1142,7 @@ test "one constant view is one entry, however often it is written" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     try comp.compile(try testSource(gpa,
@@ -1165,7 +1170,7 @@ test "a diagnostic renders across files" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     try comp.compile(try testSource(gpa,
@@ -1186,7 +1191,7 @@ test "a diagnostic names the unit that produced it" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     try comp.compile(try testSource(gpa,
@@ -1206,7 +1211,7 @@ test "a program built without the standard library says where std would be" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     try comp.compile(try testSource(gpa, "import std.mem\n"));
@@ -1225,7 +1230,7 @@ test "a file with a parse error is still checked" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try testInit(&comp, gpa);
     defer comp.deinit();
 
     try comp.compile(try testSource(gpa,

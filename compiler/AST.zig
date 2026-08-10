@@ -425,6 +425,7 @@ pub const View = union(enum) {
         type_expr: Node.OptionalIndex,
         init_expr: Node.Index,
     };
+    pub const LoopRange = struct { name: Node.Index, over: Node.Index };
     pub const TypedName = struct { name_token: Token.Index, type_expr: Node.Index };
     pub const NamedValue = struct { name_token: Token.Index, value: Node.Index };
     pub const Assign = struct {
@@ -452,7 +453,7 @@ pub const View = union(enum) {
         /// Runs while the condition holds.
         cond: Node.Index,
         /// Runs once per value of the range, the name bound for the pass.
-        range: struct { name: Node.Index, over: Node.Index },
+        range: LoopRange,
 
         /// Whether the loop can end without a `break`.
         pub fn ends(head: LoopHead) bool {

@@ -387,26 +387,18 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
         },
         .union_type => |members| return check.resolveUnionType(node, members),
         // `A | B` in a bracket arrives as an expression, and means the union
-        .binary => |it| {
-            if (it.op == .bit_or) return check.resolveOrType(node, it);
-            try check.fail(node, .{
-                .code = .not_a_type,
-                .message = "this is a value, and a type belongs here",
-                .label = "not a type",
-            });
-            return .poison;
-        },
+        .binary => |it| if (it.op == .bit_or) return check.resolveOrType(node, it),
         .err => return .poison,
         // a bracket item arrives as an expression until its base says otherwise
-        else => {
-            try check.fail(node, .{
-                .code = .not_a_type,
-                .message = "this is a value, and a type belongs here",
-                .label = "not a type",
-            });
-            return .poison;
-        },
+        else => {},
     }
+
+    try check.fail(node, .{
+        .code = .not_a_type,
+        .message = "this is a value, and a type belongs here",
+        .label = "not a type",
+    });
+    return .poison;
 }
 
 fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
@@ -498,15 +490,7 @@ fn resolveUnionType(
             for (members, 0..) |member, at| {
                 if (buffer[at] == repeat) where = member;
             }
-            try check.fail(where, .{
-                .code = .duplicate_member,
-                .message = try comp.fmt("'{s}' is already a member of this union", .{
-                    try comp.typeName(repeat),
-                }),
-                .label = "the same type again",
-                .help = "members are distinct types, and an alias is not a new type",
-            });
-            return .poison;
+            return check.failDuplicateMember(where, repeat);
         },
         .too_wide => {
             try check.failTooWide(node);
@@ -542,22 +526,29 @@ fn resolveOrType(
     // `a | b | c` recursed on the left into a union, and the splice flattens it
     switch (try comp.pool.unite(comp.gpa, &.{ lhs, rhs })) {
         .index => |index| return index,
-        .duplicate => |repeat| {
-            try check.fail(node, .{
-                .code = .duplicate_member,
-                .message = try comp.fmt("'{s}' is already a member of this union", .{
-                    try comp.typeName(repeat),
-                }),
-                .label = "the same type again",
-                .help = "members are distinct types, and an alias is not a new type",
-            });
-            return .poison;
-        },
+        .duplicate => |repeat| return check.failDuplicateMember(node, repeat),
         .too_wide => {
             try check.failTooWide(node);
             return .poison;
         },
     }
+}
+
+fn failDuplicateMember(
+    check: *Check,
+    node: Node.Index,
+    repeat: Pool.Index,
+) Allocator.Error!Pool.Index {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .duplicate_member,
+        .message = try check.comp.fmt("'{s}' is already a member of this union", .{
+            try check.comp.typeName(repeat),
+        }),
+        .label = "the same type again",
+        .help = "members are distinct types, and an alias is not a new type",
+    });
+    return .poison;
 }
 
 fn failTooWide(check: *Check, node: Node.Index) Allocator.Error!void {
@@ -1498,11 +1489,7 @@ fn checkIf(
         });
     }
     const carries = wants and view.else_node != .none;
-    // named at the join when the context did not name a type
-    const slot: Ref = if (carries)
-        try check.emitSlot(.empty, hint orelse .poison)
-    else
-        .none;
+    const slot = try check.joinSlot(carries, hint);
 
     const then_block = try check.newBlock();
     const else_block = try check.newBlock();
@@ -1576,16 +1563,8 @@ fn checkIf(
         try check.applyFacts(facts.when_true);
     }
 
-    if (carries == false) return .void_value;
-
-    // a later stage reads every type, so the slot is typed on every path
-    try check.setSlotType(slot, result_type);
-
-    if (then_value == .diverged and else_value == .diverged) return .diverged;
-    if (result_type == .poison) return .poison;
-
-    const loaded = try check.emitOne(.load, result_type, slot);
-    return runtimeValue(loaded, result_type);
+    const diverged = then_value == .diverged and else_value == .diverged;
+    return check.joinValue(carries, slot, result_type, diverged);
 }
 
 /// The type a branch settled on, or poison once reported. `what` is the keyword.
@@ -1628,6 +1607,28 @@ fn storeArm(
     try check.emitStore(slot, refOf(met));
 }
 
+/// The name an exit reaches this loop by, which no enclosing loop may share.
+fn loopLabel(check: *Check, token: ?Token.Index) Allocator.Error!Pool.String {
+    const comp = check.comp;
+    const named = token orelse return .empty;
+
+    const text = check.tree.tokenSlice(named);
+    const label = try comp.pool.string(comp.gpa, text);
+    for (check.body().loops.items) |other| {
+        if (other.label != label) continue;
+        try check.failToken(named, .{
+            .code = .shadows,
+            .message = try comp.fmt("':{s}' already names an enclosing loop", .{text}),
+            .label = "shadows it",
+            .notes = try comp.notes(&.{
+                comp.noteAt(check.module_index, other.node, "first labeled here"),
+            }),
+        });
+        break;
+    }
+    return label;
+}
+
 /// The header re-reads the condition per pass, and exits go through the frame this pushes.
 fn checkLoop(
     check: *Check,
@@ -1660,34 +1661,14 @@ fn checkLoop(
         });
     }
 
-    const slot: Ref = if (carries) try check.emitSlot(.empty, hint orelse .poison) else .none;
+    const slot = try check.joinSlot(carries, hint);
+    const label = try check.loopLabel(view.label);
 
-    var label: Pool.String = .empty;
-    if (view.label) |token| {
-        const text = check.tree.tokenSlice(token);
-        label = try comp.pool.string(comp.gpa, text);
-        for (builder.loops.items) |other| {
-            if (other.label != label) continue;
-            try check.failToken(token, .{
-                .code = .shadows,
-                .message = try comp.fmt("':{s}' already names an enclosing loop", .{text}),
-                .label = "shadows it",
-                .notes = try comp.notes(&.{
-                    comp.noteAt(check.module_index, other.node, "first labeled here"),
-                }),
-            });
-            break;
-        }
-    }
-
-    const binding: ?Node.Index = switch (view.head) {
-        .range => |it| it.name,
+    const counting: ?AST.View.LoopRange = switch (view.head) {
+        .range => |it| it,
         .forever, .cond => null,
     };
-    const counter: ?Counter = switch (view.head) {
-        .range => |it| try check.startCounter(it.name, it.over),
-        .forever, .cond => null,
-    };
+    const counter: ?Counter = if (counting) |it| try check.startCounter(it.name, it.over) else null;
 
     const header = try check.newBlock();
     const body_block = try check.newBlock();
@@ -1701,26 +1682,24 @@ fn checkLoop(
 
     check.endBlock(.{ .jump = header });
     check.startBlock(header);
-    switch (view.head) {
-        .forever => check.endBlock(.{ .jump = body_block }),
-        // the header never narrows, so no facts are gathered here
-        .cond => |cond_node| {
+    // the header never narrows, so no facts are gathered here
+    const holds: ?Ref = switch (view.head) {
+        .forever => null,
+        .cond => |cond_node| asked: {
             const cond = try check.checkCondition(cond_node);
             try check.reopenDead();
-            check.endBlock(.{ .branch = .{
-                .cond = cond,
-                .then_block = body_block,
-                .else_block = else_target,
-            } });
+            break :asked cond;
         },
-        .range => {
-            const held = try check.counterBelowEnd(counter);
-            check.endBlock(.{ .branch = .{
-                .cond = held,
-                .then_block = body_block,
-                .else_block = else_target,
-            } });
-        },
+        .range => try check.counterBelowEnd(counter),
+    };
+    if (holds) |cond| {
+        check.endBlock(.{ .branch = .{
+            .cond = cond,
+            .then_block = body_block,
+            .else_block = else_target,
+        } });
+    } else {
+        check.endBlock(.{ .jump = body_block });
     }
 
     try builder.loops.append(comp.gpa, .{
@@ -1738,9 +1717,9 @@ fn checkLoop(
 
     check.startBlock(body_block);
     builder.reachable = entry_reachable;
-    if (binding) |name| try check.bindCounter(name, counter);
+    if (counting) |it| try check.bindCounter(it.name, counter);
     _ = try check.checkBlockValue(view.body, .void_type);
-    if (binding != null) check.popScope();
+    if (counting != null) check.popScope();
     if (check.blockOpen()) check.endBlock(.{ .jump = latch });
 
     if (counter) |it| {
@@ -1791,17 +1770,8 @@ fn checkLoop(
     }
     builder.reachable = exit_reachable;
 
-    if (carries == false) return .void_value;
-
-    // a later stage reads every type, so the slot is typed on every path
-    try check.setSlotType(slot, result_type);
-
-    if (else_missing) return .poison;
-    if (exit_reachable == false) return .diverged;
-    if (result_type == .poison) return .poison;
-
-    const loaded = try check.emitOne(.load, result_type, slot);
-    return runtimeValue(loaded, result_type);
+    const value = try check.joinValue(carries, slot, result_type, exit_reachable == false);
+    return if (else_missing) .poison else value;
 }
 
 /// A range loop's counter, which the header tests and the latch counts on.
@@ -1878,6 +1848,29 @@ fn countOn(check: *Check, counter: Counter) Allocator.Error!void {
         .bin = .{ .lhs = current, .rhs = .fromConstant(one) },
     });
     try check.emitStore(counter.slot, next);
+}
+
+/// Where the arms leave their value, named at the join when nothing else named a type.
+fn joinSlot(check: *Check, carries: bool, hint: ?Pool.Index) Allocator.Error!Ref {
+    if (carries == false) return .none;
+    return check.emitSlot(.empty, hint orelse .poison);
+}
+
+/// What the arms left in the slot. A later stage reads every type, so the slot
+/// is typed here whether or not anything reads the value.
+fn joinValue(
+    check: *Check,
+    carries: bool,
+    slot: Ref,
+    result_type: Pool.Index,
+    diverged: bool,
+) Allocator.Error!Value {
+    if (carries == false) return .void_value;
+    try check.setSlotType(slot, result_type);
+
+    if (diverged) return .diverged;
+    if (result_type == .poison) return .poison;
+    return runtimeValue(try check.emitOne(.load, result_type, slot), result_type);
 }
 
 /// A slot exists before its arms have said what type it is.
@@ -1975,7 +1968,7 @@ fn checkMatch(
     };
 
     const carries = wantsValue(hint);
-    const slot: Ref = if (carries) try check.emitSlot(.empty, hint orelse .poison) else .none;
+    const slot = try check.joinSlot(carries, hint);
     const join = try check.newBlock();
 
     var result_type = hint orelse .poison;
@@ -2100,17 +2093,8 @@ fn checkMatch(
         }
     }
 
-    if (carries == false) return .void_value;
-
-    // a later stage reads every type, so the slot is typed on every path
-    try check.setSlotType(slot, result_type);
-
-    if (broken) return .poison;
-    if (all_diverged) return .diverged;
-    if (result_type == .poison) return .poison;
-
-    const loaded = try check.emitOne(.load, result_type, slot);
-    return runtimeValue(loaded, result_type);
+    const value = try check.joinValue(carries, slot, result_type, all_diverged);
+    return if (carries and broken) .poison else value;
 }
 
 /// Marks what the label covers, reports repeats and strays. Poison once anything misfired.
@@ -2135,14 +2119,7 @@ fn checkMatchCover(
         const member = if (multi) comp.pool.unionMemberAt(arm_type, at) else arm_type;
 
         const position = comp.pool.unionMemberPosition(scrutinee_type, member) orelse {
-            try check.fail(label_node, .{
-                .code = .not_a_member,
-                .message = try comp.fmt("'{s}' is not a member of '{s}'", .{
-                    try comp.typeName(member),
-                    try comp.typeName(scrutinee_type),
-                }),
-                .label = "not a member",
-            });
+            try check.failNotMember(label_node, member, scrutinee_type);
             clean = false;
             continue;
         };
@@ -2431,14 +2408,7 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
         return .poison;
     }
     if (comp.pool.unionHas(found, member) == false) {
-        try check.fail(view.type_expr, .{
-            .code = .not_a_member,
-            .message = try comp.fmt("'{s}' is not a member of '{s}'", .{
-                try comp.typeName(member),
-                try comp.typeName(found),
-            }),
-            .label = "not a member",
-        });
+        try check.failNotMember(view.type_expr, member, found);
         return .poison;
     }
 
@@ -2527,11 +2497,7 @@ fn checkReturn(
 ) Allocator.Error!Value {
     const builder = check.body();
     if (builder.in_defer) {
-        try check.fail(node, .{
-            .code = .defer_cannot_leave,
-            .message = "a 'defer' runs on the way out, so it cannot leave again",
-            .label = "no 'return' here",
-        });
+        try check.failDeferLeaves(node, "no 'return' here");
         return .poison;
     }
 
@@ -2640,12 +2606,17 @@ fn exitLeavesDefer(check: *Check, node: Node.Index, found: ?usize) Allocator.Err
     if (builder.in_defer == false) return false;
     if (found != null and found.? >= builder.defer_loops_floor) return false;
 
+    try check.failDeferLeaves(node, "not allowed here");
+    return true;
+}
+
+fn failDeferLeaves(check: *Check, node: Node.Index, label: []const u8) Allocator.Error!void {
+    @branchHint(.cold);
     try check.fail(node, .{
         .code = .defer_cannot_leave,
         .message = "a 'defer' runs on the way out, so it cannot leave again",
-        .label = "not allowed here",
+        .label = label,
     });
-    return true;
 }
 
 /// The innermost enclosing loop, or the one the label names. Reports nothing.
@@ -2987,7 +2958,6 @@ fn settleFold(
     folded: Pool.Fold,
 ) Allocator.Error!Value {
     const comp = check.comp;
-    const spelling = check.tree.tokenSlice(op_token);
     const report: Compilation.Report = switch (folded) {
         .value => |value| return .{ .constant = value },
         .truth => |truth| {
@@ -3020,31 +2990,45 @@ fn settleFold(
             }),
             .label = "past the type's edge",
         },
-        .mismatch => |pair| .{
-            .code = .mixed_types,
-            .message = try comp.fmt("'{s}' mixes {s} and {s}", .{
-                spelling,
-                try comp.typeName(pair.left),
-                try comp.typeName(pair.right),
-            }),
-            .label = "two different types",
-            .help = "nothing converts on its own, so give both sides one type",
+        .mismatch => |pair| {
+            try check.failMixedTypes(op_token, pair.left, pair.right, operand_help);
+            return .poison;
         },
-        .bad_operand => |operand_type| .{
-            .code = .bad_operand,
-            .message = try comp.fmt("'{s}' cannot be applied to {s}", .{
-                spelling,
-                try comp.typeName(operand_type),
-            }),
-            .label = "wrong operand type",
+        .bad_operand => |operand_type| {
+            try check.reportBadOperand(op_token, operand_type);
+            return .poison;
         },
     };
     try check.failToken(op_token, report);
     return .poison;
 }
 
+const operand_help = "nothing converts on its own, so give both sides one type";
+
+const range_help = "the ends of a range take each other's type, and nothing converts on its own";
+
+/// Two types that will not meet, named at whatever stands between them.
+fn failMixedTypes(
+    check: *Check,
+    op_token: Token.Index,
+    left: Pool.Index,
+    right: Pool.Index,
+    help: []const u8,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.failToken(op_token, .{
+        .code = .mixed_types,
+        .message = try check.comp.fmt("'{s}' mixes {s} and {s}", .{
+            check.tree.tokenSlice(op_token),
+            try check.comp.typeName(left),
+            try check.comp.typeName(right),
+        }),
+        .label = "two different types",
+        .help = help,
+    });
+}
+
 fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
-    const comp = check.comp;
     var lhs = it.lhs;
     var rhs = it.rhs;
 
@@ -3060,16 +3044,7 @@ fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
     const left = check.typeOf(lhs);
     const right = check.typeOf(rhs);
     if (left != right) {
-        try check.failToken(it.op_token, .{
-            .code = .mixed_types,
-            .message = try comp.fmt("'{s}' mixes {s} and {s}", .{
-                check.tree.tokenSlice(it.op_token),
-                try comp.typeName(left),
-                try comp.typeName(right),
-            }),
-            .label = "two different types",
-            .help = "nothing converts on its own, so give both sides one type",
-        });
+        try check.failMixedTypes(it.op_token, left, right, operand_help);
         return .poison;
     }
 
@@ -3461,11 +3436,7 @@ fn checkFieldAccess(
             return .poison;
         },
         .named_fn => {
-            try check.fail(node, .{
-                .code = .no_such_member,
-                .message = "a function has no fields, so call it first",
-                .label = "'.' on a function",
-            });
+            try check.failFieldOnFunction(view.name_token);
             return .poison;
         },
         .named_intrinsic => {
@@ -3603,6 +3574,32 @@ fn lengthValue(
     }
 }
 
+const deref_help = "'.*' reads what a pointer points at, and a field is reached with '.name'";
+
+/// What the value points at, where it points at anything. Null once reported.
+fn pointerAt(
+    check: *Check,
+    node: Node.Index,
+    found: Pool.Index,
+    what: []const u8,
+    help: ?[]const u8,
+) Allocator.Error!?Pool.Key.Pointer {
+    switch (check.comp.pool.keyOf(found)) {
+        .type_pointer => |it| return it,
+        else => {},
+    }
+    try check.fail(node, .{
+        .code = .type_mismatch,
+        .message = try check.comp.fmt("'{s}' needs a pointer, and this is {s}", .{
+            what,
+            try check.comp.typeName(found),
+        }),
+        .label = "not a pointer",
+        .help = help,
+    });
+    return null;
+}
+
 /// `p.x` and `p[i]` both reach into what `p` points at.
 const Peeled = struct {
     /// The pointer that was followed, where there was one.
@@ -3715,6 +3712,32 @@ fn reportNoMember(
         }),
         .label = try comp.fmt("no such {s}", .{wanted.text()}),
         .help = try check.suggestMember(owner, name_text),
+    });
+}
+
+fn failNotMember(
+    check: *Check,
+    node: Node.Index,
+    member: Pool.Index,
+    union_type: Pool.Index,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .not_a_member,
+        .message = try check.comp.fmt("'{s}' is not a member of '{s}'", .{
+            try check.comp.typeName(member),
+            try check.comp.typeName(union_type),
+        }),
+        .label = "not a member",
+    });
+}
+
+fn failFieldOnFunction(check: *Check, name_token: Token.Index) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.failToken(name_token, .{
+        .code = .no_such_member,
+        .message = "a function has no fields, so call it first",
+        .label = "'.' on a function",
     });
 }
 
@@ -3934,21 +3957,10 @@ const Ends = struct { start: Value, end: Value, type: Pool.Index };
 
 /// Both ends under one type, `u64` where neither says. Null once reported.
 fn settleEnds(check: *Check, range_node: Node.Index, start: End, end: End) Allocator.Error!?Ends {
-    const comp = check.comp;
-
     const left = check.typeOf(start.value);
     const right = check.typeOf(end.value);
     if (Pool.isUntyped(left) == false and Pool.isUntyped(right) == false and left != right) {
-        try check.failToken(check.tree.nodeMainToken(range_node), .{
-            .code = .mixed_types,
-            .message = try comp.fmt("'..' mixes {s} and {s}", .{
-                try comp.typeName(left),
-                try comp.typeName(right),
-            }),
-            .label = "two different types",
-            .help = "the ends of a range take each other's type, and nothing " ++
-                "converts on its own",
-        });
+        try check.failMixedTypes(check.tree.nodeMainToken(range_node), left, right, range_help);
         return null;
     }
 
@@ -4717,11 +4729,7 @@ fn resolveCalleeMember(
                 return null;
             },
             .named_fn => {
-                try check.failToken(access.name_token, .{
-                    .code = .no_such_member,
-                    .message = "a function has no fields, so call it first",
-                    .label = "'.' on a function",
-                });
+                try check.failFieldOnFunction(access.name_token);
                 return null;
             },
             .named_intrinsic => {
@@ -5067,22 +5075,9 @@ fn intrinsicPtrCast(
     wanted: Pool.Index,
     operand: Value,
 ) Allocator.Error!Value {
-    const comp = check.comp;
     const found = check.typeOf(operand);
 
-    const pointer = switch (comp.pool.keyOf(found)) {
-        .type_pointer => |it| it,
-        else => {
-            try check.fail(node, .{
-                .code = .type_mismatch,
-                .message = try comp.fmt("'ptr_cast' needs a pointer, and this is {s}", .{
-                    try comp.typeName(found),
-                }),
-                .label = "not a pointer",
-            });
-            return .poison;
-        },
-    };
+    const pointer = try check.pointerAt(node, found, "ptr_cast", null) orelse return .poison;
 
     const result = try check.pointerTo(wanted, pointer.mutable);
     const ref = try check.emitOne(.ptr_cast, result, refOf(operand));
@@ -5612,7 +5607,6 @@ fn placeThroughPointer(
     node: Node.Index,
     operand: Node.Index,
 ) Allocator.Error!?Place {
-    const comp = check.comp;
     const value = try check.checkExpr(operand, null);
     switch (value) {
         .constant, .runtime => {},
@@ -5626,20 +5620,7 @@ fn placeThroughPointer(
     const found = check.typeOf(value);
     if (found == .poison) return null;
 
-    const pointer = switch (comp.pool.keyOf(found)) {
-        .type_pointer => |it| it,
-        else => {
-            try check.fail(node, .{
-                .code = .type_mismatch,
-                .message = try comp.fmt("'.*' needs a pointer, and this is {s}", .{
-                    try comp.typeName(found),
-                }),
-                .label = "not a pointer",
-                .help = "'.*' reads what a pointer points at, and a field is reached with '.name'",
-            });
-            return null;
-        },
-    };
+    const pointer = try check.pointerAt(node, found, ".*", deref_help) orelse return null;
     return .{
         .kind = .address,
         .ref = refOf(value),
