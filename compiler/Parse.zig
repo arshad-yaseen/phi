@@ -1191,15 +1191,17 @@ fn parseReturn(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_return));
 
     const return_token = self.nextToken();
-    const operand: Node.OptionalIndex = if (starts_expr.contains(self.current()))
-        (try self.parseExpr()).toOptional()
-    else
-        .none;
     return self.addNode(.{
         .tag = .return_expr,
         .main_token = return_token,
-        .data = .{ .opt_node = operand },
+        .data = .{ .opt_node = try self.parseOptExpr() },
     });
+}
+
+/// An expression where one starts, `.none` where the construct ends instead.
+fn parseOptExpr(self: *Parse) Allocator.Error!Node.OptionalIndex {
+    if (starts_expr.contains(self.current()) == false) return .none;
+    return (try self.parseExpr()).toOptional();
 }
 
 /// `break` and `continue` with an optional `:label`, and `break` with an optional value.
@@ -1219,15 +1221,10 @@ fn parseLoopExit(self: *Parse) Allocator.Error!Node.Index {
             .data = .{ .none = {} },
         });
     }
-
-    const value: Node.OptionalIndex = if (starts_expr.contains(self.current()))
-        (try self.parseExpr()).toOptional()
-    else
-        .none;
     return self.addNode(.{
         .tag = .break_expr,
         .main_token = keyword,
-        .data = .{ .opt_node = value },
+        .data = .{ .opt_node = try self.parseOptExpr() },
     });
 }
 
@@ -1318,16 +1315,10 @@ fn parseBracketItem(self: *Parse) Allocator.Error!Node.Index {
 
     const start = try self.parseExpr();
     const dot_dot = self.eatToken(.dot_dot) orelse return start;
-
-    const end: Node.OptionalIndex = if (starts_expr.contains(self.current()))
-        (try self.parseExpr()).toOptional()
-    else
-        .none;
-
     return self.addNode(.{
         .tag = .range_expr,
         .main_token = dot_dot,
-        .data = .{ .node_and_opt_node = .{ start, end } },
+        .data = .{ .node_and_opt_node = .{ start, try self.parseOptExpr() } },
     });
 }
 

@@ -192,79 +192,33 @@ pub const Key = union(enum) {
     pub const Aggregate = struct { type: Index, elems: []const Index };
 
     fn hash(key: Key) u64 {
-        const seed: u64 = @intFromEnum(std.meta.activeTag(key));
+        var hasher: std.hash.Wyhash = .init(@intFromEnum(std.meta.activeTag(key)));
         switch (key) {
-            .type_simple => |simple| return hashWords(seed, .{@intFromEnum(simple)}),
-            .type_pointer => |pointer| return hashWords(seed, .{
-                pointer.child.int(),
-                @intFromBool(pointer.mutable),
-            }),
-            .type_array => |array| {
-                const len: [2]u32 = @bitCast(array.len);
-                return hashWords(seed, .{ array.child.int(), len[0], len[1] });
-            },
-            .type_slice => |slice| return hashWords(seed, .{
-                slice.child.int(),
-                @intFromBool(slice.mutable),
-            }),
-            .type_struct => |instance| return hashWords(seed, .{instance.int()}),
-            .type_unit => |decl| return hashWords(seed, .{decl.int()}),
-            .type_union => |members| {
-                return std.hash.Wyhash.hash(seed, std.mem.sliceAsBytes(members));
-            },
+            .type_union => |members| hasher.update(std.mem.sliceAsBytes(members)),
             .value_aggregate => |it| {
-                var hasher: std.hash.Wyhash = .init(seed);
-                hasher.update(std.mem.asBytes(&it.type));
+                std.hash.autoHash(&hasher, it.type);
                 hasher.update(std.mem.sliceAsBytes(it.elems));
-                return hasher.final();
             },
-            .value_unit => |unit_type| return hashWords(seed, .{unit_type.int()}),
-            .value_union => |it| return hashWords(seed, .{ it.type.int(), it.value.int() }),
-            .value_slice => |it| return hashWords(seed, .{ it.type.int(), it.data.int() }),
-            .value_splat => |it| return hashWords(seed, .{ it.type.int(), it.element.int() }),
-            .value_int => |it| {
-                const value: [4]u32 = @bitCast(it.value);
-                return hashWords(seed, .{ it.type.int(), value[0], value[1], value[2], value[3] });
-            },
+            // by bits, because floats have no hash of their own
             .value_float => |it| {
-                const bits: [2]u32 = @bitCast(it.value);
-                return hashWords(seed, .{ it.type.int(), bits[0], bits[1] });
+                std.hash.autoHash(&hasher, it.type);
+                std.hash.autoHash(&hasher, @as(u64, @bitCast(it.value)));
             },
+            inline else => |payload| std.hash.autoHash(&hasher, payload),
         }
-    }
-
-    fn hashWords(seed: u64, words: anytype) u64 {
-        const array: [words.len]u32 = words;
-        return std.hash.Wyhash.hash(seed, std.mem.asBytes(&array));
+        return hasher.final();
     }
 
     fn eql(key: Key, other: Key) bool {
         if (std.meta.activeTag(key) != std.meta.activeTag(other)) return false;
         return switch (key) {
-            .type_simple => |simple| simple == other.type_simple,
-            .type_pointer => |pointer| pointer.child == other.type_pointer.child and
-                pointer.mutable == other.type_pointer.mutable,
-            .type_array => |array| array.child == other.type_array.child and
-                array.len == other.type_array.len,
-            .type_slice => |slice| slice.child == other.type_slice.child and
-                slice.mutable == other.type_slice.mutable,
-            .type_struct => |instance| instance == other.type_struct,
-            .type_unit => |decl| decl == other.type_unit,
             .type_union => |members| std.mem.eql(Index, members, other.type_union),
             .value_aggregate => |it| it.type == other.value_aggregate.type and
                 std.mem.eql(Index, it.elems, other.value_aggregate.elems),
-            .value_unit => |unit_type| unit_type == other.value_unit,
-            .value_union => |it| it.type == other.value_union.type and
-                it.value == other.value_union.value,
-            .value_slice => |it| it.type == other.value_slice.type and
-                it.data == other.value_slice.data,
-            .value_splat => |it| it.type == other.value_splat.type and
-                it.element == other.value_splat.element,
-            .value_int => |it| it.type == other.value_int.type and
-                it.value == other.value_int.value,
             // by bits, so float equality is never asked
             .value_float => |it| it.type == other.value_float.type and
                 @as(u64, @bitCast(it.value)) == @as(u64, @bitCast(other.value_float.value)),
+            inline else => |payload, tag| std.meta.eql(payload, @field(other, @tagName(tag))),
         };
     }
 };
@@ -494,9 +448,7 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
         .type_slice_var => .{ .type_slice = .{ .child = @enumFromInt(data), .mutable = true } },
         .type_struct => .{ .type_struct = @enumFromInt(data) },
         .type_unit => .{ .type_unit = @enumFromInt(data) },
-        .type_union => .{
-            .type_union = @ptrCast(pool.extra.items[data + 1 ..][0..pool.extra.items[data]]),
-        },
+        .type_union => .{ .type_union = pool.unionMembers(index) },
         .value_aggregate => .{ .value_aggregate = .{
             .type = @enumFromInt(pool.extra.items[data]),
             .elems = @ptrCast(pool.extra.items[data + 2 ..][0..pool.extra.items[data + 1]]),
@@ -582,13 +534,9 @@ pub fn unionHas(pool: *const Pool, union_index: Index, member: Index) bool {
 }
 
 pub fn unionMemberPosition(pool: *const Pool, union_index: Index, member: Index) ?u32 {
-    assert(pool.isUnion(union_index));
     if (pool.isUnion(member)) return null;
-
-    const count = pool.unionMemberCount(union_index);
-    var at: u32 = 0;
-    while (at < count) : (at += 1) {
-        if (pool.unionMemberAt(union_index, at) == member) return at;
+    for (pool.unionMembers(union_index), 0..) |candidate, at| {
+        if (candidate == member) return @intCast(at);
     }
     return null;
 }
@@ -600,20 +548,16 @@ pub fn unionWithout(
     union_index: Index,
     member: Index,
 ) Allocator.Error!Index {
-    assert(pool.isUnion(union_index));
     assert(pool.unionHas(union_index, member));
 
     var flat: [union_members_max]Index = undefined;
     var count: u32 = 0;
-    const total = pool.unionMemberCount(union_index);
-    var at: u32 = 0;
-    while (at < total) : (at += 1) {
-        const candidate = pool.unionMemberAt(union_index, at);
+    for (pool.unionMembers(union_index)) |candidate| {
         if (candidate == member) continue;
         flat[count] = candidate;
         count += 1;
     }
-    assert(count == total - 1);
+    assert(count == pool.unionMemberCount(union_index) - 1);
 
     if (count == 1) return flat[0];
     return pool.intern(gpa, .{ .type_union = flat[0..count] });
@@ -622,26 +566,26 @@ pub fn unionWithout(
 /// Whether `wide` lists every member of `narrow`. Membership, not order.
 pub fn unionCovers(pool: *const Pool, wide: Index, narrow: Index) bool {
     assert(pool.isUnion(wide));
-    assert(pool.isUnion(narrow));
-
-    const count = pool.unionMemberCount(narrow);
-    var at: u32 = 0;
-    while (at < count) : (at += 1) {
-        if (pool.unionHas(wide, pool.unionMemberAt(narrow, at)) == false) return false;
+    for (pool.unionMembers(narrow)) |member| {
+        if (pool.unionHas(wide, member) == false) return false;
     }
     return true;
 }
 
-/// With `unionMemberAt`, for walks that intern. `keyOf` only borrows.
-pub fn unionMemberCount(pool: *const Pool, index: Index) u32 {
+/// Borrowed from `extra`, stale at the next intern. A walk that interns reads
+/// by position through `unionMemberCount` and `unionMemberAt` instead.
+pub fn unionMembers(pool: *const Pool, index: Index) []const Index {
     assert(pool.isUnion(index));
-    return pool.extra.items[pool.items.items(.data)[index.int()]];
+    const data = pool.items.items(.data)[index.int()];
+    return @ptrCast(pool.extra.items[data + 1 ..][0..pool.extra.items[data]]);
+}
+
+pub fn unionMemberCount(pool: *const Pool, index: Index) u32 {
+    return @intCast(pool.unionMembers(index).len);
 }
 
 pub fn unionMemberAt(pool: *const Pool, index: Index, at: u32) Index {
-    assert(at < pool.unionMemberCount(index));
-    const data = pool.items.items(.data)[index.int()];
-    return @enumFromInt(pool.extra.items[data + 1 + at]);
+    return pool.unionMembers(index)[at];
 }
 
 /// What a type leads with, which a union answers with its first member and every

@@ -26,6 +26,15 @@ pub const Note = struct {
     source: ?*Source = null,
 };
 
+/// The text of a diagnostic, before it is anchored to a span.
+pub const Report = struct {
+    code: Code,
+    message: []const u8,
+    label: []const u8 = "",
+    help: ?[]const u8 = null,
+    notes: []const Note = &.{},
+};
+
 /// Parse owns E01xx, analysis E02xx.
 pub const Code = enum(u16) {
     expected_token = 101,

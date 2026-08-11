@@ -738,13 +738,7 @@ const InstanceIndexContext = struct {
     }
 };
 
-pub const Report = struct {
-    code: Diagnostic.Code,
-    message: []const u8,
-    label: []const u8 = "",
-    help: ?[]const u8 = null,
-    notes: []const Diagnostic.Note = &.{},
-};
+pub const Report = Diagnostic.Report;
 
 pub fn reportNode(
     comp: *Compilation,
@@ -902,6 +896,16 @@ pub fn notes(comp: *Compilation, list: []const Diagnostic.Note) Allocator.Error!
     return comp.arena.allocator().dupe(Diagnostic.Note, list);
 }
 
+/// The common one-note list, in the arena.
+pub fn noteOne(
+    comp: *Compilation,
+    module: Module.Index,
+    node: AST.Node.Index,
+    message: []const u8,
+) Allocator.Error![]Diagnostic.Note {
+    return comp.notes(&.{comp.noteAt(module, node, message)});
+}
+
 pub fn fmt(
     comp: *Compilation,
     comptime template: []const u8,
@@ -917,6 +921,14 @@ pub fn didYouMean(
 ) Allocator.Error!?[]const u8 {
     const found = closest.best orelse return null;
     return try comp.fmt("did you mean '{s}'?", .{found});
+}
+
+/// Offers a range's top-level names to a suggestion.
+pub fn considerDecls(comp: *const Compilation, closest: *spell.Closest, range: Range) void {
+    for (comp.declsIn(range)) |decl| {
+        if (decl.owner != .none) continue;
+        closest.consider(comp.pool.stringText(decl.name));
+    }
 }
 
 pub fn renderAll(comp: *Compilation, writer: *Writer, color: Diagnostic.Color) !void {

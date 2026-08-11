@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
+const Diagnostic = @import("Diagnostic.zig");
 const IR = @import("IR.zig");
 const Layout = @import("Layout.zig");
 const Module = @import("Module.zig");
@@ -319,9 +320,7 @@ pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!
                     .code = .redeclared,
                     .message = try comp.fmt("'{s}' is already a parameter", .{name_text}),
                     .label = "declared again here",
-                    .notes = try comp.notes(&.{
-                        comp.noteAt(check.module_index, earlier.node, "first declared here"),
-                    }),
+                    .notes = try check.noteHere(earlier.node, "first declared here"),
                 });
                 clean = false;
                 break;
@@ -802,29 +801,29 @@ fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.Inde
 
 /// Everything a body build carries. Blocks are contiguous runs.
 pub const Builder = struct {
-    instance: Pool.Instance,
-    return_type: Pool.Index,
-    insts: IR.InstList,
-    extra: std.ArrayList(u32),
-    blocks: std.ArrayList(BlockBuild),
-    current: IR.Block.Index,
-    locals: std.ArrayList(Local),
-    scopes: std.ArrayList(Scope),
-    defer_nodes: std.ArrayList(Node.Index),
+    instance: Pool.Instance = undefined,
+    return_type: Pool.Index = undefined,
+    insts: IR.InstList = .empty,
+    extra: std.ArrayList(u32) = .empty,
+    blocks: std.ArrayList(BlockBuild) = .empty,
+    current: IR.Block.Index = undefined,
+    locals: std.ArrayList(Local) = .empty,
+    scopes: std.ArrayList(Scope) = .empty,
+    defer_nodes: std.ArrayList(Node.Index) = .empty,
     /// Active `is` facts, innermost last. Applied per branch, then cut back.
-    narrows: std.ArrayList(Narrow),
+    narrows: std.ArrayList(Narrow) = .empty,
     /// What conditions proved, gathered per condition, marked and restored.
-    facts: std.ArrayList(Fact),
+    facts: std.ArrayList(Fact) = .empty,
     /// Enclosing loops, innermost last.
-    loops: std.ArrayList(LoopFrame),
+    loops: std.ArrayList(LoopFrame) = .empty,
     /// Scratch for `finishFunc`, retained across bodies.
-    block_map: std.ArrayList(u32),
-    frontier: std.ArrayList(u32),
+    block_map: std.ArrayList(u32) = .empty,
+    frontier: std.ArrayList(u32) = .empty,
     /// Loops below this are outside the `defer` being emitted.
-    defer_loops_floor: u32,
-    in_defer: bool,
+    defer_loops_floor: u32 = undefined,
+    in_defer: bool = undefined,
     /// Unreachable code is still checked, then dropped.
-    reachable: bool,
+    reachable: bool = undefined,
 
     const BlockBuild = struct { first: u32, count: u32, terminator: IR.Terminator };
 
@@ -880,25 +879,7 @@ pub const Builder = struct {
         broke_reachable: bool,
     };
 
-    pub const empty: Builder = .{
-        .instance = undefined,
-        .return_type = undefined,
-        .insts = .empty,
-        .extra = .empty,
-        .blocks = .empty,
-        .current = undefined,
-        .locals = .empty,
-        .scopes = .empty,
-        .defer_nodes = .empty,
-        .narrows = .empty,
-        .facts = .empty,
-        .loops = .empty,
-        .block_map = .empty,
-        .frontier = .empty,
-        .defer_loops_floor = undefined,
-        .in_defer = undefined,
-        .reachable = undefined,
-    };
+    pub const empty: Builder = .{};
 
     fn blockAt(builder: *Builder, index: IR.Block.Index) *BlockBuild {
         assert(index.int() < builder.blocks.items.len);
@@ -1190,9 +1171,7 @@ fn declareLocal(check: *Check, local: Builder.Local, node: Node.Index) Allocator
                         pool.stringText(local.name),
                     }),
                     .label = "shadows the outer one",
-                    .notes = try check.comp.notes(&.{
-                        check.comp.noteAt(check.module_index, other.node, "first bound here"),
-                    }),
+                    .notes = try check.noteHere(other.node, "first bound here"),
                 };
             }
         }
@@ -1224,9 +1203,7 @@ fn declareLocal(check: *Check, local: Builder.Local, node: Node.Index) Allocator
                     pool.stringText(local.name),
                 }),
                 .label = "shadows it",
-                .notes = try check.comp.notes(&.{
-                    check.comp.noteAt(check.module_index, decl.node, "declared here"),
-                }),
+                .notes = try check.noteHere(decl.node, "declared here"),
             };
         }
         break :clash null;
@@ -1234,11 +1211,6 @@ fn declareLocal(check: *Check, local: Builder.Local, node: Node.Index) Allocator
     if (clash) |report| try check.fail(node, report);
 
     try builder.locals.append(check.comp.gpa, local);
-}
-
-fn findLocal(check: *const Check, name: []const u8) ?Builder.Local {
-    const index = check.findLocalIndex(name) orelse return null;
-    return check.localAt(index);
 }
 
 fn findLocalIndex(check: *const Check, name: []const u8) ?Builder.Local.Index {
@@ -1256,12 +1228,6 @@ fn localAt(check: *const Check, index: Builder.Local.Index) Builder.Local {
     const builder = check.body();
     assert(index.int() < builder.locals.items.len);
     return builder.locals.items[index.int()];
-}
-
-fn loopAt(check: *const Check, index: usize) Builder.LoopFrame {
-    const builder = check.body();
-    assert(index < builder.loops.items.len);
-    return builder.loops.items[index];
 }
 
 fn loopPtr(check: *Check, index: usize) *Builder.LoopFrame {
@@ -1331,9 +1297,7 @@ fn reportUnreachable(
         .code = .unreachable_code,
         .message = "this cannot be reached",
         .label = "never runs",
-        .notes = try check.comp.notes(&.{
-            check.comp.noteAt(check.module_index, left_at, "the block already left here"),
-        }),
+        .notes = try check.noteHere(left_at, "the block already left here"),
     });
 }
 
@@ -1749,9 +1713,7 @@ fn loopLabel(check: *Check, token: ?Token.Index) Allocator.Error!Pool.String {
             .code = .shadows,
             .message = try comp.fmt("':{s}' already names an enclosing loop", .{text}),
             .label = "shadows it",
-            .notes = try comp.notes(&.{
-                comp.noteAt(check.module_index, other.node, "first labeled here"),
-            }),
+            .notes = try check.noteHere(other.node, "first labeled here"),
         });
         break;
     }
@@ -2201,11 +2163,7 @@ fn checkMatchCover(
                     try comp.typeName(member),
                 }),
                 .label = "handled again here",
-                .notes = try comp.notes(&.{check.comp.noteAt(
-                    check.module_index,
-                    first_label.unwrap() orelse first,
-                    "handled here",
-                )}),
+                .notes = try check.noteHere(first_label.unwrap() orelse first, "handled here"),
             });
             clean = false;
             continue;
@@ -2627,7 +2585,7 @@ fn checkBreak(check: *Check, node: Node.Index, view: AST.View.Break) Allocator.E
         if (view.value.unwrap()) |value_node| _ = try check.checkExpr(value_node, null);
         return check.reportNoLoop(node, view.label);
     };
-    const frame = check.loopAt(frame_index);
+    const frame = check.loopPtr(frame_index).*;
 
     if (view.value.unwrap()) |value_node| {
         if (frame.join.carries) {
@@ -2666,7 +2624,7 @@ fn checkContinue(check: *Check, node: Node.Index, label: ?Token.Index) Allocator
     if (try check.exitLeavesDefer(node, found)) return .poison;
     const frame_index = found orelse return check.reportNoLoop(node, label);
 
-    const frame = check.loopAt(frame_index);
+    const frame = check.loopPtr(frame_index).*;
     try check.unwindScopesTo(frame.scope_depth);
     check.endBlock(.{ .jump = frame.header });
     return .diverged;
@@ -2703,7 +2661,7 @@ fn findLoop(check: *Check, label: ?Token.Index) Allocator.Error!?usize {
     var index = count;
     while (index > 0) {
         index -= 1;
-        if (check.loopAt(index).label == name) return index;
+        if (check.loopPtr(index).label == name) return index;
     }
     return null;
 }
@@ -2909,14 +2867,12 @@ fn checkNumber(check: *Check, node: Node.Index) Allocator.Error!Value {
     const text = check.mainTokenText(node);
 
     switch (try number.decode(comp.arena.allocator(), text)) {
-        .int => |value| return .{ .constant = try comp.pool.intern(comp.gpa, .{
-            .value_int = .{ .type = .untyped_int_type, .value = value },
-        }) },
+        .int => |value| return check.untypedInt(value),
         .float => |value| return .{ .constant = try comp.pool.intern(comp.gpa, .{
             .value_float = .{ .type = .untyped_float_type, .value = value },
         }) },
         .refused => |refusal| {
-            try check.failRefusal(node, refusal);
+            try check.fail(node, refusal);
             return .poison;
         },
     }
@@ -2939,7 +2895,7 @@ fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
             ));
         },
         .refused => |refusal| {
-            try check.failRefusal(node, refusal);
+            try check.fail(node, refusal);
             return .poison;
         },
     };
@@ -2951,26 +2907,13 @@ fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
 }
 
 fn checkChar(check: *Check, node: Node.Index) Allocator.Error!Value {
-    const comp = check.comp;
-
     switch (literal.decodeChar(check.mainTokenText(node))) {
-        .codepoint => |value| return .{ .constant = try comp.pool.intern(comp.gpa, .{
-            .value_int = .{ .type = .untyped_int_type, .value = value },
-        }) },
+        .codepoint => |value| return check.untypedInt(value),
         .refused => |refusal| {
-            try check.failRefusal(node, refusal);
+            try check.fail(node, refusal);
             return .poison;
         },
     }
-}
-
-fn failRefusal(check: *Check, node: Node.Index, refusal: literal.Refusal) Allocator.Error!void {
-    try check.fail(node, .{
-        .code = refusal.code,
-        .message = refusal.message,
-        .label = refusal.label,
-        .help = refusal.help,
-    });
 }
 
 /// Two checked operands and the operator between them.
@@ -3914,9 +3857,7 @@ fn memberIsVisible(check: *Check, member: Decl.Index, at: Token.Index) Allocator
         }),
         .label = "not public",
         .help = "mark it 'pub' to reach it from another file",
-        .notes = try check.comp.notes(&.{
-            check.comp.noteAt(decl.module, decl.node, "declared here"),
-        }),
+        .notes = try check.comp.noteOne(decl.module, decl.node, "declared here"),
     });
     return false;
 }
@@ -4214,15 +4155,12 @@ fn checkRangeEnd(check: *Check, node: Node.Index) Allocator.Error!?Value {
 
 /// What `a..` runs to. An array answers untyped, a view with the count it carries.
 fn baseLength(check: *Check, elements: Elements, through: Through) Allocator.Error!Value {
-    const comp = check.comp;
     const count = elements.holds.len orelse return runtimeValue(
         try check.emitOne(elements.node, .slice_len, .u64_type, through.ref),
         .u64_type,
     );
     // untyped, so a written start settles the type for both ends
-    return .{ .constant = try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = count },
-    }) };
+    return check.untypedInt(count);
 }
 
 /// The range a bracket holds, since only what stands inside says which a bracket is.
@@ -4471,9 +4409,7 @@ fn checkStructLiteral(
                     check.tree.tokenSlice(field_init.name_token),
                 }),
                 .label = "given again here",
-                .notes = try comp.notes(&.{
-                    comp.noteAt(check.module_index, first, "first given here"),
-                }),
+                .notes = try check.noteHere(first, "first given here"),
             });
             clean = false;
             continue;
@@ -4880,7 +4816,7 @@ fn baseIsNamespace(check: *const Check, node: Node.Index) bool {
         switch (check.tree.nodeTag(current)) {
             .ident => {
                 const text = check.mainTokenText(current);
-                if (check.findLocal(text) != null) return false;
+                if (check.findLocalIndex(text) != null) return false;
                 return true;
             },
             .field_access => current = check.tree.viewOf(current).field_access.lhs,
@@ -4990,9 +4926,7 @@ fn checkCallResolved(
                     fn_name, own_count, plural(own_count), explicit.len,
                 }),
                 .label = "wrong number of arguments",
-                .notes = try comp.notes(&.{
-                    comp.noteAt(decl.module, decl.node, "declared here"),
-                }),
+                .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
             });
             return .poison;
         }
@@ -5037,9 +4971,7 @@ fn checkCallResolved(
                 }),
                 .label = "not a method",
                 .help = "call it through the type instead",
-                .notes = try comp.notes(&.{
-                    comp.noteAt(decl.module, decl.node, "declared here"),
-                }),
+                .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
             });
             return .poison;
         }
@@ -5893,9 +5825,7 @@ fn reportImmutable(check: *Check, node: Node.Index, place: Place) Allocator.Erro
             }),
             .label = "immutable",
             .help = "declare it 'var' if it needs to change",
-            .notes = try comp.notes(&.{
-                comp.noteAt(check.module_index, place.root_node, "bound here"),
-            }),
+            .notes = try check.noteHere(place.root_node, "bound here"),
         },
         .param_bound => .{
             .code = .not_assignable,
@@ -5959,6 +5889,13 @@ pub fn typeOf(check: *const Check, value: Value) Pool.Index {
 
 pub fn runtimeValue(ref: Ref, type_index: Pool.Index) Value {
     return .{ .runtime = .{ .ref = ref, .type = type_index } };
+}
+
+/// An untyped integer constant, which meets any type its value fits.
+pub fn untypedInt(check: *Check, value: i128) Allocator.Error!Value {
+    return .{ .constant = try check.comp.pool.intern(check.comp.gpa, .{
+        .value_int = .{ .type = .untyped_int_type, .value = value },
+    }) };
 }
 
 /// Anything with no ref of its own becomes poison.
@@ -6327,16 +6264,10 @@ fn suggestName(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     for (check.bindings) |binding| {
         closest.consider(comp.pool.stringText(binding.name));
     }
-    for (comp.declsIn(check.module.decls)) |decl| {
-        if (decl.owner != .none) continue;
-        closest.consider(comp.pool.stringText(decl.name));
-    }
+    comp.considerDecls(&closest, check.module.decls);
     if (comp.prelude) |prelude| {
         if (prelude != check.module_index) {
-            for (comp.declsIn(comp.moduleAt(prelude).decls)) |decl| {
-                if (decl.owner != .none) continue;
-                closest.consider(comp.pool.stringText(decl.name));
-            }
+            comp.considerDecls(&closest, comp.moduleAt(prelude).decls);
         }
     }
     for (Pool.primitive_names) |name| closest.consider(name);
@@ -6358,6 +6289,15 @@ pub fn failToken(
     report: Compilation.Report,
 ) Allocator.Error!void {
     try check.comp.reportToken(check.module_index, token, report);
+}
+
+/// The common one-note list, pointing into this module.
+fn noteHere(
+    check: *Check,
+    node: Node.Index,
+    message: []const u8,
+) Allocator.Error![]Diagnostic.Note {
+    return check.comp.noteOne(check.module_index, node, message);
 }
 
 /// Marks an unreachable block in the map `finishFunc` renumbers through.

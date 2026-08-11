@@ -12,12 +12,7 @@ pub const Decoded = union(enum) {
     refused: Refusal,
 };
 
-pub const Refusal = struct {
-    code: Diagnostic.Code,
-    message: []const u8,
-    label: []const u8,
-    help: ?[]const u8 = null,
-};
+pub const Refusal = Diagnostic.Report;
 
 pub fn decode(arena: Allocator, text: []const u8) Allocator.Error!Decoded {
     assert(text.len > 0);

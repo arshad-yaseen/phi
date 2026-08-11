@@ -450,9 +450,7 @@ fn layoutOf(
     };
 
     const answer: u32 = if (builtin == .size_of) layout.size else layout.alignment;
-    return .{ .constant = try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = answer },
-    }) };
+    return check.untypedInt(answer);
 }
 
 /// An edge of an integer type, an untyped constant, so it meets any type it fits.
@@ -478,9 +476,7 @@ fn limitOf(
     }
 
     const edge = if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted);
-    return .{ .constant = try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = edge },
-    }) };
+    return check.untypedInt(edge);
 }
 
 /// Retypes the pointee and keeps what the pointer may do.

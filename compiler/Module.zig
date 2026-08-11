@@ -286,7 +286,7 @@ fn addDecl(
                 .code = .redeclared,
                 .message = try comp.fmt("'{s}' is declared twice in this file", .{text}),
                 .label = "declared again here",
-                .notes = try comp.notes(&.{comp.noteAt(index, first.node, "first declared here")}),
+                .notes = try comp.noteOne(index, first.node, "first declared here"),
             };
         }
         gop.value_ptr.* = decl_index;
@@ -335,7 +335,7 @@ fn addMember(
             .code = .redeclared,
             .message = try comp.fmt("'{s}' is declared twice in this struct", .{text}),
             .label = "declared again here",
-            .notes = try comp.notes(&.{comp.noteAt(index, first, "first declared here")}),
+            .notes = try comp.noteOne(index, first, "first declared here"),
         });
         comp.declPtr(decl_index).state = .poisoned;
     }
@@ -549,9 +549,7 @@ pub fn findExported(
                 .message = try comp.fmt("'{s}' is private to its file", .{name_text}),
                 .label = "not public",
                 .help = "mark the declaration 'pub' to reach it from another file",
-                .notes = try comp.notes(&.{
-                    comp.noteAt(decl.module, decl.node, "declared here"),
-                }),
+                .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
             });
             return null;
         }
@@ -651,9 +649,6 @@ fn suggestIn(
     name: []const u8,
 ) Allocator.Error!?[]const u8 {
     var closest: spell.Closest = .{ .target = name };
-    for (comp.declsIn(module.decls)) |decl| {
-        if (decl.owner != .none) continue;
-        closest.consider(comp.pool.stringText(decl.name));
-    }
+    comp.considerDecls(&closest, module.decls);
     return comp.didYouMean(closest);
 }
