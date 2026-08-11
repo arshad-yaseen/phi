@@ -27,15 +27,15 @@ tags: []const Token.Tag,
 /// The `.eof` the cursor never passes.
 eof_index: Token.Index,
 /// Only ever moves forward.
-token_index: Token.Index,
-nodes: std.MultiArrayList(AST.Node),
-extra: std.ArrayList(u32),
-scratch: std.ArrayList(Node.Index),
-errors: std.ArrayList(Diagnostic),
-depth: u32,
+token_index: Token.Index = .first,
+nodes: std.MultiArrayList(AST.Node) = .empty,
+extra: std.ArrayList(u32) = .empty,
+scratch: std.ArrayList(Node.Index) = .empty,
+errors: std.ArrayList(Diagnostic) = .empty,
+depth: u32 = 0,
 /// In an `if` or `loop` header, where a block after `or` belongs to the header.
-in_condition: bool,
-reported_too_deep: bool,
+in_condition: bool = false,
+reported_too_deep: bool = false,
 
 pub fn run(gpa: Allocator, source: [:0]const u8) Allocator.Error!AST {
     assert(source.len <= Source.bytes_max);
@@ -56,14 +56,6 @@ pub fn run(gpa: Allocator, source: [:0]const u8) Allocator.Error!AST {
         .tokens = tokens.slice(),
         .tags = tokens.items(.tag),
         .eof_index = .from(tokens.len - 1),
-        .token_index = .first,
-        .nodes = .empty,
-        .extra = .empty,
-        .scratch = .empty,
-        .errors = .empty,
-        .depth = 0,
-        .in_condition = false,
-        .reported_too_deep = false,
     };
     defer parse.scratch.deinit(gpa);
 
@@ -197,7 +189,7 @@ fn err(self: *Parse, diagnostic: Diagnostic) Allocator.Error!void {
     assert(diagnostic.message.len > 0);
     assert(diagnostic.span.start <= diagnostic.span.end);
 
-    // unwinding recovery re-asks, so an identical report at this spot is an echo
+    // unwinding recovery re-asks, an identical report at this spot is just an echo
     var index = self.errors.items.len;
     while (index > 0) {
         index -= 1;
@@ -397,6 +389,16 @@ fn addPair(
         .main_token = main_token,
         .data = .{ .node_and_node = .{ lhs, rhs } },
     });
+}
+
+/// A node whose payload sits in `extra`, from `start`.
+fn addExtraNode(
+    self: *Parse,
+    node_tag: Node.Tag,
+    main_token: Token.Index,
+    start: AST.ExtraIndex,
+) Allocator.Error!Node.Index {
+    return self.addNode(.{ .tag = node_tag, .main_token = main_token, .data = .{ .extra = start } });
 }
 
 fn hole(self: *Parse) Allocator.Error!Node.Index {
@@ -684,11 +686,7 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
         const start = self.extraStart();
         try self.extraList(self.scratch.items[top..members_start]);
         try self.extraNode(aliased);
-        return self.addNode(.{
-            .tag = .alias_decl,
-            .main_token = type_token,
-            .data = .{ .extra = start },
-        });
+        return self.addExtraNode(.alias_decl, type_token, start);
     }
 
     const lbrace = self.eatToken(.l_brace);
@@ -706,11 +704,7 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
     const start = self.extraStart();
     try self.extraList(self.scratch.items[top..members_start]);
     try self.extraList(self.scratch.items[members_start..]);
-    return self.addNode(.{
-        .tag = .struct_decl,
-        .main_token = type_token,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.struct_decl, type_token, start);
 }
 
 const Body = enum { written, linked };
@@ -773,11 +767,7 @@ fn parseFnDecl(self: *Parse, form: Body) Allocator.Error!Node.Index {
     try self.extraList(self.scratch.items[params_start..]);
     try self.extraOpt(return_type);
     try self.extraOpt(body);
-    return self.addNode(.{
-        .tag = .fn_decl,
-        .main_token = fn_token,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.fn_decl, fn_token, start);
 }
 
 fn parseTypeParams(self: *Parse) Allocator.Error!void {
@@ -873,11 +863,7 @@ fn parseBlock(self: *Parse) Allocator.Error!Node.Index {
 
     const start = self.extraStart();
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .block,
-        .main_token = lbrace,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.block, lbrace, start);
 }
 
 fn parseStatement(self: *Parse) Allocator.Error!Node.Index {
@@ -984,11 +970,7 @@ fn parseIf(self: *Parse) Allocator.Error!Node.Index {
     try self.extraNode(cond);
     try self.extraNode(then_block);
     try self.extraOpt(else_node);
-    return self.addNode(.{
-        .tag = .if_expr,
-        .main_token = if_token,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.if_expr, if_token, start);
 }
 
 /// `loop { }` forever, `loop cond { }` while. `else` runs when it ends on its own.
@@ -1022,11 +1004,7 @@ fn parseLoop(self: *Parse) Allocator.Error!Node.Index {
     try self.extraOpt(head);
     try self.extraNode(body);
     try self.extraOpt(else_node);
-    return self.addNode(.{
-        .tag = .loop_expr,
-        .main_token = loop_token,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.loop_expr, loop_token, start);
 }
 
 fn parseLoopRange(self: *Parse) Allocator.Error!Node.Index {
@@ -1094,11 +1072,7 @@ fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
     const start = self.extraStart();
     try self.extraNode(scrutinee);
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .match_expr,
-        .main_token = match_token,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.match_expr, match_token, start);
 }
 
 /// `Member => body`, `A | B => body`, or `else => body`. A label is a type, never a binder.
@@ -1180,11 +1154,7 @@ fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
             try self.extraNode(node);
             try self.extraNode(rhs);
             try self.extraNode(block);
-            node = try self.addNode(.{
-                .tag = .or_bind,
-                .main_token = op_token,
-                .data = .{ .extra = start },
-            });
+            node = try self.addExtraNode(.or_bind, op_token, start);
             banned_prec = 0;
             continue;
         }
@@ -1313,11 +1283,7 @@ fn parseCall(self: *Parse, callee: Node.Index) Allocator.Error!Node.Index {
     const start = self.extraStart();
     try self.extraNode(callee);
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .call,
-        .main_token = lparen,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.call, lparen, start);
 }
 
 /// `Box[i64]` and `row[0]` are one node. Only the checker can tell which.
@@ -1340,11 +1306,7 @@ fn parseBracket(self: *Parse, base: Node.Index) Allocator.Error!Node.Index {
     const start = self.extraStart();
     try self.extraNode(base);
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .bracket,
-        .main_token = lbracket,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.bracket, lbracket, start);
 }
 
 /// Only a type opens with `*` or `[`. This is the one place a range is written.
@@ -1442,11 +1404,7 @@ fn parseArrayLiteral(self: *Parse) Allocator.Error!Node.Index {
 
     const start = self.extraStart();
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .array_literal,
-        .main_token = lbracket,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.array_literal, lbracket, start);
 }
 
 /// `Point.{ x: 1 }`, or `.{ x: 1 }` where the type is left to the context.
@@ -1473,11 +1431,7 @@ fn parseStructLiteral(
     const start = self.extraStart();
     try self.extraOpt(type_expr);
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .struct_literal,
-        .main_token = dot,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.struct_literal, dot, start);
 }
 
 fn parseFieldInit(self: *Parse) Allocator.Error!Node.Index {
@@ -1509,11 +1463,7 @@ fn parseType(self: *Parse) Allocator.Error!Node.Index {
 
     const start = self.extraStart();
     try self.extraList(self.scratch.items[top..]);
-    return self.addNode(.{
-        .tag = .union_type,
-        .main_token = first_pipe,
-        .data = .{ .extra = start },
-    });
+    return self.addExtraNode(.union_type, first_pipe, start);
 }
 
 /// One union member, an array, a pointer, or a path. `|` binds looser, in `parseType`.

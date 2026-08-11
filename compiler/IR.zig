@@ -176,7 +176,7 @@ pub const Inst = struct {
         int_widen,
         /// Widens a float into one holding every value of the old one.
         float_widen,
-        /// The value where its type holds it, and the union's other member where not.
+        /// The value when the type holds it, the union's other member when not.
         int_cast,
 
         /// A value entering a union that lists it, or a union widening.

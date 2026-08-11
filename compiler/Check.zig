@@ -107,7 +107,7 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
     const view = check.tree.viewOf(check.declNode(decl_index)).var_decl;
     // a top-level 'var' was already refused by the parser, and checks as 'let'
 
-    // resolved before the value, so a literal can land on what it says
+    // resolve the annotation first so a literal can land on what it says
     const annotation: ?Pool.Index = if (view.type_expr.unwrap()) |type_expr|
         try check.resolveType(type_expr)
     else
@@ -206,7 +206,7 @@ fn walkEmbedded(
         // every element embeds, so an array of a type is a cycle through it
         .type_array => |array| try walkEmbedded(comp, array.child, from, depth + 1),
         .type_union => {
-            // every member embeds in place, read by position because the demand interns
+            // members embed in place. read by position, the demand can intern
             const count = comp.pool.unionMemberCount(type_index);
             var at: u32 = 0;
             while (at < count) : (at += 1) {
@@ -535,7 +535,7 @@ fn arrayLength(check: *Check, node: Node.Index) Allocator.Error!?u64 {
         },
     }
 
-    // a count, so the refusals a `u64` already makes are the refusals here
+    // it's a count, so whatever a `u64` refuses gets refused here too
     const met = try check.fitValue(value.constant, .u64_type, node);
 
     if (met != .constant) return null;
@@ -572,7 +572,7 @@ fn resolveUnionType(
     switch (try comp.pool.unite(comp.gpa, buffer[0..members.len])) {
         .index => |index| return index,
         .duplicate => |repeat| {
-            // the caret prefers the member written twice over the whole union
+            // put the caret on the repeated member, not the whole union
             var where = node;
             for (members, 0..) |member, at| {
                 if (buffer[at] == repeat) where = member;
@@ -1008,7 +1008,7 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
         check.endBlock(.{ .ret = .none });
     }
     assert(builder.scopes.items.len == 0);
-    // every gathering site restores what it marked, so nothing outlives the body
+    // every gather site restores its mark, nothing outlives the body
     assert(builder.facts.items.len == 0);
 
     try check.finishFunc();
@@ -1299,7 +1299,7 @@ fn checkBlockValue(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator
     var value: Value = .void_value;
     for (statements, 0..) |statement, position| {
         if (check.blockOpen() == false or builder.reachable == false) {
-            // entered dead, so whatever led here already reported
+            // entered dead. whatever killed the block already reported
             if (position > 0) {
                 try check.reportUnreachable(statement, statements[position - 1]);
             }
@@ -1444,7 +1444,7 @@ fn checkVarDeclSlot(
     }
     if (value_type == .poison) return check.declarePoisoned(name, node);
 
-    // a sealed constant carries its type here, so only an unchosen one needs words
+    // a typed constant is fine here, only one that never chose needs the error
     if (final == .constant and annotation == null and Pool.isUntyped(value_type)) {
         assert(view.is_mutable);
         const example: ?[]const u8 = switch (comp.pool.keyOf(final.constant)) {
@@ -1531,7 +1531,7 @@ fn checkAssign(check: *Check, node: Node.Index, assign: AST.View.Assign) Allocat
     if (place.type == .poison) return;
 
     const value: Value = if (assign.op) |op| folded: {
-        // the place is read once, worked on, and written back
+        // read the place once, work on it, write it back
         const held = try check.placeValue(place);
         const rhs = try check.checkExpr(assign.rhs, place.type);
         if (rhs == .diverged) return;
@@ -1578,7 +1578,7 @@ fn checkIf(
         });
     }
     const carries = wants and view.else_node != .none;
-    // neither arm is more responsible for the type than the other, so the whole `if` names it
+    // neither arm owns the type, blame the whole if
     var join = try Join.open(check, "if", node, carries, hint, node.toOptional());
 
     const then_block = try check.newBlock();
@@ -1631,7 +1631,7 @@ fn checkIf(
     check.startBlock(join_block);
     builder.reachable = join_reachable;
 
-    // one door into the join leaves its proof standing past the `if`
+    // only one branch falls through, so its facts keep holding past the if
     if (then_value == .diverged and (view.else_node == .none or else_value != .diverged)) {
         try check.applyFacts(facts.when_false);
     }
@@ -1772,7 +1772,7 @@ fn checkLoop(
     // recovery can leave a hole where the body should be, already reported
     if (check.tree.nodeTag(view.body) != .block) return .poison;
 
-    // control may have left already, the way `emit` handles it
+    // control may already have left, same dance `emit` does
     try check.reopenDead();
     const entry_reachable = builder.reachable;
 
@@ -1806,12 +1806,12 @@ fn checkLoop(
         try check.newBlock()
     else
         exit;
-    // the increment stands apart, so `continue` reaches it before the test
+    // increment gets its own block so `continue` hits it before the test
     const latch: IR.Block.Index = if (counter != null) try check.newBlock() else header;
 
     check.endBlock(.{ .jump = header });
     check.startBlock(header);
-    // the header never narrows, so no facts are gathered here
+    // no facts gathered here, the header never narrows
     const holds: ?Ref = switch (view.head) {
         .forever => null,
         .cond => |cond_node| asked: {
@@ -2005,7 +2005,7 @@ fn checkMatch(
     const scrutinee = try check.checkExpr(view.scrutinee, null);
     try check.reopenDead();
 
-    // a broken scrutinee poisons quietly, and the arms are still checked
+    // broken scrutinee poisons quietly, the arms still get checked
     var scrutinee_type: Pool.Index = .poison;
     if (try check.valueOnly(view.scrutinee, scrutinee)) {
         const found = check.typeOf(scrutinee);
@@ -2018,13 +2018,13 @@ fn checkMatch(
     }
     const broken = scrutinee_type == .poison;
 
-    // members are read by position, because resolving a label can intern
+    // read members by position, resolving a label can intern and move the table
     const member_count: u32 = if (broken) 0 else comp.pool.unionMemberCount(scrutinee_type);
     assert(member_count <= Pool.union_members_max);
     var covered_by: [Pool.union_members_max]ArmIndex = @splat(.none);
     const covered = covered_by[0..member_count];
 
-    // a let or parameter narrows per arm, exactly as `is` narrows it
+    // a let or parameter narrows per arm, same way `is` does it
     const narrow_local: ?Builder.Local.Index = local: {
         if (broken) break :local null;
         if (check.tree.nodeTag(view.scrutinee) != .ident) break :local null;
@@ -2036,7 +2036,7 @@ fn checkMatch(
         }
     };
 
-    // exhaustiveness spares the last arm its test, so it is the fall-through door
+    // the last arm skips its test, exhaustiveness makes it the fall-through
     const fallthrough: usize = last: {
         var index = view.arms.len;
         while (index > 0) {
@@ -2055,7 +2055,7 @@ fn checkMatch(
 
     var join_reachable = false;
     var all_diverged = true;
-    // narrowing past the match needs the whole picture to have been proven
+    // no narrowing past the match unless coverage resolved clean
     var coverage_clean = broken == false;
     var survivors: [Pool.union_members_max]bool = @splat(false);
     const narrows_mark = builder.narrows.items.len;
@@ -2130,7 +2130,7 @@ fn checkMatch(
             check.endBlock(.{ .jump = join_block });
         }
 
-        // the chain block's run restarts past the arm's instructions
+        // pick the test chain back up past the arm's instructions
         if (resume_chain) |chain| check.startBlock(chain);
     }
 
@@ -2143,7 +2143,7 @@ fn checkMatch(
     check.startBlock(join_block);
     builder.reachable = join_reachable;
 
-    // arms that leave narrow what follows, the way a branch that leaves does
+    // an arm that leaves narrows the code after the match, like a diverging branch
     if (narrow_local) |local| {
         if (coverage_clean and join_reachable) {
             var rest: [Pool.union_members_max]Pool.Index = undefined;
@@ -3189,7 +3189,7 @@ fn checkShortCircuit(
 
     if (lhs_met == .constant) {
         const truth = check.truthOf(bools, lhs_met.constant) orelse return .poison;
-        // a side the constant decided is never entered, so it is never checked
+        // the constant decided, so the dead side never runs and never gets checked
         if (truth == false) return lhs_met;
         const rhs = try check.checkExpr(view.rhs, null);
         return check.coerce(rhs, bools, view.rhs);
@@ -4272,7 +4272,7 @@ fn checkElements(
     if (owner == .poison) return null;
 
     const holds = holdsOf(&comp.pool, owner) orelse {
-        // the base is the mistake, and the brackets still hold a program
+        // the base was the mistake, the brackets still hold a real program
         try check.checkBracketArgs(view);
         try check.failNotIndexable(node, owner);
         return null;
@@ -6016,7 +6016,7 @@ fn coerce(
                 return runtimeValue(try check.emitOne(node, tag, wanted, runtime.ref), wanted);
             }
 
-            // the one subtyping edge, which a view has for a pointer's reason
+            // the one subtyping edge. a view gets it for the same reason a pointer does
             if (writesThrough(&comp.pool, runtime.type, wanted)) |writable| {
                 if (writable) return runtimeValue(runtime.ref, wanted);
                 try check.failNeedsWritable(node, runtime.type, wanted);

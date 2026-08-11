@@ -167,9 +167,22 @@ pub const Tag = enum(u8) {
 
     /// How a message names this tag.
     pub fn symbol(tag: Tag) []const u8 {
-        const text = symbols[@intFromEnum(tag)];
-        assert(text.len > 0);
-        return text;
+        return switch (tag) {
+            .invalid => "invalid bytes",
+            .eof => "end of file",
+            .ident => "an identifier",
+            .number => "a number",
+            .string => "a string",
+            .char => "a character",
+            .builtin => "a builtin",
+            .comment => "a comment",
+            .doc_comment => "a doc comment",
+            .file_doc_comment => "a file doc comment",
+            .semi => "the end of the line",
+            // inline so the quoting happens at comptime, per tag
+            inline else => |fixed| "'" ++ (comptime fixed.lexeme() orelse
+                @compileError("tag needs a phrase or a lexeme: " ++ @tagName(fixed))) ++ "'",
+        };
     }
 
     fn isKeyword(tag: Tag) bool {
@@ -292,33 +305,6 @@ pub const lexeme_len: [tag_count]u8 = blk: {
     var table: [tag_count]u8 = @splat(0);
     for (std.enums.values(Tag)) |tag| {
         if (tag.lexeme()) |text| table[@intFromEnum(tag)] = text.len;
-    }
-    break :blk table;
-};
-
-const symbols: [tag_count][]const u8 = blk: {
-    @setEvalBranchQuota(8000);
-    var table: [tag_count][]const u8 = @splat("");
-    for (std.enums.values(Tag)) |tag| {
-        table[@intFromEnum(tag)] = switch (tag) {
-            .invalid => "invalid bytes",
-            .eof => "end of file",
-            .ident => "an identifier",
-            .number => "a number",
-            .string => "a string",
-            .char => "a character",
-            .builtin => "a builtin",
-            .comment => "a comment",
-            .doc_comment => "a doc comment",
-            .file_doc_comment => "a file doc comment",
-            .semi => "the end of the line",
-            else => quoted: {
-                const text = tag.lexeme() orelse
-                    @compileError("tag needs a phrase or a lexeme: " ++ @tagName(tag));
-                break :quoted "'" ++ text ++ "'";
-            },
-        };
-        assert(table[@intFromEnum(tag)].len > 0);
     }
     break :blk table;
 };

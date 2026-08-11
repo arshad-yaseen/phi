@@ -55,8 +55,7 @@ pub const Builtin = enum {
         };
     }
 
-    /// Whether only the standard library may reach it, which is what a builtin
-    /// able to break a guarantee the checker made earns.
+    /// Std-only is the price of being able to break a guarantee the checker made.
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast => true,

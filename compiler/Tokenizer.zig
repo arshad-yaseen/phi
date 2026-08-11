@@ -44,7 +44,7 @@ pub fn tokenizeAll(
     assert(tokens.len == 0);
     assert(comments.items.len == 0);
 
-    // one token per five bytes, one comment per hundred and twenty-eight
+    // about a token per five bytes, a comment per 128. measured on real files
     try tokens.ensureTotalCapacity(gpa, @divFloor(source.len, 5) + 2);
     try comments.ensureTotalCapacity(gpa, @divFloor(source.len, 128) + 2);
 
@@ -98,7 +98,7 @@ fn insertedSemi(tokenizer: *Tokenizer, token: Token) ?Token {
 
     tokenizer.pending = null;
     tokenizer.previous = .semi;
-    // the token that follows is scanned again on the next call
+    // back up so the next call rescans this token
     tokenizer.cursor = token.start;
     return .{ .tag = .semi, .start = start };
 }
@@ -194,29 +194,14 @@ fn scan(tokenizer: *Tokenizer) Token {
             assert(source[cursor] == '/');
             cursor += 1;
             // `//!` the file, `///` the declaration below, `////` neither
-            if (source[cursor] == '!') continue :state .file_doc_comment;
-            if (source[cursor] == '/') {
-                if (source[cursor + 1] == '/') continue :state .line_comment;
-                continue :state .doc_comment;
-            }
-            continue :state .line_comment;
-        },
-
-        .line_comment => {
+            const kind: Token.Tag = switch (source[cursor]) {
+                '!' => .file_doc_comment,
+                '/' => if (source[cursor + 1] == '/') .comment else .doc_comment,
+                else => .comment,
+            };
             cursor = endOfLine(source, cursor);
-            break :state .comment;
-        },
-
-        .doc_comment => {
-            cursor = endOfLine(source, cursor);
-            assert(cursor >= start + 3);
-            break :state .doc_comment;
-        },
-
-        .file_doc_comment => {
-            cursor = endOfLine(source, cursor);
-            assert(cursor >= start + 3);
-            break :state .file_doc_comment;
+            assert(cursor >= start + 2);
+            break :state kind;
         },
 
         .invalid => {
@@ -236,7 +221,7 @@ fn scan(tokenizer: *Tokenizer) Token {
     return .{ .tag = tag, .start = start };
 }
 
-/// The byte just past a token, rescanned, so none stores a length.
+/// Byte just past a token. Rescans, tokens don't store lengths.
 pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
     assert(start <= source.len);
 
@@ -332,9 +317,6 @@ const State = enum {
     builtin,
     slash,
     comment_start,
-    line_comment,
-    doc_comment,
-    file_doc_comment,
     invalid,
 };
 

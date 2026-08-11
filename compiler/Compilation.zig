@@ -25,45 +25,45 @@ gpa: Allocator,
 io: std.Io,
 pool: Pool,
 /// Heap-stable, because analysis holds a module while loading others.
-modules: std.ArrayList(*Module),
-module_map: std.StringHashMapUnmanaged(Module.Index),
-decls: std.ArrayList(Decl),
-instances: std.ArrayList(Instance),
-instance_args: std.ArrayList(Pool.Index),
+modules: std.ArrayList(*Module) = .empty,
+module_map: std.StringHashMapUnmanaged(Module.Index) = .empty,
+decls: std.ArrayList(Decl) = .empty,
+instances: std.ArrayList(Instance) = .empty,
+instance_args: std.ArrayList(Pool.Index) = .empty,
 instance_map: std.HashMapUnmanaged(
     Pool.Instance,
     void,
     InstanceIndexContext,
     std.hash_map.default_max_load_percentage,
-),
+) = .empty,
 /// Parameters and fields share one shape, so one table.
-rows: std.ArrayList(Row),
+rows: std.ArrayList(Row) = .empty,
 /// Marked and restored, because one signature can demand another.
-rows_scratch: std.ArrayList(Row),
+rows_scratch: std.ArrayList(Row) = .empty,
 /// Bodies never nest, so one builder serves them all.
-body_builder: Check.Builder,
+body_builder: Check.Builder = .empty,
 /// Staged literal parts and call arguments, marked and restored.
-operands: std.ArrayList(Check.Operand),
-body_queue: std.ArrayList(Pool.Instance),
-funcs: std.ArrayList(IR.Func),
+operands: std.ArrayList(Check.Operand) = .empty,
+body_queue: std.ArrayList(Pool.Instance) = .empty,
+funcs: std.ArrayList(IR.Func) = .empty,
 /// Every function's instructions, blocks, and extra words, which each `Func` ranges into.
-insts: IR.InstList,
-inst_extra: std.ArrayList(u32),
-blocks: std.ArrayList(IR.Block),
-diagnostics: std.ArrayList(Entry),
+insts: IR.InstList = .empty,
+inst_extra: std.ArrayList(u32) = .empty,
+blocks: std.ArrayList(IR.Block) = .empty,
+diagnostics: std.ArrayList(Entry) = .empty,
 /// One row per (module, code, anchor), so re-walked code reports once.
-reported: std.AutoHashMapUnmanaged(ReportKey, void),
+reported: std.AutoHashMapUnmanaged(ReportKey, void) = .empty,
 /// Each checked expression's type, recorded only when the host asked.
-expr_types: std.AutoHashMapUnmanaged(ExprKey, Pool.Index),
+expr_types: std.AutoHashMapUnmanaged(ExprKey, Pool.Index) = .empty,
 /// Every layout ever computed, so a type's is computed once.
-layouts: std.AutoHashMapUnmanaged(Pool.Index, Layout),
+layouts: std.AutoHashMapUnmanaged(Pool.Index, Layout) = .empty,
 /// `std.prelude`, when it loaded.
-prelude: ?Module.Index,
+prelude: ?Module.Index = null,
 
 // transient analysis state
 
 /// What is being analyzed, for cycle reports.
-stack: std.ArrayList(Frame),
+stack: std.ArrayList(Frame) = .empty,
 /// Backs diagnostic text, module keys, and paths until deinit.
 arena: std.heap.ArenaAllocator,
 
@@ -217,27 +217,6 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .gpa = gpa,
         .io = io,
         .pool = undefined,
-        .modules = .empty,
-        .module_map = .empty,
-        .decls = .empty,
-        .instances = .empty,
-        .instance_args = .empty,
-        .instance_map = .empty,
-        .rows = .empty,
-        .rows_scratch = .empty,
-        .body_builder = .empty,
-        .operands = .empty,
-        .body_queue = .empty,
-        .funcs = .empty,
-        .insts = .empty,
-        .inst_extra = .empty,
-        .blocks = .empty,
-        .diagnostics = .empty,
-        .reported = .empty,
-        .expr_types = .empty,
-        .layouts = .empty,
-        .prelude = null,
-        .stack = .empty,
         .arena = .init(gpa),
         .loader = options.loader,
         .root_dir = std.fs.path.dirname(options.root_path) orelse ".",
@@ -714,7 +693,7 @@ pub fn rememberExprType(
     try comp.expr_types.put(comp.gpa, .{ .instance = instance, .node = node }, type_index);
 }
 
-/// The type checking decided, the editor's question answered from data.
+/// What checking decided for this node. The editor reads data, nothing re-runs.
 pub fn exprType(
     comp: *const Compilation,
     instance: Pool.Instance,

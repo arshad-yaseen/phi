@@ -182,7 +182,7 @@ fn writeConstant(
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
         // the member the union holds, which the context types
         .value_union => |it| try writeConstant(comp, writer, it.value),
-        // the bytes, then the view, so storage and a view of it never print alike
+        // bytes first, then the view, so storage and a view of it never print alike
         .value_slice => |it| {
             try writeConstant(comp, writer, it.data);
             try writer.writeByte(':');

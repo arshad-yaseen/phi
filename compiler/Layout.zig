@@ -129,8 +129,8 @@ fn ofStruct(
     return sized(std.mem.alignForward(u64, size, alignment), alignment);
 }
 
-/// The member a union hides in the zero address, where it has one. The other
-/// member has no values, so no tag tells the two apart.
+/// Two members where one is a bare unit. The unit takes the zero address and
+/// the tag goes away.
 ///
 ///   *Node | none      0x00007f2e51c04150                        the *Node
 ///                     0x0000000000000000                        none

@@ -1,9 +1,9 @@
-//! A `u32` row number with a type of its own, so two tables never mix.
+//! A `u32` row number with its own type, so indexes into two tables can't mix.
 
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// One per table. `name` is what tells two instantiations apart.
+/// `name` does nothing but keep each instantiation a distinct type.
 pub fn Index(comptime name: []const u8) type {
     comptime assert(name.len > 0);
     return enum(u32) {
@@ -11,7 +11,6 @@ pub fn Index(comptime name: []const u8) type {
 
         const Self = @This();
 
-        pub const table = name;
         pub const Optional = OptionalOf(Self);
 
         pub fn from(raw: usize) Self {
@@ -31,7 +30,7 @@ pub fn Index(comptime name: []const u8) type {
     };
 }
 
-/// Four bytes, unlike `?Index`, and still forces an `unwrap()`.
+/// Four bytes where `?Index` would be eight, and you still have to unwrap.
 pub fn OptionalOf(comptime Handle: type) type {
     return enum(u32) {
         none = std.math.maxInt(u32),

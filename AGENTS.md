@@ -310,6 +310,13 @@ The data plane is a small amount of code executed an enormous number of times. O
 - **Public doc comments (`///`) are professional prose.** Proper casing, full sentences, real punctuation. They describe what a name means and how a user is meant to use it. Never leak implementation hand-offs, ticket numbers, TODO chatter, or step-by-step rationale that belongs in the commit message.
 - **Tests need a header.** A short comment at the top of a non-trivial test states the goal and methodology so a reader can get up to speed or skip past.
 - **No em dashes, semicolons, or colons in comments.** Split into separate sentences instead. They invite run-on prose that obscures the point.
+- **Comments read like a person wrote them.** The voice is a senior engineer
+  scribbling in their own code, not a tool narrating. Casual beats polished,
+  uneven beats uniform. Drop words when the meaning survives, let grammar slip
+  where a phrase says it faster, and don't sand every comment into the same
+  tidy shape. Some get a full stop, some don't. A file whose comments all share
+  one rhythm and perfect prose reads machine-made, and that is a defect even
+  when each comment follows every rule above.
 
 ### Cache Invalidation
 

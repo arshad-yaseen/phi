@@ -791,34 +791,24 @@ pub fn widens(from: Index, into: Index) bool {
     return maxInt(from) <= maxInt(into);
 }
 
+fn isSignedInt(index: Index) bool {
+    return switch (index) {
+        .i8_type, .i16_type, .i32_type, .i64_type => true,
+        else => false,
+    };
+}
+
 /// The lowest value an integer type holds. Exact, because every width folds in 128 bits.
 pub fn minInt(type_index: Index) i128 {
     assert(isSizedInt(type_index));
-
-    return switch (type_index) {
-        .i8_type => std.math.minInt(i8),
-        .i16_type => std.math.minInt(i16),
-        .i32_type => std.math.minInt(i32),
-        .i64_type => std.math.minInt(i64),
-        .u8_type, .u16_type, .u32_type, .u64_type => 0,
-        else => unreachable,
-    };
+    if (isSignedInt(type_index) == false) return 0;
+    return -(@as(i128, 1) << @intCast(widthOf(type_index) - 1));
 }
 
 pub fn maxInt(type_index: Index) i128 {
     assert(isSizedInt(type_index));
-
-    return switch (type_index) {
-        .i8_type => std.math.maxInt(i8),
-        .i16_type => std.math.maxInt(i16),
-        .i32_type => std.math.maxInt(i32),
-        .i64_type => std.math.maxInt(i64),
-        .u8_type => std.math.maxInt(u8),
-        .u16_type => std.math.maxInt(u16),
-        .u32_type => std.math.maxInt(u32),
-        .u64_type => std.math.maxInt(u64),
-        else => unreachable,
-    };
+    const value_bits = widthOf(type_index) - @intFromBool(isSignedInt(type_index));
+    return (@as(i128, 1) << @intCast(value_bits)) - 1;
 }
 
 comptime {
@@ -829,20 +819,10 @@ comptime {
 
 pub fn fitsInt(value: i128, type_index: Index) bool {
     assert(isInteger(type_index) or isFloat(type_index));
-    return switch (type_index) {
-        .i8_type => value >= std.math.minInt(i8) and value <= std.math.maxInt(i8),
-        .i16_type => value >= std.math.minInt(i16) and value <= std.math.maxInt(i16),
-        .i32_type => value >= std.math.minInt(i32) and value <= std.math.maxInt(i32),
-        .i64_type => value >= std.math.minInt(i64) and value <= std.math.maxInt(i64),
-        .u8_type => value >= 0 and value <= std.math.maxInt(u8),
-        .u16_type => value >= 0 and value <= std.math.maxInt(u16),
-        .u32_type => value >= 0 and value <= std.math.maxInt(u32),
-        .u64_type => value >= 0 and value <= std.math.maxInt(u64),
-        .untyped_int_type => true,
-        // every i128 is below the smallest float infinity
-        .f32_type, .f64_type, .untyped_float_type => true,
-        else => unreachable,
-    };
+    // untyped always fits, and every i128 is below the smallest float infinity
+    if (isSizedInt(type_index) == false) return true;
+    if (value < minInt(type_index)) return false;
+    return value <= maxInt(type_index);
 }
 
 // the constant-folding core
@@ -954,13 +934,8 @@ fn complementOf(value: i128, type_index: Index) i128 {
     assert(isInteger(type_index));
     assert(fitsInt(value, type_index));
 
-    return switch (type_index) {
-        .u8_type => ~value & 0xff,
-        .u16_type => ~value & 0xffff,
-        .u32_type => ~value & 0xffff_ffff,
-        .u64_type => ~value & 0xffff_ffff_ffff_ffff,
-        else => ~value,
-    };
+    if (isSignedInt(type_index) or type_index == .untyped_int_type) return ~value;
+    return ~value & ((@as(i128, 1) << @intCast(widthOf(type_index))) - 1);
 }
 
 /// Null where the distance is not one the value's own width allows.
@@ -1045,7 +1020,7 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
             return .wrong_kind;
         },
         .value_aggregate => |it| {
-            // one that already landed is storage, which is sliced rather than viewed
+            // already landed means storage, and storage gets sliced, not viewed
             if (isUntyped(it.type) == false) {
                 return if (type_index == it.type) .{ .value = value } else .wrong_kind;
             }

@@ -168,15 +168,13 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
     try module.names.ensureTotalCapacity(comp.gpa, @intCast(root.len));
 
     for (root) |node| {
-        switch (tree.viewOf(node)) {
-            .import_decl => |use| {
-                const name_token = lastPathComponent(tree, use.path) orelse continue;
-                _ = try addDecl(comp, module, index, .{
-                    .kind = .import,
-                    .node = node,
-                    .name_token = name_token,
-                });
+        const new: NewDecl = switch (tree.viewOf(node)) {
+            .import_decl => |use| .{
+                .kind = .import,
+                .node = node,
+                .name_token = lastPathComponent(tree, use.path) orelse continue,
             },
+            // a struct also registers its members, so it goes its own way
             .struct_decl => |decl| {
                 const struct_index = try addDecl(comp, module, index, .{
                     .kind = .struct_decl,
@@ -185,33 +183,35 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
                     .type_params = @intCast(decl.type_params.len),
                 }) orelse continue;
                 try registerMembers(comp, module, index, struct_index, decl);
+                continue;
             },
-            .alias_decl => |decl| _ = try addDecl(comp, module, index, .{
+            .alias_decl => |decl| .{
                 .kind = .type_alias,
                 .node = node,
                 .name_token = decl.name_token,
                 .type_params = @intCast(decl.type_params.len),
-            }),
-            .unit_decl => |decl| _ = try addDecl(comp, module, index, .{
+            },
+            .unit_decl => |decl| .{
                 .kind = .unit_decl,
                 .node = node,
                 .name_token = decl.name_token,
-            }),
-            .fn_decl => |decl| _ = try addDecl(comp, module, index, .{
+            },
+            .fn_decl => |decl| .{
                 .kind = if (decl.is_extern) .extern_fn else .fn_decl,
                 .node = node,
                 .name_token = decl.name_token,
                 .type_params = @intCast(decl.type_params.len),
-            }),
-            .var_decl => |decl| _ = try addDecl(comp, module, index, .{
+            },
+            .var_decl => |decl| .{
                 .kind = .let,
                 .node = node,
                 .name_token = decl.name_token,
-            }),
+            },
             // the parser puts only declarations and holes at the root
-            .err => {},
+            .err => continue,
             else => unreachable,
-        }
+        };
+        _ = try addDecl(comp, module, index, new);
     }
 }
 
@@ -227,16 +227,13 @@ fn registerMembers(
 
     for (decl.members) |member| {
         switch (tree.viewOf(member)) {
-            .fn_decl => |fn_view| {
-                _ = try addMember(comp, module, index, struct_index, .{
-                    .kind = .fn_decl,
-                    .node = member,
-                    .name_token = fn_view.name_token,
-                    .type_params = @intCast(fn_view.type_params.len),
-                });
-            },
-            .field => {},
-            .err => {},
+            .fn_decl => |fn_view| _ = try addMember(comp, module, index, struct_index, .{
+                .kind = .fn_decl,
+                .node = member,
+                .name_token = fn_view.name_token,
+                .type_params = @intCast(fn_view.type_params.len),
+            }),
+            .field, .err => {},
             else => unreachable,
         }
     }

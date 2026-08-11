@@ -84,7 +84,7 @@ pub fn lineText(source: *Source, gpa: Allocator, line: u32) Allocator.Error![]co
 fn lineStarts(source: *Source, gpa: Allocator) Allocator.Error![]u32 {
     if (source.line_starts) |starts| return starts;
 
-    // one line per forty bytes
+    // guess a line per forty bytes
     var starts: std.ArrayList(u32) = .empty;
     errdefer starts.deinit(gpa);
     try starts.ensureTotalCapacity(gpa, @divFloor(source.bytes.len, 40) + 2);
