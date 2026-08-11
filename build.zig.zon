@@ -1,6 +1,6 @@
 .{
     .name = .phi,
-    .version = "0.3.0",
+    .version = "0.4.0",
     .minimum_zig_version = "0.16.0",
     .paths = .{""},
     .fingerprint = 0x32fa8911d3c814dd,
