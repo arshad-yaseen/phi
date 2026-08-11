@@ -9,6 +9,7 @@ const Compilation = @import("Compilation.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Token = @import("Token.zig");
+const handle = @import("util/handle.zig");
 const spell = @import("util/spell.zig");
 
 const Range = Compilation.Range;
@@ -83,34 +84,8 @@ pub const Decl = struct {
     /// Stored in `aux` beside the payload.
     pub const ImportTarget = enum(u8) { module, decl };
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn from(raw: usize) Decl.Index {
-            assert(raw < std.math.maxInt(u32));
-            return @enumFromInt(@as(u32, @intCast(raw)));
-        }
-
-        pub fn int(index: Decl.Index) u32 {
-            return @intFromEnum(index);
-        }
-
-        pub fn toOptional(index: Decl.Index) OptionalIndex {
-            const optional: OptionalIndex = @enumFromInt(@intFromEnum(index));
-            assert(optional != .none);
-            return optional;
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn unwrap(optional: OptionalIndex) ?Decl.Index {
-            if (optional == .none) return null;
-            return @enumFromInt(@intFromEnum(optional));
-        }
-    };
+    pub const Index = handle.Index("decl");
+    pub const OptionalIndex = Decl.Index.Optional;
 
     /// Members sit contiguously after their struct.
     pub fn members(decl: Decl) Compilation.Range {
@@ -282,43 +257,41 @@ fn addDecl(
     const name = try comp.pool.string(comp.gpa, text);
     const decl_index = try appendDecl(comp, index, new, name, .none);
 
-    if (isDiscard(text)) {
-        try comp.reportToken(index, new.name_token, .{
+    // a name the file cannot have binds nothing, so the map keeps the first one
+    const refused: ?Compilation.Report = refused: {
+        if (isDiscard(text)) break :refused .{
             .code = .discard_reserved,
             .message = "'_' is not a name, and only discards a value",
             .label = "not a name",
             .help = "give this declaration a real name",
-        });
-        comp.declPtr(decl_index).state = .poisoned;
-        return decl_index;
-    }
-
-    if (Pool.primitiveType(text) != null) {
-        try comp.reportToken(index, new.name_token, .{
+        };
+        if (Pool.primitiveType(text) != null) break :refused .{
             .code = .shadows,
             .message = try comp.fmt("'{s}' is already the name of a type every file can see", .{
                 text,
             }),
             .label = "already taken",
             .help = "pick another name, and alias it with 'type' if you want a synonym",
-        });
-        comp.declPtr(decl_index).state = .poisoned;
-        return decl_index;
-    }
+        };
 
-    const gop = module.names.getOrPutAssumeCapacity(text);
-    if (gop.found_existing) {
-        const first = comp.declAt(gop.value_ptr.*);
-        try comp.reportToken(index, new.name_token, .{
-            .code = .redeclared,
-            .message = try comp.fmt("'{s}' is declared twice in this file", .{text}),
-            .label = "declared again here",
-            .notes = try comp.notes(&.{comp.noteAt(index, first.node, "first declared here")}),
-        });
+        const gop = module.names.getOrPutAssumeCapacity(text);
+        if (gop.found_existing) {
+            const first = comp.declAt(gop.value_ptr.*);
+            break :refused .{
+                .code = .redeclared,
+                .message = try comp.fmt("'{s}' is declared twice in this file", .{text}),
+                .label = "declared again here",
+                .notes = try comp.notes(&.{comp.noteAt(index, first.node, "first declared here")}),
+            };
+        }
+        gop.value_ptr.* = decl_index;
+        break :refused null;
+    };
+
+    if (refused) |report| {
+        try comp.reportToken(index, new.name_token, report);
         comp.declPtr(decl_index).state = .poisoned;
-        return decl_index;
     }
-    gop.value_ptr.* = decl_index;
     return decl_index;
 }
 

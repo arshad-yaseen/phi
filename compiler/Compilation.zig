@@ -14,6 +14,7 @@ const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Token = @import("Token.zig");
+const handle = @import("util/handle.zig");
 const spell = @import("util/spell.zig");
 
 const Decl = Module.Decl;
@@ -152,18 +153,7 @@ pub const Row = struct {
     type: Pool.Index,
     node: AST.Node.Index,
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn from(raw: usize) Index {
-            assert(raw < std.math.maxInt(u32));
-            return @enumFromInt(@as(u32, @intCast(raw)));
-        }
-
-        pub fn int(index: Index) u32 {
-            return @intFromEnum(index);
-        }
-    };
+    pub const Index = handle.Index("row");
 };
 
 /// One memoized computation, runnable only through `ensure`.
@@ -390,7 +380,7 @@ pub fn isGeneric(comp: *const Compilation, decl_index: Decl.Index) bool {
 // ensure, the one door into every memoized computation
 
 pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!void {
-    switch (comp.unitState(unit)) {
+    switch (comp.unitState(unit).*) {
         .done, .poisoned => return,
         .in_progress => return comp.reportCycle(unit, origin),
         .unanalyzed => {},
@@ -408,7 +398,7 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
             .help = "a definition this far down a dependency chain is past what " ++
                 "the compiler follows",
         });
-        comp.setUnitState(unit, .poisoned);
+        comp.unitState(unit).* = .poisoned;
         return;
     }
 
@@ -424,12 +414,12 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
                 .label = "the limit is here",
                 .help = "a type or function that instantiates itself never bottoms out",
             });
-            comp.setUnitState(unit, .poisoned);
+            comp.unitState(unit).* = .poisoned;
             return;
         }
     }
 
-    comp.setUnitState(unit, .in_progress);
+    comp.unitState(unit).* = .in_progress;
     // `init` reserved `analyze_max`, which the depth check above holds it under
     assert(comp.stack.items.len < analyze_max);
     comp.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
@@ -443,7 +433,7 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
         .signature => try Check.fnSignature(comp, @enumFromInt(unit.index)),
         .body => try Check.fnBody(comp, @enumFromInt(unit.index)),
     };
-    comp.setUnitState(unit, if (ok) .done else .poisoned);
+    comp.unitState(unit).* = if (ok) .done else .poisoned;
 }
 
 fn runDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
@@ -471,20 +461,13 @@ fn runDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     }
 }
 
-fn unitState(comp: *const Compilation, unit: Unit) Decl.State {
+/// Where a unit's answer is kept. Derived per call, because running one grows the tables.
+fn unitState(comp: *Compilation, unit: Unit) *Decl.State {
     return switch (unit.kind) {
-        .decl => comp.declAt(@enumFromInt(unit.index)).state,
-        .rows, .alias, .signature => comp.instanceAt(@enumFromInt(unit.index)).rows_state,
-        .embedding, .body => comp.instanceAt(@enumFromInt(unit.index)).deep_state,
+        .decl => &comp.declPtr(@enumFromInt(unit.index)).state,
+        .rows, .alias, .signature => &comp.instancePtr(@enumFromInt(unit.index)).rows_state,
+        .embedding, .body => &comp.instancePtr(@enumFromInt(unit.index)).deep_state,
     };
-}
-
-fn setUnitState(comp: *Compilation, unit: Unit, state: Decl.State) void {
-    switch (unit.kind) {
-        .decl => comp.declPtr(@enumFromInt(unit.index)).state = state,
-        .rows, .alias, .signature => comp.instancePtr(@enumFromInt(unit.index)).rows_state = state,
-        .embedding, .body => comp.instancePtr(@enumFromInt(unit.index)).deep_state = state,
-    }
 }
 
 /// A re-entry is a cycle. The chain back becomes the notes.
@@ -1013,26 +996,23 @@ fn pathInside(outer: []const u8, inner: []const u8) bool {
 
 const testing = std.testing;
 
-/// One compilation over one file, which every test below stands up the same way.
-fn testInit(comp: *Compilation, gpa: Allocator) Allocator.Error!void {
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
-}
+/// One compilation over one source, which every test below stands up the same way.
+fn testCompile(comp: *Compilation, options: Options, text: []const u8) !void {
+    const gpa = testing.allocator;
+    try comp.init(gpa, testing.io, options);
+    errdefer comp.deinit();
 
-fn testSource(gpa: Allocator, text: []const u8) Allocator.Error!Source {
     const buffer = try gpa.alloc(u8, text.len + Source.padding);
     @memcpy(buffer[0..text.len], text);
     buffer[text.len] = 0;
-    return .{ .path = "test.phi", .bytes = buffer[0..text.len :0] };
+    try comp.compile(.{ .path = "test.phi", .bytes = buffer[0..text.len :0] });
 }
 
+const test_options: Options = .{ .root_path = "test.phi", .std_dir = null };
+
 test "instantiation identity is index equality" {
-    const gpa = testing.allocator;
-
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
-    defer comp.deinit();
-
-    try comp.compile(try testSource(gpa,
+    try testCompile(&comp, test_options,
         \\pub type Box[T] = {
         \\    item: T
         \\}
@@ -1041,7 +1021,8 @@ test "instantiation identity is index equality" {
         \\    return a
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
 
     const hold = comp.moduleAt(.root).findDecl("hold").?;
@@ -1060,14 +1041,9 @@ test "instantiation identity is index equality" {
 }
 
 test "a generic alias is the type it names, not a new one" {
-    const gpa = testing.allocator;
-
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
-    defer comp.deinit();
-
     // `return b` compiles only because the alias and the union are one type
-    try comp.compile(try testSource(gpa,
+    try testCompile(&comp, test_options,
         \\type none
         \\type Maybe[T] = T | none
         \\fn pick(a: Maybe[i64], b: i64 | none) Maybe[i64] {
@@ -1075,7 +1051,8 @@ test "a generic alias is the type it names, not a new one" {
         \\    return b
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
 
     const pick = comp.moduleAt(.root).findDecl("pick").?;
@@ -1105,9 +1082,8 @@ test "a call chain compiles at any depth" {
     try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
 
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
+    try testCompile(&comp, test_options, deep.written());
     defer comp.deinit();
-    try comp.compile(try testSource(gpa, deep.written()));
     try testing.expectEqual(0, comp.diagnostics.items.len);
     try testing.expectEqual(levels + 1, comp.funcs.items.len);
 }
@@ -1132,20 +1108,14 @@ test "the deepest nesting that reaches analysis does not overflow the stack" {
     try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
 
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
+    try testCompile(&comp, test_options, deep.written());
     defer comp.deinit();
-    try comp.compile(try testSource(gpa, deep.written()));
     try testing.expectEqual(0, comp.diagnostics.items.len);
 }
 
 test "one constant view is one entry, however often it is written" {
-    const gpa = testing.allocator;
-
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
-    defer comp.deinit();
-
-    try comp.compile(try testSource(gpa,
+    try testCompile(&comp, test_options,
         \\fn here() []u32 {
         \\    return [2, 3, 5, 7]
         \\}
@@ -1153,7 +1123,8 @@ test "one constant view is one entry, however often it is written" {
         \\    return [2, 3, 5, 7]
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
     try testing.expectEqual(2, comp.funcs.items.len);
 
@@ -1170,15 +1141,13 @@ test "a diagnostic renders across files" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
-    defer comp.deinit();
-
-    try comp.compile(try testSource(gpa,
+    try testCompile(&comp, test_options,
         \\fn f() i64 {
         \\    return missing
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(1, comp.diagnostics.items.len);
 
     var out: Writer.Allocating = .init(gpa);
@@ -1188,18 +1157,14 @@ test "a diagnostic renders across files" {
 }
 
 test "a diagnostic names the unit that produced it" {
-    const gpa = testing.allocator;
-
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
-    defer comp.deinit();
-
-    try comp.compile(try testSource(gpa,
+    try testCompile(&comp, test_options,
         \\fn f() i64 {
         \\    return missing
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(1, comp.diagnostics.items.len);
 
     const entry = comp.diagnostics.items[0];
@@ -1211,10 +1176,8 @@ test "a program built without the standard library says where std would be" {
     const gpa = testing.allocator;
 
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
+    try testCompile(&comp, test_options, "import std.mem\n");
     defer comp.deinit();
-
-    try comp.compile(try testSource(gpa, "import std.mem\n"));
 
     var out: Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -1227,13 +1190,8 @@ test "a program built without the standard library says where std would be" {
 }
 
 test "a file with a parse error is still checked" {
-    const gpa = testing.allocator;
-
     var comp: Compilation = undefined;
-    try testInit(&comp, gpa);
-    defer comp.deinit();
-
-    try comp.compile(try testSource(gpa,
+    try testCompile(&comp, test_options,
         \\fn broken( {
         \\}
         \\
@@ -1241,7 +1199,8 @@ test "a file with a parse error is still checked" {
         \\    return missing
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(2, comp.diagnostics.items.len);
 
     const parse_entry = comp.diagnostics.items[0];
@@ -1254,22 +1213,18 @@ test "a file with a parse error is still checked" {
 }
 
 test "the checker answers a type question as data" {
-    const gpa = testing.allocator;
-
     var comp: Compilation = undefined;
-    try comp.init(gpa, testing.io, .{
+    try testCompile(&comp, .{
         .root_path = "test.phi",
         .std_dir = null,
         .record_expr_types = true,
-    });
-    defer comp.deinit();
-
-    try comp.compile(try testSource(gpa,
+    },
         \\fn f(n: i64) i64 {
         \\    return n + 1
         \\}
         \\
-    ));
+    );
+    defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
 
     const f = comp.moduleAt(.root).findDecl("f").?;

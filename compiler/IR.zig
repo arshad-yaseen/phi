@@ -5,8 +5,9 @@ const assert = std.debug.assert;
 
 const Compilation = @import("Compilation.zig");
 const Pool = @import("Pool.zig");
+const handle = @import("util/handle.zig");
 
-pub const ExtraIndex = enum(u32) { _ };
+pub const ExtraIndex = handle.Index("inst extra");
 
 pub const InstList = std.MultiArrayList(Inst);
 
@@ -21,34 +22,8 @@ pub const Func = struct {
     /// Block zero is the entry, and every block is reachable.
     blocks: Compilation.Range,
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn from(raw: usize) Index {
-            assert(raw < std.math.maxInt(u32));
-            return @enumFromInt(@as(u32, @intCast(raw)));
-        }
-
-        pub fn int(index: Index) u32 {
-            return @intFromEnum(index);
-        }
-
-        pub fn toOptional(index: Index) OptionalIndex {
-            const optional: OptionalIndex = @enumFromInt(@intFromEnum(index));
-            assert(optional != .none);
-            return optional;
-        }
-    };
-
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn unwrap(optional: OptionalIndex) ?Index {
-            if (optional == .none) return null;
-            return @enumFromInt(@intFromEnum(optional));
-        }
-    };
+    pub const Index = handle.Index("func");
+    pub const OptionalIndex = Index.Optional;
 };
 
 /// Reads a call payload out of one function's extra words.
@@ -121,18 +96,7 @@ pub const Inst = struct {
     type: Pool.Index,
     data: Data,
 
-    pub const Index = enum(u32) {
-        _,
-
-        pub fn from(raw: usize) Index {
-            assert(raw < std.math.maxInt(u32));
-            return @enumFromInt(@as(u32, @intCast(raw)));
-        }
-
-        pub fn int(index: Index) u32 {
-            return @intFromEnum(index);
-        }
-    };
+    pub const Index = handle.Index("inst");
 
     pub const Data = union {
         none: void,
@@ -145,35 +109,33 @@ pub const Inst = struct {
     };
 
     pub const Tag = enum(u8) {
-        /// Uses `name`. One per parameter, in order.
+        /// One per parameter, in order.
         param,
-        /// Uses `name`, `.empty` for a temporary. Produces the address.
+        /// Produces the address. The name is `.empty` for a temporary.
         local,
-        /// Uses `un`, a place. Produces the pointee.
+        /// The pointee of a place.
         load,
-        /// Uses `bin`. The place, then the value.
+        /// The place, then the value.
         store,
-        /// Uses `field`. Produces a field pointer, as mutable as its base.
+        /// A field pointer, as mutable as its base.
         field_ptr,
-        /// Uses `field`. Produces the field's value.
+        /// The field's value.
         field_val,
-        /// Uses `bin`, what holds the elements and the index.
+        /// What holds the elements, and the index.
         elem_ptr,
-        /// Uses `bin`. Sign-widened then compared unsigned, so one test settles both edges.
+        /// Sign-widened then compared unsigned, so one test settles both edges.
         ///
         ///   written   widened to 64 bits    read as unsigned      verdict
         ///   i32   3   0x00000000_00000003                     3   3 < 4, passes
         ///   u64   3   0x00000000_00000003                     3   3 < 4, passes
         ///   i32  -1   0xffffffff_ffffffff  18446744073709551615   above 4, traps
         bounds_check,
-        /// Uses `bin`, trapping unless the first is at most the second, widened as above.
+        /// Traps unless the first is at most the second, widened as above.
         order_check,
-        /// Uses `un`, a view. Produces the count it carries.
+        /// The count a view carries.
         slice_len,
-        /// Uses `payload`, read by `sliceMakeAt`.
         slice_make,
 
-        // all `bin`
         /// Traps where the sum does not fit.
         add,
         /// Traps where the difference does not fit.
@@ -198,33 +160,47 @@ pub const Inst = struct {
         cmp_gt,
         cmp_ge,
 
-        // all `un`
         /// Traps where the negation does not fit, which is the type's lowest value.
         negate,
         not,
         bit_not,
 
-        /// Uses `un`. Retypes a pointer and emits nothing.
+        /// Retypes a pointer and emits nothing.
         ptr_cast,
-        /// Uses `un`. Sign- or zero-extends into a type holding every value of the old one.
+        /// Sign- or zero-extends into a type holding every value of the old one.
         int_widen,
-        /// Uses `un`. Widens a float into one holding every value of the old one.
+        /// Widens a float into one holding every value of the old one.
         float_widen,
-        /// Uses `un`. The value where its type holds it, and the union's other member where not.
+        /// The value where its type holds it, and the union's other member where not.
         int_cast,
 
-        /// Uses `un`. A value entering a union that lists it, or a union widening.
+        /// A value entering a union that lists it, or a union widening.
         union_init,
-        /// Uses `probe`. Void where only a branch reads it.
+        /// Void where only a branch reads it.
         union_is,
-        /// Uses `un`. A union retyped to what a passed test proved.
+        /// A union retyped to what a passed test proved.
         union_narrow,
 
-        /// Uses `payload`, an `IR.Call`.
         call,
-
-        /// Uses `payload`, read by `aggregateInitAt`. An array or a struct, told apart by the type.
+        /// An array or a struct, told apart by the type.
         aggregate_init,
+
+        /// Which field of `Data` the tag reads.
+        pub fn payload(tag: Tag) std.meta.FieldEnum(Data) {
+            return switch (tag) {
+                .param, .local => .name,
+                .field_ptr, .field_val => .field,
+                .union_is => .probe,
+                .call, .slice_make, .aggregate_init => .payload,
+                .load, .slice_len, .negate, .not, .bit_not => .un,
+                .ptr_cast, .int_widen, .float_widen, .int_cast => .un,
+                .union_init, .union_narrow => .un,
+                .store, .elem_ptr, .bounds_check, .order_check => .bin,
+                .add, .sub, .mul, .div, .mod => .bin,
+                .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => .bin,
+                .cmp_eq, .cmp_ne, .cmp_lt, .cmp_le, .cmp_gt, .cmp_ge => .bin,
+            };
+        }
     };
 };
 

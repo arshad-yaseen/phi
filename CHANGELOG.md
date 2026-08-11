@@ -84,6 +84,8 @@
 
 - A shift is bounded by the width it shifts rather than the width constants
   fold in, so `a << 9` on a `u8` says that a `u8` shifts by 0 to 7.
+- A `break` carrying a value that never arrives leaves its loop's type to the
+  arms that do, the way every other branch already worked.
 - `E0248` retires. It named a byte a number cannot contain, which the
   tokenizer never puts inside one, so no program could reach it. What it
   described is `E0247` along with every other malformed number.

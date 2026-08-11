@@ -8,6 +8,7 @@ const Diagnostic = @import("Diagnostic.zig");
 const Parse = @import("Parse.zig");
 const Token = @import("Token.zig");
 const Tokenizer = @import("Tokenizer.zig");
+const handle = @import("util/handle.zig");
 
 const AST = @This();
 
@@ -34,14 +35,7 @@ pub const Comment = Tokenizer.Comment;
 const NodeList = std.MultiArrayList(Node);
 
 /// Where a node's payload starts in `extra`. Internal to the parser.
-pub const ExtraIndex = enum(u32) {
-    _,
-
-    pub fn from(raw: usize) ExtraIndex {
-        assert(raw < std.math.maxInt(u32));
-        return @enumFromInt(@as(u32, @intCast(raw)));
-    }
-};
+pub const ExtraIndex = handle.Index("ast extra");
 
 pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!AST {
     const tree = try Parse.run(gpa, source);
@@ -84,24 +78,14 @@ pub const Node = struct {
             return @intFromEnum(index);
         }
 
-        pub fn toOptional(i: Index) OptionalIndex {
-            const optional: OptionalIndex = @enumFromInt(@intFromEnum(i));
+        pub fn toOptional(index: Index) OptionalIndex {
+            const optional: OptionalIndex = @enumFromInt(@intFromEnum(index));
             assert(optional != .none);
             return optional;
         }
     };
 
-    /// Four bytes, unlike `?Index`, and still forces an `unwrap()`.
-    pub const OptionalIndex = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn unwrap(optional: OptionalIndex) ?Index {
-            if (optional == .none) return null;
-            assert(@intFromEnum(optional) != @intFromEnum(OptionalIndex.none));
-            return @enumFromInt(@intFromEnum(optional));
-        }
-    };
+    pub const OptionalIndex = handle.OptionalOf(Index);
 
     pub const Tag = enum(u8) {
         root,
@@ -388,8 +372,8 @@ pub const View = union(enum) {
     or_bind: OrBind,
 
     array_type: ArrayType,
-    slice_type: Slice,
-    pointer_type: Pointer,
+    slice_type: Wrap,
+    pointer_type: Wrap,
     union_type: []const Node.Index,
 
     err,
@@ -478,8 +462,8 @@ pub const View = union(enum) {
     pub const Call = struct { callee: Node.Index, args: []const Node.Index };
     pub const FieldAccess = struct { lhs: Node.Index, name_token: Token.Index };
     pub const ArrayType = struct { length: Node.Index, child: Node.Index };
-    pub const Slice = struct { is_mutable: bool, child: Node.Index };
-    pub const Pointer = struct { is_mutable: bool, child: Node.Index };
+    /// A pointer or a view, which differ only in what they are written as.
+    pub const Wrap = struct { is_mutable: bool, child: Node.Index };
     pub const Binary = struct {
         op: BinaryOp,
         op_token: Token.Index,
@@ -819,6 +803,14 @@ pub fn nodeSpan(tree: AST, node: Node.Index) Diagnostic.Span {
 
 const Edgewise = enum { leftmost, rightmost };
 
+/// One move down a side, either arriving or descending into a child.
+const Step = union(enum) { at: Token.Index, down: Node.Index };
+
+fn lastOf(children: []const Node.Index, empty: Step) Step {
+    if (children.len == 0) return empty;
+    return .{ .down = children[children.len - 1] };
+}
+
 /// Down one side of a node to the token that bounds it.
 fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
     var current = node;
@@ -827,181 +819,92 @@ fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
     const depth_cap = nest_max * nest_max;
 
     while (depth < depth_cap) : (depth += 1) {
-        const main = tree.nodeMainToken(current);
-        switch (tree.viewOf(current)) {
-            .root => return if (side == .leftmost) .first else main,
-            .err, .type_param => return main,
-            .builtin, .ident, .number_literal => return main,
-            .string_literal, .char_literal => return main,
-            .break_expr => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => {
-                    if (it.value.unwrap()) |value| {
-                        current = value;
-                    } else return it.label orelse main;
-                },
-            },
-            .continue_expr => |label| switch (side) {
-                .leftmost => return main,
-                .rightmost => return label orelse main,
-            },
-            .loop_expr => |it| switch (side) {
-                .leftmost => return it.label orelse main,
-                .rightmost => current = it.else_node.unwrap() orelse it.body,
-            },
-            .import_decl => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.path,
-            },
-            .struct_decl => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => {
-                    if (it.members.len > 0) {
-                        current = it.members[it.members.len - 1];
-                    } else return main.after(1);
-                },
-            },
-            .alias_decl => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.aliased,
-            },
-            .unit_decl => return if (side == .leftmost) main else main.after(1),
-            .fn_decl => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.body,
-            },
-            .var_decl => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.init_expr,
-            },
-            .param, .field => |it| switch (side) {
-                .leftmost => return it.name_token,
-                .rightmost => current = it.type_expr,
-            },
-            .block => |children| switch (side) {
-                .leftmost => return main,
-                .rightmost => {
-                    if (children.len > 0) {
-                        current = children[children.len - 1];
-                    } else return main.after(1);
-                },
-            },
-            .assign => |it| {
-                current = if (side == .leftmost) it.lhs else it.rhs;
-            },
-            .defer_stmt => |child| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = child,
-            },
-            .if_expr => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.else_node.unwrap() orelse it.then_block,
-            },
-            .return_expr => |operand| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = operand.unwrap() orelse return main,
-            },
-            .match_expr => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => {
-                    // recovery can leave a match with no arms
-                    if (it.arms.len > 0) {
-                        current = it.arms[it.arms.len - 1];
-                    } else current = it.scrutinee;
-                },
-            },
-            .match_arm => |it| switch (side) {
-                .leftmost => {
-                    if (it.label.unwrap()) |label| {
-                        current = label;
-                    } else {
-                        // an arm with no label began at the `else` keyword
-                        return main.before(1);
-                    }
-                },
-                .rightmost => current = it.body,
-            },
-            .field_access => |it| switch (side) {
-                .leftmost => current = it.lhs,
-                .rightmost => return it.name_token,
-            },
-            .deref => |operand| switch (side) {
-                .leftmost => current = operand,
-                .rightmost => return main,
-            },
-            .bracket => |it| switch (side) {
-                .leftmost => current = it.base,
-                .rightmost => {
-                    if (it.args.len > 0) {
-                        current = it.args[it.args.len - 1];
-                    } else return main.after(1);
-                },
-            },
-            .call => |it| switch (side) {
-                .leftmost => current = it.callee,
-                .rightmost => {
-                    if (it.args.len > 0) {
-                        current = it.args[it.args.len - 1];
-                    } else return main.after(1);
-                },
-            },
-            .struct_literal => |it| switch (side) {
-                // an unnamed literal begins at its own '.'
-                .leftmost => current = it.type_expr.unwrap() orelse return main,
-                .rightmost => {
-                    if (it.fields.len > 0) {
-                        current = it.fields[it.fields.len - 1];
-                    } else return main.after(2);
-                },
-            },
-            .array_literal => |elements| switch (side) {
-                .leftmost => return main,
-                .rightmost => {
-                    if (elements.len > 0) {
-                        current = elements[elements.len - 1];
-                    } else return main.after(1);
-                },
-            },
-            .range_expr => |it| switch (side) {
-                .leftmost => current = it.start,
-                // `a..` ends at the `..` itself
-                .rightmost => current = it.end.unwrap() orelse return main,
-            },
-            .struct_field_init => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.value,
-            },
-            .binary => |it| {
-                current = if (side == .leftmost) it.lhs else it.rhs;
-            },
-            .is_expr => |it| {
-                current = if (side == .leftmost) it.operand else it.type_expr;
-            },
-            .or_bind => |it| {
-                current = if (side == .leftmost) it.lhs else it.block;
-            },
-            .unary => |it| switch (side) {
-                .leftmost => return it.op_token,
-                .rightmost => current = it.operand,
-            },
-            .array_type => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.child,
-            },
-            .slice_type => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.child,
-            },
-            .pointer_type => |it| switch (side) {
-                .leftmost => return main,
-                .rightmost => current = it.child,
-            },
-            // a union writes at least two members, so both edges exist
-            .union_type => |members| current = if (side == .leftmost)
-                members[0]
-            else
-                members[members.len - 1],
+        const step = switch (side) {
+            .leftmost => leftStep(tree, current),
+            .rightmost => rightStep(tree, current),
+        };
+        switch (step) {
+            .at => |token| return token,
+            .down => |child| current = child,
         }
     }
     return tree.nodeMainToken(current);
+}
+
+fn leftStep(tree: AST, node: Node.Index) Step {
+    const main = tree.nodeMainToken(node);
+    return switch (tree.viewOf(node)) {
+        .root => .{ .at = .first },
+        .param, .field => |it| .{ .at = it.name_token },
+        .unary => |it| .{ .at = it.op_token },
+        .loop_expr => |it| .{ .at = it.label orelse main },
+        // everything the parser names by the token it opens with
+        .err, .type_param, .builtin, .ident, .number_literal => .{ .at = main },
+        .string_literal, .char_literal, .import_decl, .struct_decl => .{ .at = main },
+        .alias_decl, .unit_decl, .fn_decl, .var_decl, .block => .{ .at = main },
+        .defer_stmt, .if_expr, .return_expr, .match_expr => .{ .at = main },
+        .break_expr, .continue_expr, .array_literal => .{ .at = main },
+        .struct_field_init, .array_type, .slice_type, .pointer_type => .{ .at = main },
+        .assign => |it| .{ .down = it.lhs },
+        .binary => |it| .{ .down = it.lhs },
+        .or_bind => |it| .{ .down = it.lhs },
+        .is_expr => |it| .{ .down = it.operand },
+        .field_access => |it| .{ .down = it.lhs },
+        .deref => |operand| .{ .down = operand },
+        .bracket => |it| .{ .down = it.base },
+        .call => |it| .{ .down = it.callee },
+        .range_expr => |it| .{ .down = it.start },
+        // a union writes at least two members, so both edges exist
+        .union_type => |members| .{ .down = members[0] },
+        // an unnamed literal begins at its own '.'
+        .struct_literal => |it| unwrapOr(it.type_expr, main),
+        // an arm with no label began at the `else` keyword
+        .match_arm => |it| unwrapOr(it.label, main.before(1)),
+    };
+}
+
+fn rightStep(tree: AST, node: Node.Index) Step {
+    const main = tree.nodeMainToken(node);
+    return switch (tree.viewOf(node)) {
+        .root, .err, .type_param, .builtin, .ident => .{ .at = main },
+        .number_literal, .string_literal, .char_literal, .deref => .{ .at = main },
+        .unit_decl => .{ .at = main.after(1) },
+        .field_access => |it| .{ .at = it.name_token },
+        .continue_expr => |label| .{ .at = label orelse main },
+        .break_expr => |it| unwrapOr(it.value, it.label orelse main),
+        // `a..` ends at the `..` itself
+        .range_expr => |it| unwrapOr(it.end, main),
+        .return_expr => |operand| unwrapOr(operand, main),
+        .import_decl => |it| .{ .down = it.path },
+        .alias_decl => |it| .{ .down = it.aliased },
+        .fn_decl => |it| .{ .down = it.body },
+        .var_decl => |it| .{ .down = it.init_expr },
+        .param, .field => |it| .{ .down = it.type_expr },
+        .assign => |it| .{ .down = it.rhs },
+        .binary => |it| .{ .down = it.rhs },
+        .defer_stmt => |child| .{ .down = child },
+        .match_arm => |it| .{ .down = it.body },
+        .struct_field_init => |it| .{ .down = it.value },
+        .is_expr => |it| .{ .down = it.type_expr },
+        .or_bind => |it| .{ .down = it.block },
+        .unary => |it| .{ .down = it.operand },
+        .array_type => |it| .{ .down = it.child },
+        .slice_type, .pointer_type => |it| .{ .down = it.child },
+        .union_type => |members| .{ .down = members[members.len - 1] },
+        .loop_expr => |it| .{ .down = it.else_node.unwrap() orelse it.body },
+        .if_expr => |it| .{ .down = it.else_node.unwrap() orelse it.then_block },
+        .block => |children| lastOf(children, .{ .at = main.after(1) }),
+        .struct_decl => |it| lastOf(it.members, .{ .at = main.after(1) }),
+        .bracket => |it| lastOf(it.args, .{ .at = main.after(1) }),
+        .call => |it| lastOf(it.args, .{ .at = main.after(1) }),
+        .array_literal => |elements| lastOf(elements, .{ .at = main.after(1) }),
+        .struct_literal => |it| lastOf(it.fields, .{ .at = main.after(2) }),
+        // recovery can leave a match with no arms
+        .match_expr => |it| lastOf(it.arms, .{ .down = it.scrutinee }),
+    };
+}
+
+fn unwrapOr(optional: Node.OptionalIndex, empty: Token.Index) Step {
+    const child = optional.unwrap() orelse return .{ .at = empty };
+    return .{ .down = child };
 }

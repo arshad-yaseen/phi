@@ -401,12 +401,7 @@ fn node(
             try node(ast, writer, it.length, below, "length");
             try node(ast, writer, it.child, below, "child");
         },
-        .slice_type => |it| {
-            try flag(writer, it.is_mutable, "var");
-            try writer.writeByte('\n');
-            try node(ast, writer, it.child, below, "child");
-        },
-        .pointer_type => |it| {
+        .slice_type, .pointer_type => |it| {
             try flag(writer, it.is_mutable, "var");
             try writer.writeByte('\n');
             try node(ast, writer, it.child, below, "child");
@@ -483,106 +478,34 @@ fn inst(
     const data = it.data;
 
     try writer.print("  %{d} = {t}", .{ local, it.tag });
-    switch (it.tag) {
-        .param, .local => {
+    switch (it.tag.payload()) {
+        .name => {
             if (data.name != .empty) try writer.print(" {s}", .{comp.pool.stringText(data.name)});
         },
-        .load,
-        .slice_len,
-        .ptr_cast,
-        .int_widen,
-        .float_widen,
-        .int_cast,
-        .union_init,
-        .union_narrow,
-        .negate,
-        .not,
-        .bit_not,
-        => {
+        .un => {
             try writer.writeByte(' ');
             try ref(comp, data.un, writer);
         },
-        .union_is => {
-            try writer.writeByte(' ');
-            try ref(comp, data.probe.operand, writer);
-            try writer.writeAll(", ");
-            try writeType(comp, writer, data.probe.member);
-        },
-        .store,
-        .elem_ptr,
-        .bounds_check,
-        .order_check,
-        .add,
-        .sub,
-        .mul,
-        .div,
-        .mod,
-        .bit_and,
-        .bit_or,
-        .bit_xor,
-        .shift_left,
-        .shift_right,
-        .cmp_eq,
-        .cmp_ne,
-        .cmp_lt,
-        .cmp_le,
-        .cmp_gt,
-        .cmp_ge,
-        => {
+        .bin => {
             try writer.writeByte(' ');
             try ref(comp, data.bin.lhs, writer);
             try writer.writeAll(", ");
             try ref(comp, data.bin.rhs, writer);
         },
-        .field_ptr, .field_val => {
+        .field => {
             try writer.writeByte(' ');
             try ref(comp, data.field.base, writer);
             try writer.print(", .{s}", .{comp.rowName(data.field.row)});
         },
-        .call => {
-            const call = IR.callAt(comp.funcExtra(body), data.payload);
+        .probe => {
             try writer.writeByte(' ');
-            try writeInstance(comp, writer, call.callee);
-            try writer.writeByte('(');
-            for (call.args, 0..) |operand, position| {
-                if (position > 0) try writer.writeAll(", ");
-                try ref(comp, operand, writer);
-            }
-            try writer.writeByte(')');
-        },
-        .slice_make => {
-            const made = IR.sliceMakeAt(comp.funcExtra(body), data.payload);
-            try writer.writeByte(' ');
-            try ref(comp, made.base, writer);
+            try ref(comp, data.probe.operand, writer);
             try writer.writeAll(", ");
-            try ref(comp, made.start, writer);
-            try writer.writeAll(", ");
-            try ref(comp, made.end, writer);
+            try writeType(comp, writer, data.probe.member);
         },
-        .aggregate_init => {
-            const operands = IR.aggregateInitAt(comp.funcExtra(body), data.payload);
-            switch (comp.pool.keyOf(it.type)) {
-                .type_struct => |instance| {
-                    const rows = comp.instanceAt(instance).rows;
-                    try writer.writeAll(" .{ ");
-                    for (operands, 0..) |operand, position| {
-                        if (position > 0) try writer.writeAll(", ");
-                        const row: Compilation.Row.Index = .from(rows.at(@intCast(position)));
-                        try writer.print("{s}: ", .{comp.rowName(row)});
-                        try ref(comp, operand, writer);
-                    }
-                    try writer.writeAll(" }");
-                },
-                else => {
-                    try writer.writeAll(" [");
-                    for (operands, 0..) |operand, position| {
-                        if (position > 0) try writer.writeAll(", ");
-                        try ref(comp, operand, writer);
-                    }
-                    try writer.writeByte(']');
-                },
-            }
-        },
+        .payload => try wide(comp, body, it, writer),
+        // every tag names one of the payloads above
+        .none => unreachable,
     }
 
     if (it.type != .void_type) {
@@ -590,6 +513,58 @@ fn inst(
         try writeType(comp, writer, it.type);
     }
     try writer.writeByte('\n');
+}
+
+/// The three instructions whose operands live in the function's extra words.
+fn wide(
+    comp: *const Compilation,
+    body: IR.Func,
+    it: IR.Inst,
+    writer: *Writer,
+) Writer.Error!void {
+    const extra = comp.funcExtra(body);
+    try writer.writeByte(' ');
+    switch (it.tag) {
+        .call => {
+            const call = IR.callAt(extra, it.data.payload);
+            try writeInstance(comp, writer, call.callee);
+            try writer.writeByte('(');
+            try refs(comp, call.args, writer);
+            try writer.writeByte(')');
+        },
+        .slice_make => {
+            const made = IR.sliceMakeAt(extra, it.data.payload);
+            try refs(comp, &.{ made.base, made.start, made.end }, writer);
+        },
+        .aggregate_init => {
+            const operands = IR.aggregateInitAt(extra, it.data.payload);
+            const instance = switch (comp.pool.keyOf(it.type)) {
+                .type_struct => |found| found,
+                else => {
+                    try writer.writeByte('[');
+                    try refs(comp, operands, writer);
+                    return writer.writeByte(']');
+                },
+            };
+            const rows = comp.instanceAt(instance).rows;
+            try writer.writeAll(".{ ");
+            for (operands, 0..) |operand, position| {
+                if (position > 0) try writer.writeAll(", ");
+                const row: Compilation.Row.Index = .from(rows.at(@intCast(position)));
+                try writer.print("{s}: ", .{comp.rowName(row)});
+                try ref(comp, operand, writer);
+            }
+            try writer.writeAll(" }");
+        },
+        else => unreachable,
+    }
+}
+
+fn refs(comp: *const Compilation, operands: []const IR.Ref, writer: *Writer) Writer.Error!void {
+    for (operands, 0..) |operand, position| {
+        if (position > 0) try writer.writeAll(", ");
+        try ref(comp, operand, writer);
+    }
 }
 
 fn ref(comp: *const Compilation, operand: IR.Ref, writer: *Writer) Writer.Error!void {

@@ -327,15 +327,10 @@ fn layoutOf(
     const comp = check.comp;
     assert(builtin == .size_of or builtin == .align_of);
 
-    switch (try Layout.of(comp, check.origin(node), wanted)) {
-        .layout => |layout| {
-            const answer: u32 = if (builtin == .size_of) layout.size else layout.alignment;
-            return .{ .constant = try comp.pool.intern(comp.gpa, .{
-                .value_int = .{ .type = .untyped_int_type, .value = answer },
-            }) };
-        },
-        .poison => return .poison,
-        .too_large => {
+    const layout = Layout.of(comp, check.origin(node), wanted) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.Poison => return .poison,
+        error.TooLarge => {
             try check.fail(node, .{
                 .code = .type_too_large,
                 .message = try comp.fmt("'{s}' is larger than the 4 GiB a type may hold", .{
@@ -345,7 +340,12 @@ fn layoutOf(
             });
             return .poison;
         },
-    }
+    };
+
+    const answer: u32 = if (builtin == .size_of) layout.size else layout.alignment;
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = .untyped_int_type, .value = answer },
+    }) };
 }
 
 /// An edge of an integer type, an untyped constant, so it meets any type it fits.

@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
 const Module = @import("Module.zig");
+const handle = @import("util/handle.zig");
 
 items: std.MultiArrayList(Item),
 /// Wide payloads, each a type and its value words.
@@ -63,34 +64,8 @@ pub const Index = enum(u32) {
 };
 
 /// A struct instantiation. The rows live on `Compilation`.
-pub const Instance = enum(u32) {
-    _,
-
-    pub fn from(raw: usize) Instance {
-        assert(raw < std.math.maxInt(u32));
-        return @enumFromInt(@as(u32, @intCast(raw)));
-    }
-
-    pub fn int(index: Instance) u32 {
-        return @intFromEnum(index);
-    }
-
-    pub fn toOptional(index: Instance) OptionalInstance {
-        const optional: OptionalInstance = @enumFromInt(@intFromEnum(index));
-        assert(optional != .none);
-        return optional;
-    }
-};
-
-pub const OptionalInstance = enum(u32) {
-    none = std.math.maxInt(u32),
-    _,
-
-    pub fn unwrap(optional: OptionalInstance) ?Instance {
-        if (optional == .none) return null;
-        return @enumFromInt(@intFromEnum(optional));
-    }
-};
+pub const Instance = handle.Index("instance");
+pub const OptionalInstance = Instance.Optional;
 
 /// An offset into `bytes`. The text runs to the next zero byte.
 pub const String = enum(u32) {
@@ -886,9 +861,26 @@ pub fn fold(
     };
 
     if (isFloat(result_type)) {
-        return pool.foldFloat(gpa, op, a.toFloat(), b.toFloat(), result_type);
+        const x = a.toFloat();
+        const y = b.toFloat();
+        if (compareFold(op, x, y)) |answer| return answer;
+        return pool.foldFloat(gpa, op, x, y, result_type);
     }
+    if (compareFold(op, a.int, b.int)) |answer| return answer;
     return pool.foldInt(gpa, op, a.int, b.int, result_type);
+}
+
+/// The one place an operator becomes a comparison, so both widths ask it alike.
+fn compareFold(op: AST.BinaryOp, a: anytype, b: @TypeOf(a)) ?Fold {
+    return .{ .truth = switch (op) {
+        .equal => a == b,
+        .not_equal => a != b,
+        .less_than => a < b,
+        .less_or_equal => a <= b,
+        .greater_than => a > b,
+        .greater_or_equal => a >= b,
+        else => return null,
+    } };
 }
 
 pub fn foldNegate(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!Fold {
@@ -1004,12 +996,8 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
                 return if (type_index == it.type) .{ .value = value } else .wrong_kind;
             }
             if (isFloat(type_index)) {
-                const wide = it.value;
-                const narrowed: f64 = if (type_index == .f32_type)
-                    @floatCast(@as(f32, @floatCast(wide)))
-                else
-                    wide;
-                if (std.math.isInf(narrowed) and std.math.isInf(wide) == false) {
+                const narrowed = narrowFloat(it.value, type_index);
+                if (std.math.isInf(narrowed) and std.math.isInf(it.value) == false) {
                     return .does_not_fit;
                 }
                 return .{ .value = try pool.intern(gpa, .{
@@ -1180,13 +1168,9 @@ fn foldInt(
             };
             return pool.internInt(gpa, a >> amount, result_type);
         },
-        .equal => return boolFold(a == b),
-        .not_equal => return boolFold(a != b),
-        .less_than => return boolFold(a < b),
-        .less_or_equal => return boolFold(a <= b),
-        .greater_than => return boolFold(a > b),
-        .greater_or_equal => return boolFold(a >= b),
-        .bool_and, .bool_or => unreachable,
+        // `fold` answered every comparison, and `and` and `or` are control flow
+        .equal, .not_equal, .less_than, .less_or_equal => unreachable,
+        .greater_than, .greater_or_equal, .bool_and, .bool_or => unreachable,
     }
 }
 
@@ -1210,18 +1194,10 @@ fn foldFloat(
         .mod, .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => {
             return .{ .bad_operand = result_type };
         },
-        .equal => return boolFold(a == b),
-        .not_equal => return boolFold(a != b),
-        .less_than => return boolFold(a < b),
-        .less_or_equal => return boolFold(a <= b),
-        .greater_than => return boolFold(a > b),
-        .greater_or_equal => return boolFold(a >= b),
-        .bool_and, .bool_or => unreachable,
+        // `fold` answered every comparison, and `and` and `or` are control flow
+        .equal, .not_equal, .less_than, .less_or_equal => unreachable,
+        .greater_than, .greater_or_equal, .bool_and, .bool_or => unreachable,
     }
-}
-
-fn boolFold(value: bool) Fold {
-    return .{ .truth = value };
 }
 
 /// Where overflow in a sized type is caught.
@@ -1250,15 +1226,18 @@ fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Alloc
 /// Into a type already checked to hold the value.
 fn internWith(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Index {
     if (isFloat(type_index)) {
-        const wide: f64 = @floatFromInt(value);
-        const narrowed: f64 = if (type_index == .f32_type)
-            @floatCast(@as(f32, @floatCast(wide)))
-        else
-            wide;
+        const narrowed = narrowFloat(@floatFromInt(value), type_index);
         return pool.intern(gpa, .{ .value_float = .{ .type = type_index, .value = narrowed } });
     }
     assert(fitsInt(value, type_index));
     return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
+}
+
+/// Constants fold at 64 bits, so landing on an `f32` rounds to what it can hold.
+fn narrowFloat(value: f64, type_index: Index) f64 {
+    assert(isFloat(type_index));
+    if (type_index != .f32_type) return value;
+    return @floatCast(@as(f32, @floatCast(value)));
 }
 
 // storage helpers

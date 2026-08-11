@@ -12,6 +12,7 @@ const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Builtin = @import("Builtin.zig").Builtin;
 const Token = @import("Token.zig");
+const handle = @import("util/handle.zig");
 const number = @import("util/number.zig");
 const spell = @import("util/spell.zig");
 const literal = @import("util/text.zig");
@@ -758,18 +759,7 @@ pub const Builder = struct {
             constant: Pool.Index,
         };
 
-        const Index = enum(u32) {
-            _,
-
-            fn from(raw: usize) Index {
-                assert(raw < std.math.maxInt(u32));
-                return @enumFromInt(@as(u32, @intCast(raw)));
-            }
-
-            fn int(index: Index) u32 {
-                return @intFromEnum(index);
-            }
-        };
+        const Index = handle.Index("local");
 
         comptime {
             if (std.debug.runtime_safety == false) assert(@sizeOf(Payload) == 4);
@@ -798,12 +788,8 @@ pub const Builder = struct {
         exit: IR.Block.Index,
         /// Scopes at entry. Leaving the loop unwinds down to here.
         scope_depth: u32,
-        /// `.none` for a statement loop.
-        slot: Ref,
-        /// What every `break` must carry, meaningless until `settled`.
-        result_type: Pool.Index,
-        carries: bool,
-        settled: bool,
+        /// What every `break` leaves behind.
+        join: Join,
         /// A reachable `break` reached the exit.
         broke_reachable: bool,
     };
@@ -1494,11 +1480,12 @@ fn checkIf(
         });
     }
     const carries = wants and view.else_node != .none;
-    const slot = try check.joinSlot(carries, hint);
+    // neither arm is more responsible for the type than the other, so the whole `if` names it
+    var join = try Join.open(check, "if", carries, hint, node.toOptional());
 
     const then_block = try check.newBlock();
     const else_block = try check.newBlock();
-    const join = try check.newBlock();
+    const join_block = try check.newBlock();
 
     const cond = try check.checkCondition(view.cond);
 
@@ -1517,21 +1504,13 @@ fn checkIf(
     const narrows_mark = builder.narrows.items.len;
 
     check.startBlock(then_block);
-
     try check.applyFacts(facts.when_true);
-
     const then_value = try check.checkExpr(view.then_block, hint);
-
     builder.narrows.shrinkRetainingCapacity(narrows_mark);
-
-    var result_type = hint orelse check.typeOf(then_value);
-    if (carries and then_value != .diverged) {
-        result_type = try check.settleType(node, result_type, "if");
-        try check.storeArm(slot, then_value, result_type, view.then_block);
-    }
+    try join.take(check, then_value, view.then_block);
 
     var join_reachable = check.blockOpen() and builder.reachable;
-    if (check.blockOpen()) check.endBlock(.{ .jump = join });
+    if (check.blockOpen()) check.endBlock(.{ .jump = join_block });
 
     check.startBlock(else_block);
     builder.reachable = entry_reachable;
@@ -1542,22 +1521,16 @@ fn checkIf(
         else_value = try check.checkExpr(else_node, hint);
 
         builder.narrows.shrinkRetainingCapacity(narrows_mark);
-
-        if (carries and else_value != .diverged) {
-            if (then_value == .diverged and hint == null) {
-                result_type = try check.settleType(node, check.typeOf(else_value), "if");
-            }
-            try check.storeArm(slot, else_value, result_type, else_node);
-        }
+        try join.take(check, else_value, else_node);
 
         if (check.blockOpen() and builder.reachable) join_reachable = true;
-        if (check.blockOpen()) check.endBlock(.{ .jump = join });
+        if (check.blockOpen()) check.endBlock(.{ .jump = join_block });
     } else {
         if (entry_reachable) join_reachable = true;
-        check.endBlock(.{ .jump = join });
+        check.endBlock(.{ .jump = join_block });
     }
 
-    check.startBlock(join);
+    check.startBlock(join_block);
     builder.reachable = join_reachable;
 
     // one door into the join leaves its proof standing past the `if`
@@ -1568,9 +1541,70 @@ fn checkIf(
         try check.applyFacts(facts.when_true);
     }
 
-    const diverged = then_value == .diverged and else_value == .diverged;
-    return check.joinValue(carries, slot, result_type, diverged);
+    return join.close(check, then_value == .diverged and else_value == .diverged);
 }
+
+/// Where the arms of an `if`, a loop, or a `match` leave their value. The first
+/// arm that does not leave names the type, and every arm after meets it.
+const Join = struct {
+    /// The keyword, for the message when nothing says what type this is.
+    what: []const u8,
+    /// `.none` for a statement, where the arms produce nothing.
+    slot: Ref,
+    result_type: Pool.Index,
+    carries: bool,
+    settled: bool,
+    /// Who the message blames, where it is not the arm itself.
+    names_type: Node.OptionalIndex,
+
+    fn open(
+        check: *Check,
+        what: []const u8,
+        carries: bool,
+        hint: ?Pool.Index,
+        names_type: Node.OptionalIndex,
+    ) Allocator.Error!Join {
+        return .{
+            .what = what,
+            .slot = if (carries) try check.emitSlot(.empty, hint orelse .poison) else .none,
+            .result_type = hint orelse .poison,
+            .carries = carries,
+            .settled = hint != null,
+            .names_type = names_type,
+        };
+    }
+
+    /// What an arm's body is checked against.
+    fn armHint(join: Join) ?Pool.Index {
+        if (join.carries == false) return .void_type;
+        return if (join.settled) join.result_type else null;
+    }
+
+    fn take(join: *Join, check: *Check, value: Value, at: Node.Index) Allocator.Error!void {
+        if (join.carries == false) return;
+        if (value == .diverged) return;
+
+        if (join.settled == false) {
+            const blamed = join.names_type.unwrap() orelse at;
+            join.result_type = try check.settleType(blamed, check.typeOf(value), join.what);
+            join.settled = true;
+        }
+        const met = try check.coerce(value, join.result_type, at);
+        try check.emitStore(join.slot, refOf(met));
+    }
+
+    /// What the arms left behind. A later stage reads every type, so the slot is
+    /// typed whether or not the value is read.
+    fn close(join: Join, check: *Check, diverged: bool) Allocator.Error!Value {
+        if (join.carries == false) return .void_value;
+        try check.setSlotType(join.slot, join.result_type);
+
+        if (diverged) return .diverged;
+        if (join.result_type == .poison) return .poison;
+        const loaded = try check.emitOne(.load, join.result_type, join.slot);
+        return runtimeValue(loaded, join.result_type);
+    }
+};
 
 /// The type a branch settled on, or poison once reported. `what` is the keyword.
 fn settleType(
@@ -1598,18 +1632,6 @@ fn settleType(
         .help = try comp.fmt("annotate what it feeds, as in 'let n: i64 = {s} ...'", .{what}),
     });
     return .poison;
-}
-
-fn storeArm(
-    check: *Check,
-    slot: Ref,
-    value: Value,
-    wanted: Pool.Index,
-    at: Node.Index,
-) Allocator.Error!void {
-    assert(value != .diverged);
-    const met = try check.coerce(value, wanted, at);
-    try check.emitStore(slot, refOf(met));
 }
 
 /// The name an exit reaches this loop by, which no enclosing loop may share.
@@ -1666,7 +1688,7 @@ fn checkLoop(
         });
     }
 
-    const slot = try check.joinSlot(carries, hint);
+    var join = try Join.open(check, "loop", carries, hint, .none);
     const label = try check.loopLabel(view.label);
 
     const counting: ?AST.View.LoopRange = switch (view.head) {
@@ -1713,10 +1735,7 @@ fn checkLoop(
         .header = latch,
         .exit = exit,
         .scope_depth = @intCast(builder.scopes.items.len),
-        .slot = slot,
-        .result_type = hint orelse .poison,
-        .carries = carries,
-        .settled = hint != null,
+        .join = join,
         .broke_reachable = false,
     });
 
@@ -1734,8 +1753,7 @@ fn checkLoop(
     }
 
     const finished = builder.loops.pop().?;
-    var result_type = finished.result_type;
-    const settled = finished.settled;
+    join = finished.join;
 
     var else_flows = false;
     if (view.else_node.unwrap()) |else_node| {
@@ -1752,14 +1770,8 @@ fn checkLoop(
             builder.reachable = entry_reachable;
         }
 
-        const else_hint: ?Pool.Index = if (settled) result_type else hint;
-        const else_value = try check.checkExpr(else_node, else_hint);
-        if (carries and else_value != .diverged) {
-            if (settled == false) {
-                result_type = try check.settleType(else_node, check.typeOf(else_value), "loop");
-            }
-            try check.storeArm(slot, else_value, result_type, else_node);
-        }
+        const else_value = try check.checkExpr(else_node, join.armHint());
+        try join.take(check, else_value, else_node);
         else_flows = check.blockOpen() and builder.reachable;
         if (check.blockOpen()) check.endBlock(.{ .jump = exit });
     }
@@ -1775,7 +1787,7 @@ fn checkLoop(
     }
     builder.reachable = exit_reachable;
 
-    const value = try check.joinValue(carries, slot, result_type, exit_reachable == false);
+    const value = try join.close(check, exit_reachable == false);
     return if (else_missing) .poison else value;
 }
 
@@ -1855,29 +1867,6 @@ fn countOn(check: *Check, counter: Counter) Allocator.Error!void {
     try check.emitStore(counter.slot, next);
 }
 
-/// Where the arms leave their value, named at the join when nothing else named a type.
-fn joinSlot(check: *Check, carries: bool, hint: ?Pool.Index) Allocator.Error!Ref {
-    if (carries == false) return .none;
-    return check.emitSlot(.empty, hint orelse .poison);
-}
-
-/// What the arms left in the slot. A later stage reads every type, so the slot
-/// is typed here whether or not anything reads the value.
-fn joinValue(
-    check: *Check,
-    carries: bool,
-    slot: Ref,
-    result_type: Pool.Index,
-    diverged: bool,
-) Allocator.Error!Value {
-    if (carries == false) return .void_value;
-    try check.setSlotType(slot, result_type);
-
-    if (diverged) return .diverged;
-    if (result_type == .poison) return .poison;
-    return runtimeValue(try check.emitOne(.load, result_type, slot), result_type);
-}
-
 /// A slot exists before its arms have said what type it is.
 fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error!void {
     const builder = check.body();
@@ -1891,20 +1880,10 @@ fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error
 
 // match, the n-way `is`
 
+const Arm = handle.Index("match arm");
+
 /// Which arm covered a member, `.none` until one does.
-const ArmIndex = enum(u32) {
-    none = std.math.maxInt(u32),
-    _,
-
-    fn from(raw: usize) ArmIndex {
-        assert(raw < std.math.maxInt(u32));
-        return @enumFromInt(@as(u32, @intCast(raw)));
-    }
-
-    fn int(index: ArmIndex) u32 {
-        return @intFromEnum(index);
-    }
-};
+const ArmIndex = Arm.Optional;
 
 /// Arms label members, the scrutinee narrows per arm, and coverage is counted.
 fn checkMatch(
@@ -1928,14 +1907,8 @@ fn checkMatch(
         if (comp.pool.isUnion(found)) {
             scrutinee_type = found;
         } else if (found != .poison) {
-            try check.fail(view.scrutinee, .{
-                .code = .not_a_union,
-                .message = try comp.fmt(
-                    "'match' asks which member a union holds, and this is {s}",
-                    .{try comp.typeName(found)},
-                ),
-                .label = "not a union",
-            });
+            const asks = "'match' asks which member a union holds";
+            try check.failNotUnion(view.scrutinee, found, asks);
         }
     }
     const broken = scrutinee_type == .poison;
@@ -1972,12 +1945,9 @@ fn checkMatch(
         return .poison;
     };
 
-    const carries = wantsValue(hint);
-    const slot = try check.joinSlot(carries, hint);
-    const join = try check.newBlock();
+    var join = try Join.open(check, "match", wantsValue(hint), hint, .none);
+    const join_block = try check.newBlock();
 
-    var result_type = hint orelse .poison;
-    var settled = hint != null;
     var join_reachable = false;
     var all_diverged = true;
     // narrowing past the match needs the whole picture to have been proven
@@ -1991,7 +1961,7 @@ fn checkMatch(
             coverage_clean = false;
             continue;
         }
-        const arm_index: ArmIndex = .from(arm_raw);
+        const arm_index = Arm.from(arm_raw).toOptional();
         const arm = check.tree.viewOf(arm_node).match_arm;
 
         var arm_type: Pool.Index = .poison;
@@ -2035,26 +2005,13 @@ fn checkMatch(
             }
         }
 
-        const arm_hint: ?Pool.Index = if (carries == false)
-            .void_type
-        else if (settled)
-            result_type
-        else
-            null;
-        const arm_value = try check.checkExpr(arm.body, arm_hint);
+        const arm_value = try check.checkExpr(arm.body, join.armHint());
         builder.narrows.shrinkRetainingCapacity(narrows_mark);
 
         if (arm_value != .diverged) {
             all_diverged = false;
-            if (carries) {
-                if (settled == false) {
-                    result_type = try check.settleType(arm.body, check.typeOf(arm_value), "match");
-                    settled = true;
-                }
-                try check.storeArm(slot, arm_value, result_type, arm.body);
-            } else {
-                try check.expectNothing(arm.body, arm_value);
-            }
+            try join.take(check, arm_value, arm.body);
+            if (join.carries == false) try check.expectNothing(arm.body, arm_value);
         }
 
         if (check.blockOpen()) {
@@ -2064,7 +2021,7 @@ fn checkMatch(
                     if (cover == arm_index) survivors[position] = true;
                 }
             }
-            check.endBlock(.{ .jump = join });
+            check.endBlock(.{ .jump = join_block });
         }
 
         // the chain block's run restarts past the arm's instructions
@@ -2077,7 +2034,7 @@ fn checkMatch(
         if (left_out) coverage_clean = false;
     }
 
-    check.startBlock(join);
+    check.startBlock(join_block);
     builder.reachable = join_reachable;
 
     // arms that leave narrow what follows, the way a branch that leaves does
@@ -2098,8 +2055,8 @@ fn checkMatch(
         }
     }
 
-    const value = try check.joinValue(carries, slot, result_type, all_diverged);
-    return if (carries and broken) .poison else value;
+    const value = try join.close(check, all_diverged);
+    return if (join.carries and broken) .poison else value;
 }
 
 /// Marks what the label covers, reports repeats and strays. Poison once anything misfired.
@@ -2128,9 +2085,9 @@ fn checkMatchCover(
             clean = false;
             continue;
         };
-        if (covered_by[position] != .none) {
+        if (covered_by[position].unwrap()) |earlier| {
             // one report per arm, however many members repeat
-            const first = arms[covered_by[position].int()];
+            const first = arms[earlier.int()];
             const first_label = check.tree.viewOf(first).match_arm.label;
             try check.fail(label_node, .{
                 .code = .duplicate_arm,
@@ -2248,13 +2205,8 @@ fn checkMatchMissing(
         missing_count += 1;
         if (missing_count > named_max) continue;
 
-        const name = try comp.typeName(
-            comp.pool.unionMemberAt(scrutinee_type, @intCast(position)),
-        );
-        names = if (names) |earlier|
-            try comp.fmt("{s}, '{s}'", .{ earlier, name })
-        else
-            try comp.fmt("'{s}'", .{name});
+        const member = comp.pool.unionMemberAt(scrutinee_type, @intCast(position));
+        names = try quotedList(comp, names, try comp.typeName(member));
     }
     if (missing_count == 0) return false;
 
@@ -2403,13 +2355,7 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
     const found = check.typeOf(operand);
     if (found == .poison) return .poison;
     if (comp.pool.isUnion(found) == false) {
-        try check.fail(node, .{
-            .code = .not_a_union,
-            .message = try comp.fmt("'is' asks which member a union holds, and this is {s}", .{
-                try comp.typeName(found),
-            }),
-            .label = "not a union",
-        });
+        try check.failNotUnion(node, found, "'is' asks which member a union holds");
         return .poison;
     }
     if (comp.pool.unionHas(found, member) == false) {
@@ -2577,22 +2523,13 @@ fn checkBreak(check: *Check, node: Node.Index, view: AST.View.Break) Allocator.E
     const frame = check.loopAt(frame_index);
 
     if (view.value.unwrap()) |value_node| {
-        if (frame.carries) {
-            const hinted: ?Pool.Index = if (frame.settled) frame.result_type else null;
-            const value = try check.checkExpr(value_node, hinted);
+        if (frame.join.carries) {
+            const value = try check.checkExpr(value_node, frame.join.armHint());
             // the value may have left, and a block cannot be left twice
             if (check.blockOpen() == false) return .diverged;
 
-            // checking the value can settle the loop, so read the frame fresh
-            const fresh = check.loopPtr(frame_index);
-            var target = fresh.result_type;
-            if (fresh.settled == false) {
-                target = try check.settleType(value_node, check.typeOf(value), "loop");
-                fresh.result_type = target;
-                fresh.settled = true;
-            }
-            const met = try check.coerce(value, target, value_node);
-            try check.emitStore(frame.slot, refOf(met));
+            // checking the value can settle the loop, so reach the frame fresh
+            try check.loopPtr(frame_index).join.take(check, value, value_node);
         } else {
             try check.fail(node, .{
                 .code = .type_mismatch,
@@ -2603,7 +2540,7 @@ fn checkBreak(check: *Check, node: Node.Index, view: AST.View.Break) Allocator.E
             _ = try check.checkExpr(value_node, null);
             if (check.blockOpen() == false) return .diverged;
         }
-    } else if (frame.carries) {
+    } else if (frame.join.carries) {
         try check.fail(node, .{
             .code = .type_mismatch,
             .message = "this loop stands where a value is needed, so 'break' must carry it",
@@ -3062,48 +2999,50 @@ fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
     const rhs = try check.coerce(it.rhs, left, it.rhs_node);
     if (lhs == .poison or rhs == .poison) return .poison;
 
-    const admissible = switch (it.op) {
-        .add, .sub, .mul, .div => Pool.isNumeric(left),
-        .mod => Pool.isInteger(left),
-        .bit_and, .bit_or, .bit_xor => Pool.isInteger(left),
-        .shift_left, .shift_right => Pool.isInteger(left),
-        .less_than, .less_or_equal, .greater_than, .greater_or_equal => Pool.isNumeric(left),
-        .equal, .not_equal => Pool.isNumeric(left),
-        .bool_and, .bool_or => unreachable,
-    };
+    const how = loweringOf(it.op);
+    const admissible = if (how.whole) Pool.isInteger(left) else Pool.isNumeric(left);
     if (admissible == false) {
         try check.reportBadOperand(it.op_token, left);
         return .poison;
     }
 
-    const tag: IR.Inst.Tag = switch (it.op) {
-        .add => .add,
-        .sub => .sub,
-        .mul => .mul,
-        .div => .div,
-        .mod => .mod,
-        .bit_and => .bit_and,
-        .bit_or => .bit_or,
-        .bit_xor => .bit_xor,
-        .shift_left => .shift_left,
-        .shift_right => .shift_right,
-        .equal => .cmp_eq,
-        .not_equal => .cmp_ne,
-        .less_than => .cmp_lt,
-        .less_or_equal => .cmp_le,
-        .greater_than => .cmp_gt,
-        .greater_or_equal => .cmp_ge,
-        .bool_and, .bool_or => unreachable,
-    };
-    const result_type: Pool.Index = switch (it.op) {
-        .add, .sub, .mul, .div, .mod => left,
-        .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => left,
-        else => try check.boolType(it.lhs_node),
-    };
-    const result = try check.emit(tag, result_type, .{
+    const result_type = if (how.compares) try check.boolType(it.lhs_node) else left;
+    const result = try check.emit(how.tag, result_type, .{
         .bin = .{ .lhs = refOf(lhs), .rhs = refOf(rhs) },
     });
     return runtimeValue(result, result_type);
+}
+
+const Lowering = struct {
+    tag: IR.Inst.Tag,
+    /// Bit work and `%` refuse a float. Everything else takes any number.
+    whole: bool = false,
+    /// A comparison answers `bool`, and everything else the shared type.
+    compares: bool = false,
+};
+
+/// The one place an operator becomes an instruction.
+fn loweringOf(op: AST.BinaryOp) Lowering {
+    return switch (op) {
+        .add => .{ .tag = .add },
+        .sub => .{ .tag = .sub },
+        .mul => .{ .tag = .mul },
+        .div => .{ .tag = .div },
+        .mod => .{ .tag = .mod, .whole = true },
+        .bit_and => .{ .tag = .bit_and, .whole = true },
+        .bit_or => .{ .tag = .bit_or, .whole = true },
+        .bit_xor => .{ .tag = .bit_xor, .whole = true },
+        .shift_left => .{ .tag = .shift_left, .whole = true },
+        .shift_right => .{ .tag = .shift_right, .whole = true },
+        .equal => .{ .tag = .cmp_eq, .compares = true },
+        .not_equal => .{ .tag = .cmp_ne, .compares = true },
+        .less_than => .{ .tag = .cmp_lt, .compares = true },
+        .less_or_equal => .{ .tag = .cmp_le, .compares = true },
+        .greater_than => .{ .tag = .cmp_gt, .compares = true },
+        .greater_or_equal => .{ .tag = .cmp_ge, .compares = true },
+        // control flow, so `checkShortCircuit` and `checkOr` lower them as branches
+        .bool_and, .bool_or => unreachable,
+    };
 }
 
 /// `and` is control flow, so the lowering is a branch and a slot.
@@ -3170,13 +3109,7 @@ fn checkOr(check: *Check, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Er
 
     const found = check.typeOf(lhs);
     if (check.comp.pool.isUnion(found) == false) {
-        try check.fail(view.lhs, .{
-            .code = .not_a_union,
-            .message = try check.comp.fmt("'or' splits a union, and this is {s}", .{
-                try check.comp.typeName(found),
-            }),
-            .label = "not a union",
-        });
+        try check.failNotUnion(view.lhs, found, "'or' splits a union");
         return .poison;
     }
     if (check.builder == null) {
@@ -3223,13 +3156,7 @@ fn checkOrBind(
 
     const found = check.typeOf(lhs);
     if (comp.pool.isUnion(found) == false) {
-        try check.fail(node, .{
-            .code = .not_a_union,
-            .message = try comp.fmt("'or' with a handler splits a union, and this is {s}", .{
-                try comp.typeName(found),
-            }),
-            .label = "not a union",
-        });
+        try check.failNotUnion(node, found, "'or' with a handler splits a union");
         return .poison;
     }
     return check.checkOrSplit(view.lhs, refOf(lhs), found, view.block, view.binder.toOptional());
@@ -3731,6 +3658,24 @@ fn reportNoMember(
     });
 }
 
+/// Every operator that splits a union says so alike. `asks` is what it wanted.
+fn failNotUnion(
+    check: *Check,
+    node: Node.Index,
+    found: Pool.Index,
+    asks: []const u8,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .not_a_union,
+        .message = try check.comp.fmt("{s}, and this is {s}", .{
+            asks,
+            try check.comp.typeName(found),
+        }),
+        .label = "not a union",
+    });
+}
+
 fn failNotMember(
     check: *Check,
     node: Node.Index,
@@ -3850,29 +3795,19 @@ const Elements = struct {
     pointer: ?Pool.Key.Pointer,
     owner: Pool.Index,
     holds: Holds,
-
-    /// Storage, whose length is in its type, or a view, which carries its own.
-    const Holds = union(enum) {
-        array: Pool.Key.Array,
-        slice: Pool.Key.Slice,
-
-        /// One element's type, which both of them name.
-        fn element(holds: Holds) Pool.Index {
-            return switch (holds) {
-                .array => |it| it.child,
-                .slice => |it| it.child,
-            };
-        }
-
-        /// The count, where the type settles it before anything runs.
-        fn length(holds: Holds) ?u64 {
-            return switch (holds) {
-                .array => |it| it.len,
-                .slice => null,
-            };
-        }
-    };
 };
+
+/// What a base holds. Storage settles its length in its type, a view carries
+/// both its count and its own permission as data.
+const Holds = struct { child: Pool.Index, len: ?u64, mutable: bool };
+
+fn holdsOf(pool: *const Pool, owner: Pool.Index) ?Holds {
+    return switch (pool.keyOf(owner)) {
+        .type_array => |it| .{ .child = it.child, .len = it.len, .mutable = false },
+        .type_slice => |it| .{ .child = it.child, .len = null, .mutable = it.mutable },
+        else => null,
+    };
+}
 
 const Indexed = struct {
     elements: Elements,
@@ -3929,7 +3864,7 @@ fn checkSlice(
         return .poison;
     try check.emitRangeCheck(elements, through, range, bounds);
 
-    const made = try check.sliceOf(elements.holds.element(), through.mutable);
+    const made = try check.sliceOf(elements.holds.child, through.mutable);
     const payload = try check.emitExtra(&.{
         @intFromEnum(through.ref),
         @intFromEnum(bounds.start),
@@ -4017,7 +3952,7 @@ fn checkRangeKnown(
 
     // a view carries its length as data, so only storage settles the far edge
     if (to) |high| {
-        if (elements.holds.length()) |count| {
+        if (elements.holds.len) |count| {
             if (high > @as(i128, count)) {
                 try check.fail(end_node, .{
                     .code = .out_of_range,
@@ -4103,17 +4038,14 @@ fn checkRangeEnd(check: *Check, node: Node.Index) Allocator.Error!?Value {
 /// What `a..` runs to. An array answers untyped, a view with the count it carries.
 fn baseLength(check: *Check, elements: Elements, through: Through) Allocator.Error!Value {
     const comp = check.comp;
-
-    switch (elements.holds) {
-        // untyped, so a written start settles the type for both ends
-        .array => |it| return .{ .constant = try comp.pool.intern(comp.gpa, .{
-            .value_int = .{ .type = .untyped_int_type, .value = it.len },
-        }) },
-        .slice => return runtimeValue(
-            try check.emitOne(.slice_len, .u64_type, through.ref),
-            .u64_type,
-        ),
-    }
+    const count = elements.holds.len orelse return runtimeValue(
+        try check.emitOne(.slice_len, .u64_type, through.ref),
+        .u64_type,
+    );
+    // untyped, so a written start settles the type for both ends
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = .untyped_int_type, .value = count },
+    }) };
 }
 
 /// The range a bracket holds, since only what stands inside says which a bracket is.
@@ -4162,15 +4094,11 @@ fn checkElements(
     const owner = peeled.owner;
     if (owner == .poison) return null;
 
-    const holds: Elements.Holds = switch (comp.pool.keyOf(owner)) {
-        .type_array => |it| .{ .array = it },
-        .type_slice => |it| .{ .slice = it },
-        else => {
-            // the base is the mistake, and the brackets still hold a program
-            try check.checkBracketArgs(view);
-            try check.failNotIndexable(node, owner);
-            return null;
-        },
+    const holds = holdsOf(&comp.pool, owner) orelse {
+        // the base is the mistake, and the brackets still hold a program
+        try check.checkBracketArgs(view);
+        try check.failNotIndexable(node, owner);
+        return null;
     };
 
     return .{ .base = base, .pointer = peeled.pointer, .owner = owner, .holds = holds };
@@ -4184,7 +4112,7 @@ fn checkIndexOperand(
     elements: Elements,
 ) Allocator.Error!?Indexed.Index {
     const comp = check.comp;
-    const length = elements.holds.length();
+    const length = elements.holds.len;
 
     if (view.args.len != 1) {
         try check.checkBracketArgs(view);
@@ -4380,10 +4308,7 @@ fn checkStructLiteral(
     for (0..rows.len) |position| {
         if (comp.operands.items[start + position].initializer != .none) continue;
         const name = comp.pool.stringText(comp.rowAt(.from(rows.at(@intCast(position)))).name);
-        missing = if (missing) |earlier|
-            try comp.fmt("{s}, '{s}'", .{ earlier, name })
-        else
-            try comp.fmt("'{s}'", .{name});
+        missing = try quotedList(comp, missing, name);
     }
     if (missing) |names| {
         try check.fail(node, .{
@@ -4986,6 +4911,16 @@ pub fn plural(count: u64) []const u8 {
     return if (count == 1) "" else "s";
 }
 
+/// Names a message reads out, each quoted, `so_far` null before the first.
+fn quotedList(
+    comp: *Compilation,
+    so_far: ?[]const u8,
+    name: []const u8,
+) Allocator.Error![]const u8 {
+    const earlier = so_far orelse return comp.fmt("'{s}'", .{name});
+    return comp.fmt("{s}, '{s}'", .{ earlier, name });
+}
+
 /// Coerced to its parameter type. Never checked twice, because checking emits.
 fn checkArgument(
     check: *Check,
@@ -5374,6 +5309,32 @@ const Place = struct {
     };
 };
 
+/// The place a name reaches. Only a `var` has an address of its own, and only
+/// a name a branch proved carries a narrowed one.
+fn localPlace(check: *const Check, index: Builder.Local.Index, text: []const u8) Place {
+    const local = check.localAt(index);
+    const narrow = check.activeNarrow(index);
+    if (narrow != null) assert(local.kind == .let_value or local.kind == .param);
+
+    return .{
+        .kind = if (local.kind == .var_slot) .address else .value,
+        .ref = switch (local.kind) {
+            .var_slot => local.payload.ref,
+            .let_constant => .fromConstant(local.payload.constant),
+            .let_value, .param => if (narrow) |it| it.ref else local.payload.ref,
+        },
+        .type = if (narrow) |it| it.type else local.type,
+        .mutable = local.kind == .var_slot,
+        .reason = switch (local.kind) {
+            .var_slot => .mutable,
+            .let_constant, .let_value => .let_bound,
+            .param => .param_bound,
+        },
+        .root_name = text,
+        .root_node = local.node,
+    };
+}
+
 /// An expression as a location. Null once reported.
 fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
     // constants-only mode has nothing to spill into, so a place is what the value is worth
@@ -5390,50 +5351,8 @@ fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
                 return null;
             }
             if (check.findLocalIndex(text)) |index| {
-                const local = check.localAt(index);
-                if (local.type == .poison) return null;
-                return switch (local.kind) {
-                    .var_slot => .{
-                        .kind = .address,
-                        .ref = local.payload.ref,
-                        .type = local.type,
-                        .mutable = true,
-                        .reason = .mutable,
-                        .root_name = text,
-                        .root_node = local.node,
-                    },
-                    .let_constant => .{
-                        .kind = .value,
-                        .ref = .fromConstant(local.payload.constant),
-                        .type = local.type,
-                        .mutable = false,
-                        .reason = .let_bound,
-                        .root_name = text,
-                        .root_node = local.node,
-                    },
-                    .let_value, .param => place: {
-                        // a narrowed name is the member here as everywhere
-                        var ref = local.payload.ref;
-                        var found = local.type;
-                        if (check.activeNarrow(index)) |narrow| {
-                            ref = narrow.ref;
-                            found = narrow.type;
-                        }
-                        break :place .{
-                            .kind = .value,
-                            .ref = ref,
-                            .type = found,
-                            .mutable = false,
-                            .reason = switch (local.kind) {
-                                .let_value => .let_bound,
-                                .param => .param_bound,
-                                else => unreachable,
-                            },
-                            .root_name = text,
-                            .root_node = local.node,
-                        };
-                    },
-                };
+                if (check.localAt(index).type == .poison) return null;
+                return check.localPlace(index, text);
             }
             // not a local, so ordinary resolution gives the right message
             const value = try check.checkExpr(node, null);
@@ -5561,7 +5480,7 @@ fn placeIndex(
 
 /// The place an index names, as mutable as whatever it reached through.
 fn elementPlace(check: *Check, elements: Elements, index: Ref) Allocator.Error!?Place {
-    const element = elements.holds.element();
+    const element = elements.holds.child;
     // neither carrier ever holds a broken element, so an element always has one
     assert(element != .poison);
     assert(index != .none);
@@ -5592,19 +5511,18 @@ fn emitBoundsCheck(
 
 /// Storage carries its length in its type, so a constant against one was already answered.
 fn settledAgainstBase(elements: Elements, count: Ref) bool {
-    if (elements.holds.length() == null) return false;
+    if (elements.holds.len == null) return false;
     return refIsConstant(count);
 }
 
 /// The count a check reads against, always a `u64`.
 fn baseLengthRef(check: *Check, elements: Elements, through: Through) Allocator.Error!Ref {
     const comp = check.comp;
-    return switch (elements.holds) {
-        .array => |it| .fromConstant(try comp.pool.intern(comp.gpa, .{
-            .value_int = .{ .type = .u64_type, .value = it.len },
-        })),
-        .slice => try check.emitOne(.slice_len, .u64_type, through.ref),
-    };
+    const count = elements.holds.len orelse
+        return check.emitOne(.slice_len, .u64_type, through.ref);
+    return .fromConstant(try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = .u64_type, .value = count },
+    }));
 }
 
 /// Answered before the view is made, since its length is what later indexes answer against.
@@ -5639,29 +5557,23 @@ fn refIsConstant(ref: Ref) bool {
     };
 }
 
-/// A view carries its own permission, and storage takes its place's.
+/// A view carries its own permission and leads with the address, so elements
+/// reach through its value. Storage is reached through its place instead.
 fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Through {
-    return switch (elements.holds) {
-        .slice => |slice| try check.viewThrough(elements, slice),
-        .array => try check.placeThrough(elements.base, elements.pointer),
-    };
-}
+    if (elements.holds.len != null) {
+        return check.placeThrough(elements.base, elements.pointer);
+    }
 
-/// A view leads with the address, so elements reach through its value.
-fn viewThrough(
-    check: *Check,
-    elements: Elements,
-    slice: Pool.Key.Slice,
-) Allocator.Error!Through {
     var held = try check.placeValue(elements.base);
     // one pointer was followed to reach the view, so the view is read first
     if (elements.pointer != null) {
         held = try check.emitOne(.load, elements.owner, held);
     }
+    const mutable = elements.holds.mutable;
     return .{
         .ref = held,
-        .mutable = slice.mutable,
-        .reason = if (slice.mutable) .mutable else .{ .read_only = elements.owner },
+        .mutable = mutable,
+        .reason = if (mutable) .mutable else .{ .read_only = elements.owner },
         .root = elements.base,
     };
 }
