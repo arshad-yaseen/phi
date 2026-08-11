@@ -1,0 +1,48 @@
+type Ready
+type Timeout
+type State = Ready | Timeout
+
+type Point = {
+    x: u32
+}
+
+// a union is asked which member it holds, and only 'is' narrows what it finds
+fn against_a_member(s: State) bool {
+    return s == Ready
+}
+
+fn two_unions(a: State, b: State) bool {
+    return a == b
+}
+
+fn truths(a: bool, b: bool) bool {
+    return a == b
+}
+
+fn optionals(a: u32 | none, b: u32 | none) bool {
+    return a == b
+}
+
+// a unit type holds one value, so there is nothing to compare
+fn units(a: Ready, b: Ready) bool {
+    return a == b
+}
+
+// a view and a struct hold their parts elsewhere
+fn views(a: []u32, b: []u32) bool {
+    return a == b
+}
+
+fn structs(a: Point, b: Point) bool {
+    return a == b
+}
+
+// what may be written through a pointer is part of its type
+fn mutability(a: *var u32, b: *u32) bool {
+    return a == b
+}
+
+// ordering stays with the numbers
+fn ordered(a: *u32, b: *u32) bool {
+    return a < b
+}

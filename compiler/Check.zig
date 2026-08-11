@@ -3000,7 +3000,11 @@ fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
     if (lhs == .poison or rhs == .poison) return .poison;
 
     const how = loweringOf(it.op);
-    const admissible = if (how.whole) Pool.isInteger(left) else Pool.isNumeric(left);
+    const admissible = switch (how.takes) {
+        .number => Pool.isNumeric(left),
+        .whole => Pool.isInteger(left),
+        .scalar => Pool.isNumeric(left) or check.comp.pool.keyOf(left) == .type_pointer,
+    };
     if (admissible == false) {
         try check.reportBadOperand(it.op_token, left);
         return .poison;
@@ -3015,11 +3019,14 @@ fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
 
 const Lowering = struct {
     tag: IR.Inst.Tag,
-    /// Bit work and `%` refuse a float. Everything else takes any number.
-    whole: bool = false,
+    takes: Takes = .number,
     /// A comparison answers `bool`, and everything else the shared type.
     compares: bool = false,
 };
+
+/// What the type both sides share has to be. Bit work and `%` have no meaning
+/// on a float, and equality reaches past a number to an address.
+const Takes = enum { number, whole, scalar };
 
 /// The one place an operator becomes an instruction.
 fn loweringOf(op: AST.BinaryOp) Lowering {
@@ -3028,14 +3035,14 @@ fn loweringOf(op: AST.BinaryOp) Lowering {
         .sub => .{ .tag = .sub },
         .mul => .{ .tag = .mul },
         .div => .{ .tag = .div },
-        .mod => .{ .tag = .mod, .whole = true },
-        .bit_and => .{ .tag = .bit_and, .whole = true },
-        .bit_or => .{ .tag = .bit_or, .whole = true },
-        .bit_xor => .{ .tag = .bit_xor, .whole = true },
-        .shift_left => .{ .tag = .shift_left, .whole = true },
-        .shift_right => .{ .tag = .shift_right, .whole = true },
-        .equal => .{ .tag = .cmp_eq, .compares = true },
-        .not_equal => .{ .tag = .cmp_ne, .compares = true },
+        .mod => .{ .tag = .mod, .takes = .whole },
+        .bit_and => .{ .tag = .bit_and, .takes = .whole },
+        .bit_or => .{ .tag = .bit_or, .takes = .whole },
+        .bit_xor => .{ .tag = .bit_xor, .takes = .whole },
+        .shift_left => .{ .tag = .shift_left, .takes = .whole },
+        .shift_right => .{ .tag = .shift_right, .takes = .whole },
+        .equal => .{ .tag = .cmp_eq, .takes = .scalar, .compares = true },
+        .not_equal => .{ .tag = .cmp_ne, .takes = .scalar, .compares = true },
         .less_than => .{ .tag = .cmp_lt, .compares = true },
         .less_or_equal => .{ .tag = .cmp_le, .compares = true },
         .greater_than => .{ .tag = .cmp_gt, .compares = true },
@@ -6063,6 +6070,8 @@ fn reportBadOperand(
     op_token: Token.Index,
     operand_type: Pool.Index,
 ) Allocator.Error!void {
+    const tag = check.tree.tokenTag(op_token);
+    const equality = tag == .eq_eq or tag == .bang_eq;
     try check.failToken(op_token, .{
         .code = .bad_operand,
         .message = try check.comp.fmt("'{s}' cannot be applied to {s}", .{
@@ -6070,7 +6079,19 @@ fn reportBadOperand(
             try check.comp.typeName(operand_type),
         }),
         .label = "wrong operand type",
+        .help = if (equality) check.equalityHelp(operand_type) else null,
     });
+}
+
+/// What answers where one comparison cannot.
+fn equalityHelp(check: *const Check, found: Pool.Index) ?[]const u8 {
+    return switch (check.comp.pool.keyOf(found)) {
+        .type_union => "'is' tests which member a union holds and narrows the name to it",
+        .type_slice => "'std.mem.eql' compares two views element by element",
+        .type_array => "slice them first, as in 'mem.eql(a[0..], b[0..])'",
+        .type_struct => "compare the fields that decide it",
+        else => null,
+    };
 }
 
 /// `_` stands only in `_ = expression`, so every site that wanted a name reports alike.

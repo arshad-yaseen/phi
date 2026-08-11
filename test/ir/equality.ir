@@ -1,0 +1,29 @@
+fn same_place(a: *u32, b: *u32) true | false
+b0:
+  %0 = param a : *u32
+  %1 = param b : *u32
+  %2 = cmp_eq %0, %1 : true | false
+  return %2
+
+fn different_place(a: *Point, b: *Point) true | false
+b0:
+  %0 = param a : *Point
+  %1 = param b : *Point
+  %2 = cmp_ne %0, %1 : true | false
+  return %2
+
+fn narrowed(r: u32 | none, n: u32) true | false
+b0:
+  %0 = param r : u32 | none
+  %1 = param n : u32
+  %2 = union_is %0, u32 : true | false
+  branch %2, b1, b2
+b1:
+  %3 = union_narrow %0 : u32
+  %4 = cmp_eq %3, %1 : true | false
+  return %4
+b2:
+  jump b3
+b3:
+  %5 = union_narrow %0 : none
+  return false

@@ -1,0 +1,68 @@
+error[E0207]: '==' mixes Ready | Timeout and Ready
+  --> test/fail/equality.phi:11:14
+   |
+11 |     return s == Ready
+   |              ^^ two different types
+   |
+   = help: nothing converts on its own, so give both sides one type
+
+error[E0211]: '==' cannot be applied to Ready | Timeout
+  --> test/fail/equality.phi:15:14
+   |
+15 |     return a == b
+   |              ^^ wrong operand type
+   |
+   = help: 'is' tests which member a union holds and narrows the name to it
+
+error[E0211]: '==' cannot be applied to true | false
+  --> test/fail/equality.phi:19:14
+   |
+19 |     return a == b
+   |              ^^ wrong operand type
+   |
+   = help: 'is' tests which member a union holds and narrows the name to it
+
+error[E0211]: '==' cannot be applied to u32 | none
+  --> test/fail/equality.phi:23:14
+   |
+23 |     return a == b
+   |              ^^ wrong operand type
+   |
+   = help: 'is' tests which member a union holds and narrows the name to it
+
+error[E0211]: '==' cannot be applied to Ready
+  --> test/fail/equality.phi:28:14
+   |
+28 |     return a == b
+   |              ^^ wrong operand type
+
+error[E0211]: '==' cannot be applied to []u32
+  --> test/fail/equality.phi:33:14
+   |
+33 |     return a == b
+   |              ^^ wrong operand type
+   |
+   = help: 'std.mem.eql' compares two views element by element
+
+error[E0211]: '==' cannot be applied to Point
+  --> test/fail/equality.phi:37:14
+   |
+37 |     return a == b
+   |              ^^ wrong operand type
+   |
+   = help: compare the fields that decide it
+
+error[E0207]: '==' mixes *var u32 and *u32
+  --> test/fail/equality.phi:42:14
+   |
+42 |     return a == b
+   |              ^^ two different types
+   |
+   = help: nothing converts on its own, so give both sides one type
+
+error[E0211]: '<' cannot be applied to *u32
+  --> test/fail/equality.phi:47:14
+   |
+47 |     return a < b
+   |              ^ wrong operand type
+

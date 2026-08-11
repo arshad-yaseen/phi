@@ -1,0 +1,21 @@
+type Point = {
+    x: u32
+    y: u32
+}
+
+// a pointer compares as the address it is, whatever it points at
+fn same_place(a: *u32, b: *u32) bool {
+    return a == b
+}
+
+fn different_place(a: *Point, b: *Point) bool {
+    return a != b
+}
+
+// a member a branch proved is no longer a union, so it compares as itself
+fn narrowed(r: u32 | none, n: u32) bool {
+    if r is u32 {
+        return r == n
+    }
+    return false
+}

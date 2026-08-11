@@ -80,6 +80,10 @@
   it stands.
 - A `var` no longer asks a sealed constant for the type it already carries:
   `let n: u64 = 2` followed by `var c = n` used to be refused.
+- `==` and `!=` compare two pointers by the address each one is, and what may be
+  written through a pointer is not part of that. Everything they still refuse
+  says what answers instead: `is` and `match` for a union, `std.mem.eql` for a
+  view, a written comparison for a struct.
 
 ### Compiler
 
