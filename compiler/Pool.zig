@@ -921,15 +921,18 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
         return if (wrong_size) .does_not_fit else .wrong_kind;
     }
 
+    // a settled value takes only its own type, and a wrapped one may still unwrap
+    const found = pool.typeOfValue(value);
+    if (isUntyped(found) == false) {
+        if (type_index == found) return .{ .value = value };
+        return switch (pool.keyOf(value)) {
+            .value_union => |it| pool.fit(gpa, it.value, type_index),
+            else => .wrong_kind,
+        };
+    }
+
     switch (pool.keyOf(value)) {
-        .value_union => |it| {
-            if (type_index == it.type) return .{ .value = value };
-            return pool.fit(gpa, it.value, type_index);
-        },
         .value_int => |it| {
-            if (isUntyped(it.type) == false) {
-                return if (type_index == it.type) .{ .value = value } else .wrong_kind;
-            }
             if (isInteger(type_index)) {
                 if (fitsInt(it.value, type_index) == false) return .does_not_fit;
                 return .{ .value = try pool.internWith(gpa, it.value, type_index) };
@@ -940,9 +943,6 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
             return .wrong_kind;
         },
         .value_float => |it| {
-            if (isUntyped(it.type) == false) {
-                return if (type_index == it.type) .{ .value = value } else .wrong_kind;
-            }
             if (isFloat(type_index)) {
                 const narrowed = narrowFloat(it.value, type_index);
                 if (std.math.isInf(narrowed) and std.math.isInf(it.value) == false) {
@@ -963,26 +963,14 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
             }
             return .wrong_kind;
         },
-        .value_aggregate => |it| {
-            // already landed means storage, and storage gets sliced, not viewed
-            if (isUntyped(it.type) == false) {
-                return if (type_index == it.type) .{ .value = value } else .wrong_kind;
-            }
-            switch (pool.keyOf(type_index)) {
-                .type_array => |array| return pool.fitAggregate(gpa, value, array, type_index),
-                .type_slice => |view| return pool.fitView(gpa, value, view, type_index),
-                else => return .wrong_kind,
-            }
+        // still unchosen, so only storage or a view of it can take the elements
+        .value_aggregate => switch (pool.keyOf(type_index)) {
+            .type_array => |array| return pool.fitAggregate(gpa, value, array, type_index),
+            .type_slice => |view| return pool.fitView(gpa, value, view, type_index),
+            else => return .wrong_kind,
         },
-        .value_slice, .value_splat => {
-            // both are built already typed, so neither takes another
-            return if (type_index == pool.typeOfValue(value)) .{ .value = value } else .wrong_kind;
-        },
-        .value_unit => |unit_type| {
-            return if (type_index == unit_type) .{ .value = value } else .wrong_kind;
-        },
-        .type_simple, .type_pointer, .type_array, .type_slice => unreachable,
-        .type_struct, .type_unit, .type_union => unreachable,
+        // only a number or an aggregate can still be untyped
+        else => unreachable,
     }
 }
 

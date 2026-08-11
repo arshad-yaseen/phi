@@ -314,7 +314,7 @@ fn enqueueBodies(comp: *Compilation, decl_index: Decl.Index, origin: Origin) All
             if (decl.state != .done) return;
             if (comp.isGeneric(decl_index)) return;
             const members = decl.members();
-            for (members.start..members.start + members.len) |raw| {
+            for (members.start..members.end()) |raw| {
                 const member: Decl.Index = .from(raw);
                 try comp.enqueueBodiesFn(member, origin);
             }
@@ -562,11 +562,7 @@ fn newInstance(
     if (comp.instances.items.len >= std.math.maxInt(u32)) return error.OutOfMemory;
     const index: Pool.Instance = .from(comp.instances.items.len);
 
-    const parent: Pool.OptionalInstance = parent: {
-        const unit = comp.currentUnit() orelse break :parent .none;
-        if (unit.kind == .decl) break :parent .none;
-        break :parent @enumFromInt(unit.index);
-    };
+    const parent = comp.currentInstance();
     var depth: u32 = @intFromBool(args.len > 0);
     if (parent.unwrap()) |above| depth += comp.instanceAt(above).depth;
 
@@ -808,6 +804,13 @@ fn currentUnit(comp: *const Compilation) ?Unit {
     return comp.stack.items[comp.stack.items.len - 1].unit;
 }
 
+/// The instance whose unit is running, `.none` outside one.
+fn currentInstance(comp: *const Compilation) Pool.OptionalInstance {
+    const unit = comp.currentUnit() orelse return .none;
+    if (unit.kind == .decl) return .none;
+    return @enumFromInt(unit.index);
+}
+
 /// The parser budgets and orders its own reports, so nothing is deduplicated here.
 pub fn adoptParseErrors(
     comp: *Compilation,
@@ -836,11 +839,7 @@ fn withTrail(
 
     var shown: [trail_cap]Pool.Instance = undefined;
     var generic_count: u32 = 0;
-    var current: Pool.OptionalInstance = current: {
-        const unit = comp.currentUnit() orelse break :current .none;
-        if (unit.kind == .decl) break :current .none;
-        break :current @enumFromInt(unit.index);
-    };
+    var current = comp.currentInstance();
     while (current.unwrap()) |instance| {
         const row = comp.instanceAt(instance);
         if (row.args.len > 0) {

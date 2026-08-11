@@ -94,8 +94,7 @@ pub fn aliasInstance(comp: *Compilation, instance: Pool.Instance) Allocator.Erro
     assert(comp.declAt(decl_index).kind == .type_alias);
 
     var buffer: [bindings_max]Binding = undefined;
-    const bindings = try bindTypeParams(comp, instance, &buffer);
-    var check = context(comp, decl_index, bindings);
+    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
 
     const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
     const resolved = try check.resolveWrittenType(view.aliased);
@@ -141,8 +140,7 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
 pub fn structRows(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     const decl_index = comp.instanceDecl(instance);
     var buffer: [bindings_max]Binding = undefined;
-    const bindings = try bindTypeParams(comp, instance, &buffer);
-    var check = context(comp, decl_index, bindings);
+    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
     check.demand_embedding = false;
 
     const view = check.tree.viewOf(check.declNode(decl_index)).struct_decl;
@@ -296,8 +294,7 @@ const extern_union_help = "a pointer beside a type with no values crosses, the "
 pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     const decl_index = comp.instanceDecl(instance);
     var buffer: [bindings_max]Binding = undefined;
-    const bindings = try bindTypeParams(comp, instance, &buffer);
-    var check = context(comp, decl_index, bindings);
+    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
 
     const view = check.tree.viewOf(check.declNode(decl_index)).fn_decl;
 
@@ -551,7 +548,6 @@ fn resolveUnionType(
     node: Node.Index,
     members: []const Node.Index,
 ) Allocator.Error!Pool.Index {
-    const comp = check.comp;
     assert(members.len >= 2);
 
     if (members.len > Pool.union_members_max) {
@@ -568,13 +564,25 @@ fn resolveUnionType(
     }
     if (clean == false) return .poison;
 
-    switch (try comp.pool.unite(comp.gpa, buffer[0..members.len])) {
+    return check.uniteResolved(node, buffer[0..members.len], members);
+}
+
+/// Interns the union, a repeat or an overflow reported. The caret lands on the
+/// written member where the caller has one to give.
+fn uniteResolved(
+    check: *Check,
+    node: Node.Index,
+    resolved: []const Pool.Index,
+    written: []const Node.Index,
+) Allocator.Error!Pool.Index {
+    const comp = check.comp;
+    switch (try comp.pool.unite(comp.gpa, resolved)) {
         .index => |index| return index,
         .duplicate => |repeat| {
             // put the caret on the repeated member, not the whole union
             var where = node;
-            for (members, 0..) |member, at| {
-                if (buffer[at] == repeat) where = member;
+            for (written, 0..) |member, at| {
+                if (resolved[at] == repeat) where = member;
             }
             return check.failDuplicateMember(where, repeat);
         },
@@ -601,7 +609,6 @@ fn resolveOrType(
     it: AST.View.Binary,
 ) Allocator.Error!Pool.Index {
     assert(it.op == .bit_or);
-    const comp = check.comp;
 
     const lhs = try check.resolveType(it.lhs);
     const rhs = try check.resolveType(it.rhs);
@@ -609,14 +616,7 @@ fn resolveOrType(
     if (rhs == .poison) return .poison;
 
     // `a | b | c` recursed on the left into a union, and the splice flattens it
-    switch (try comp.pool.unite(comp.gpa, &.{ lhs, rhs })) {
-        .index => |index| return index,
-        .duplicate => |repeat| return check.failDuplicateMember(node, repeat),
-        .too_wide => {
-            try check.failTooWide(node);
-            return .poison;
-        },
-    }
+    return check.uniteResolved(node, &.{ lhs, rhs }, &.{});
 }
 
 fn failDuplicateMember(
@@ -927,8 +927,7 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     if (comp.instanceAt(instance).rows_state != .done) return false;
 
     var buffer: [bindings_max]Binding = undefined;
-    const bindings = try bindTypeParams(comp, instance, &buffer);
-    var check = context(comp, decl_index, bindings);
+    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
 
     const builder = &comp.body_builder;
     assert(builder.insts.len == 0);
@@ -1082,6 +1081,15 @@ fn endBlock(check: *Check, terminator: IR.Terminator) void {
 fn blockOpen(check: *const Check) bool {
     const builder = check.body();
     return builder.currentBlock().terminator == .none;
+}
+
+/// Closes the block into `target` where it is still open. Whether a reachable
+/// path took the edge.
+fn jumpTo(check: *Check, target: IR.Block.Index) bool {
+    if (check.blockOpen() == false) return false;
+    const flowed = check.body().reachable;
+    check.endBlock(.{ .jump = target });
+    return flowed;
 }
 
 /// What follows a leave lands in a block nothing reaches, which `finishFunc` drops.
@@ -1571,8 +1579,7 @@ fn checkIf(
     builder.narrows.shrinkRetainingCapacity(narrows_mark);
     try join.take(check, then_value, view.then_block);
 
-    var join_reachable = check.blockOpen() and builder.reachable;
-    if (check.blockOpen()) check.endBlock(.{ .jump = join_block });
+    var join_reachable = check.jumpTo(join_block);
 
     check.startBlock(else_block);
     builder.reachable = entry_reachable;
@@ -1585,8 +1592,7 @@ fn checkIf(
         builder.narrows.shrinkRetainingCapacity(narrows_mark);
         try join.take(check, else_value, else_node);
 
-        if (check.blockOpen() and builder.reachable) join_reachable = true;
-        if (check.blockOpen()) check.endBlock(.{ .jump = join_block });
+        if (check.jumpTo(join_block)) join_reachable = true;
     } else {
         if (entry_reachable) join_reachable = true;
         check.endBlock(.{ .jump = join_block });
@@ -1836,8 +1842,7 @@ fn checkLoop(
 
         const else_value = try check.checkExpr(else_node, join.armHint());
         try join.take(check, else_value, else_node);
-        else_flows = check.blockOpen() and builder.reachable;
-        if (check.blockOpen()) check.endBlock(.{ .jump = exit });
+        else_flows = check.jumpTo(exit);
     }
 
     check.startBlock(exit);
@@ -2082,14 +2087,11 @@ fn checkMatch(
             if (join.carries == false) try check.expectNothing(arm.body, arm_value);
         }
 
-        if (check.blockOpen()) {
-            if (builder.reachable) {
-                join_reachable = true;
-                for (covered, 0..) |cover, position| {
-                    if (cover == arm_index) survivors[position] = true;
-                }
+        if (check.jumpTo(join_block)) {
+            join_reachable = true;
+            for (covered, 0..) |cover, position| {
+                if (cover == arm_index) survivors[position] = true;
             }
-            check.endBlock(.{ .jump = join_block });
         }
 
         // pick the test chain back up past the arm's instructions
@@ -2701,25 +2703,15 @@ fn expectNothing(check: *Check, node: Node.Index, value: Value) Allocator.Error!
     if (found == .void_type) return;
     if (found == .poison) return;
 
-    try check.reportUnusedValue(node, found, "bind it, return it, or drop it with '_ ='");
-}
-
-/// A constant that has not met a type has no name to print.
-fn reportUnusedValue(
-    check: *Check,
-    node: Node.Index,
-    found: Pool.Index,
-    help: []const u8,
-) Allocator.Error!void {
-    const named = check.typeCanHold(found);
+    // a constant that has not met a type has no name to print
     try check.fail(node, .{
         .code = .value_unused,
-        .message = if (named)
+        .message = if (check.typeCanHold(found))
             try check.comp.fmt("this {s} goes nowhere", .{try check.comp.typeName(found)})
         else
             "this value goes nowhere",
         .label = "unused value",
-        .help = help,
+        .help = "bind it, return it, or drop it with '_ ='",
     });
 }
 
@@ -4701,43 +4693,36 @@ const Callee = struct {
 
 /// Without evaluating a receiver or an argument. Null once reported.
 fn resolveCallee(check: *Check, callee_node: Node.Index) Allocator.Error!?Callee {
-    switch (check.tree.viewOf(callee_node)) {
+    if (check.tree.nodeTag(callee_node) != .bracket) return check.resolveCalleeBase(callee_node);
+
+    const bracket = check.tree.viewOf(callee_node).bracket;
+    var callee = try check.resolveCalleeBase(bracket.base) orelse return null;
+
+    if (bracket.args.len > type_params_max) {
+        try check.fail(callee_node, .{
+            .code = .generic_arguments,
+            .message = try check.comp.fmt(
+                "a call takes at most {d} type arguments",
+                .{type_params_max},
+            ),
+        });
+        return null;
+    }
+    callee.explicit = bracket.args;
+    return callee;
+}
+
+/// The callee without its type arguments, a builtin, a member chain, or a value.
+fn resolveCalleeBase(check: *Check, node: Node.Index) Allocator.Error!?Callee {
+    switch (check.tree.viewOf(node)) {
         .builtin => |name_token| {
             const which = try Builtin.resolve(check, name_token) orelse return null;
             return .{ .kind = .{ .builtin = which }, .explicit = null };
         },
-        .field_access => |access| return check.resolveCalleeMember(callee_node, access),
-        .bracket => |bracket| {
-            var callee = switch (check.tree.viewOf(bracket.base)) {
-                .builtin => |name_token| callee: {
-                    const which = try Builtin.resolve(check, name_token) orelse return null;
-                    break :callee Callee{ .kind = .{ .builtin = which }, .explicit = null };
-                },
-                .field_access => |access| try check.resolveCalleeMember(bracket.base, access) orelse
-                    return null,
-                else => callee: {
-                    const value = try check.checkExpr(bracket.base, null);
-                    break :callee try check.calleeOfValue(bracket.base, value) orelse
-                        return null;
-                },
-            };
-
-            if (bracket.args.len > type_params_max) {
-                try check.fail(callee_node, .{
-                    .code = .generic_arguments,
-                    .message = try check.comp.fmt(
-                        "a call takes at most {d} type arguments",
-                        .{type_params_max},
-                    ),
-                });
-                return null;
-            }
-            callee.explicit = bracket.args;
-            return callee;
-        },
+        .field_access => |access| return check.resolveCalleeMember(node, access),
         else => {
-            const value = try check.checkExpr(callee_node, null);
-            return check.calleeOfValue(callee_node, value);
+            const value = try check.checkExpr(node, null);
+            return check.calleeOfValue(node, value);
         },
     }
 }
@@ -4993,9 +4978,7 @@ fn checkCallResolved(
                 fn_name, expected, plural(expected), args.len,
             }),
             .label = "wrong number of arguments",
-            .notes = try comp.notes(&.{
-                comp.noteAt(decl.module, decl.node, "declared here"),
-            }),
+            .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
         });
         if (inferred == false) {
             for (args) |argument| _ = try check.checkExpr(argument, null);

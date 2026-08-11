@@ -689,9 +689,8 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
         return self.addExtraNode(.alias_decl, type_token, start);
     }
 
-    const lbrace = self.eatToken(.l_brace);
-    if (lbrace == null) try self.errExpected(.expected_token, Token.Tag.l_brace.symbol(), null);
-
+    assert(self.at(.l_brace));
+    const lbrace = self.nextToken();
     try self.parseList(.{
         .item = parseMember,
         .starts = starts_member,

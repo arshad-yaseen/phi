@@ -613,27 +613,21 @@ fn pathComponents(
     names: *[path_components_max][]const u8,
     nodes: *[path_components_max]AST.Node.Index,
 ) ?u32 {
-    var count: u32 = 0;
     var node = path;
-    var depth: u32 = 0;
+    var count: u32 = 0;
     // to the leftmost ident, collecting names right to left
-    while (depth < path_components_max) : (depth += 1) {
-        switch (tree.nodeTag(node)) {
-            .ident => {
-                if (count == path_components_max) return null;
-                names[count] = tree.tokenSlice(tree.nodeMainToken(node));
+    while (count < path_components_max) : (count += 1) {
+        switch (tree.viewOf(node)) {
+            .ident => |token| {
+                names[count] = tree.tokenSlice(token);
                 nodes[count] = node;
-                count += 1;
-                std.mem.reverse([]const u8, names[0..count]);
-                std.mem.reverse(AST.Node.Index, nodes[0..count]);
-                return count;
+                std.mem.reverse([]const u8, names[0 .. count + 1]);
+                std.mem.reverse(AST.Node.Index, nodes[0 .. count + 1]);
+                return count + 1;
             },
-            .field_access => {
-                const view = tree.viewOf(node).field_access;
-                if (count == path_components_max) return null;
+            .field_access => |view| {
                 names[count] = tree.tokenSlice(view.name_token);
                 nodes[count] = node;
-                count += 1;
                 node = view.lhs;
             },
             // a parse hole never reaches analysis
