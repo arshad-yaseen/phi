@@ -779,7 +779,8 @@ pub fn isSizedInt(index: Index) bool {
 }
 
 /// Whether every value of `from` is also a value of `into`, so no value is lost.
-pub fn intWidens(from: Index, into: Index) bool {
+pub fn widens(from: Index, into: Index) bool {
+    if (from == .f32_type) return into == .f64_type;
     if (isSizedInt(from) == false) return false;
     if (isSizedInt(into) == false) return false;
     if (minInt(into) > minInt(from)) return false;
@@ -1128,8 +1129,8 @@ pub fn sharedType(left: Index, right: Index) ?Index {
     if (right == .untyped_int_type) return left;
     if (left == .untyped_float_type) return if (isFloat(right)) right else null;
     if (right == .untyped_float_type) return if (isFloat(left)) left else null;
-    if (intWidens(left, right)) return right;
-    if (intWidens(right, left)) return left;
+    if (widens(left, right)) return right;
+    if (widens(right, left)) return left;
     return null;
 }
 

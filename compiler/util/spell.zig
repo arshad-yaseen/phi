@@ -491,6 +491,7 @@ fn inst(
         .slice_len,
         .ptr_cast,
         .int_widen,
+        .float_widen,
         .int_cast,
         .union_init,
         .union_narrow,

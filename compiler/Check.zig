@@ -5891,9 +5891,9 @@ fn coerce(
             const have = comp.pool.keyOf(runtime.type);
             const want = comp.pool.keyOf(wanted);
 
-            if (Pool.intWidens(runtime.type, wanted)) {
-                const widened = try check.emitOne(.int_widen, wanted, runtime.ref);
-                return runtimeValue(widened, wanted);
+            if (Pool.widens(runtime.type, wanted)) {
+                const tag: IR.Inst.Tag = if (Pool.isFloat(wanted)) .float_widen else .int_widen;
+                return runtimeValue(try check.emitOne(tag, wanted, runtime.ref), wanted);
             }
 
             // the one subtyping edge, which a view has for a pointer's reason
@@ -5971,13 +5971,16 @@ fn fitValue(
     if (constant == .poison) return .poison;
     if (wanted == .poison) return .poison;
 
-    // a sealed integer widens where it lands, never inside a literal it is part of
     const found = comp.pool.typeOfValue(constant);
-    if (found != wanted and Pool.intWidens(found, wanted)) {
-        const held = comp.pool.keyOf(constant).value_int.value;
-        return .{ .constant = try comp.pool.intern(comp.gpa, .{
-            .value_int = .{ .type = wanted, .value = held },
-        }) };
+
+    if (found != wanted and Pool.widens(found, wanted)) {
+        const widened: Pool.Key = switch (comp.pool.keyOf(constant)) {
+            .value_int => |it| .{ .value_int = .{ .type = wanted, .value = it.value } },
+            .value_float => |it| .{ .value_float = .{ .type = wanted, .value = it.value } },
+            // widening answers for a number and nothing else
+            else => unreachable,
+        };
+        return .{ .constant = try comp.pool.intern(comp.gpa, widened) };
     }
 
     return switch (try comp.pool.fit(comp.gpa, constant, wanted)) {

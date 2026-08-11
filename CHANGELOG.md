@@ -4,10 +4,11 @@
 
 ### Language
 
-- A narrower integer lands on a wider one with nothing written, because every
+- A narrower number lands on a wider one with nothing written, because every
   value of the narrower type is already a value of the wider. Signedness may
-  change where no value is lost, and the two ends of an operator meet the same
-  way, so a `u32` counter reaches a `u64` length with no conversion between them.
+  change where no value is lost, an `f32` is exactly an `f64`, and the two ends
+  of an operator meet the same way, so a `u32` counter reaches a `u64` length
+  with no conversion between them.
 - `@int_cast(n)` is the conversion that can lose a value, and answers `T | none`,
   so `or` says what happens when it does not fit. It converts to what it lands
   on, and takes `[T]` where nothing lands it.

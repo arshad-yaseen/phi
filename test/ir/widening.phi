@@ -39,6 +39,11 @@ fn into_an_element(small: u8) [2]u32 {
     return [small, 1]
 }
 
+// a float widens on the same rule, because every f32 is exactly an f64
+fn floats(x: f32) f64 {
+    return x
+}
+
 // the two ends of an operator meet the same way
 fn adds(a: i32, b: i64) i64 {
     return a + b
@@ -57,4 +62,8 @@ fn counted(xs: []u32) u32 {
         at += 1
     }
     return total
+}
+
+fn float_operands(a: f32, b: f64) f64 {
+    return a + b
 }

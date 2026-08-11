@@ -46,6 +46,12 @@ b0:
   %2 = aggregate_init [%1, 1:u32] : [2]u32
   return %2
 
+fn floats(x: f32) f64
+b0:
+  %0 = param x : f32
+  %1 = float_widen %0 : f64
+  return %1
+
 fn adds(a: i32, b: i64) i64
 b0:
   %0 = param a : i32
@@ -92,3 +98,11 @@ b2:
 b3:
   %20 = load %1 : u32
   return %20
+
+fn float_operands(a: f32, b: f64) f64
+b0:
+  %0 = param a : f32
+  %1 = param b : f64
+  %2 = float_widen %0 : f64
+  %3 = add %2, %1 : f64
+  return %3

@@ -208,6 +208,8 @@ pub const Inst = struct {
         ptr_cast,
         /// Uses `un`. Sign- or zero-extends into a type holding every value of the old one.
         int_widen,
+        /// Uses `un`. Widens a float into one holding every value of the old one.
+        float_widen,
         /// Uses `un`. The value where its type holds it, and the union's other member where not.
         int_cast,
 
