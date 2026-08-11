@@ -11,7 +11,7 @@ alignment: u32,
 
 const Layout = @This();
 
-/// 64-bit
+/// 64-bit, hardcoded for now
 pub const pointer_size = 8;
 
 /// The tag is one byte, at the payload's end.
@@ -78,7 +78,7 @@ fn ofBounded(
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
         .type_union => try ofUnion(comp, origin, index, depth),
         .value_int, .value_float, .value_aggregate => unreachable,
-        .value_unit, .value_union, .value_slice => unreachable,
+        .value_unit, .value_union, .value_slice, .value_splat => unreachable,
     };
 
     assert(std.math.isPowerOfTwo(found.alignment));
@@ -129,6 +129,31 @@ fn ofStruct(
     return sized(std.mem.alignForward(u64, size, alignment), alignment);
 }
 
+/// The member a union hides in the zero address, where it has one. The other
+/// member has no values, so no tag tells the two apart.
+///
+///   *Node | none      0x00007f2e51c04150                        the *Node
+///                     0x0000000000000000                        none
+///   []u32 | none      0x00007f2e51c04150  0x0000000000000004    the []u32
+///                     0x0000000000000000  ------------------    none, count unread
+pub fn niche(pool: *const Pool, index: Pool.Index) ?Pool.Index {
+    if (pool.isUnion(index) == false) return null;
+    if (pool.unionMemberCount(index) != 2) return null;
+
+    const first = pool.unionMemberAt(index, 0);
+    const second = pool.unionMemberAt(index, 1);
+    if (pool.keyOf(first) == .type_unit) return if (leadsWithAddress(pool, second)) second else null;
+    if (pool.keyOf(second) == .type_unit) return if (leadsWithAddress(pool, first)) first else null;
+    return null;
+}
+
+fn leadsWithAddress(pool: *const Pool, index: Pool.Index) bool {
+    return switch (pool.keyOf(index)) {
+        .type_pointer, .type_slice => true,
+        else => false,
+    };
+}
+
 /// A tag and a payload, or the zero niche.
 fn ofUnion(
     comp: *Compilation,
@@ -140,34 +165,15 @@ fn ofUnion(
     const count = pool.unionMemberCount(index);
     assert(count >= 2);
 
+    if (niche(pool, index)) |carrier| return ofBounded(comp, origin, carrier, depth + 1);
+
     var payload_size: u32 = 0;
     var payload_alignment: u32 = 1;
-    // the one member that could hide a tag in the address it carries
-    var carrier: ?Layout = null;
-    var units: u32 = 0;
     var at: u32 = 0;
-
     while (at < count) : (at += 1) {
-        const member = pool.unionMemberAt(index, at);
-        const found = try ofBounded(comp, origin, member, depth + 1);
+        const found = try ofBounded(comp, origin, pool.unionMemberAt(index, at), depth + 1);
         payload_size = @max(payload_size, found.size);
         payload_alignment = @max(payload_alignment, found.alignment);
-        switch (pool.keyOf(member)) {
-            // a pointer and a view both lead with an address that is never zero
-            .type_pointer, .type_slice => carrier = found,
-            .type_unit => units += 1,
-            else => {},
-        }
-    }
-
-    // the zero niche. no address is zero, so one unit member hides there and no tag exists
-    //
-    //   *Node | none      0x00007f2e51c04150                        the *Node
-    //                     0x0000000000000000                        none
-    //   []u32 | none      0x00007f2e51c04150  0x0000000000000004    the []u32
-    //                     0x0000000000000000  ------------------    none, count unread
-    if (count == 2 and units == 1) {
-        if (carrier) |only| return only;
     }
 
     return sized(@as(u64, payload_size) + tag_size, payload_alignment);

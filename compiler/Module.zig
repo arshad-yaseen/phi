@@ -78,7 +78,15 @@ pub const Decl = struct {
     /// Recorded at registration, so asking never re-reads the tree.
     type_params: u8,
 
-    pub const Kind = enum(u8) { import, struct_decl, type_alias, unit_decl, let, fn_decl };
+    pub const Kind = enum(u8) {
+        import,
+        struct_decl,
+        type_alias,
+        unit_decl,
+        let,
+        fn_decl,
+        extern_fn,
+    };
     pub const State = enum(u8) { unanalyzed, in_progress, done, poisoned };
 
     /// Stored in `aux` beside the payload.
@@ -190,7 +198,7 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
                 .name_token = decl.name_token,
             }),
             .fn_decl => |decl| _ = try addDecl(comp, module, index, .{
-                .kind = .fn_decl,
+                .kind = if (decl.is_extern) .extern_fn else .fn_decl,
                 .node = node,
                 .name_token = decl.name_token,
                 .type_params = @intCast(decl.type_params.len),

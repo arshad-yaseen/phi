@@ -1,0 +1,34 @@
+fn emit(text: []u8) i64
+b0:
+  %0 = param text : []u8
+  %1 = slice_ptr %0 : *u8
+  %2 = slice_len %0 : u64
+  %3 = call write(1:i32, %1, %2) : i64
+  return %3
+
+fn grab(size: u64) u64
+b0:
+  %0 = param size : u64
+  %1 = call malloc(%0) : *var u8 | none
+  %2 = local : *var *var u8 | none
+  %3 = store %2, %1
+  branch %1, b2, b1
+b1:
+  return 0:u64
+b2:
+  %4 = load %2 : *var u8 | none
+  %5 = union_narrow %4 : *var u8
+  %6 = call free(%5)
+  return %0
+
+fn emit_one(byte: *u8) i64
+b0:
+  %0 = param byte : *u8
+  %1 = call write(1:i32, %0, 1:u64) : i64
+  return %1
+
+fn pass_through(key: u64) *u8 | Missing
+b0:
+  %0 = param key : u64
+  %1 = call lookup(%0) : *u8 | Missing
+  return %1

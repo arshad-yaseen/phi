@@ -485,8 +485,9 @@ const starts_name = TokenSet.initOne(.ident);
 const starts_arm = TokenSet.initMany(&.{ .ident, .star, .l_bracket, .kw_else });
 
 const starts_decl = TokenSet.initMany(&.{
-    .kw_pub, .kw_import, .kw_type,
-    .kw_fn,  .kw_let,    .kw_var,
+    .kw_pub,    .kw_import, .kw_type,
+    .kw_fn,     .kw_let,    .kw_var,
+    .kw_extern,
 });
 
 const ends_list = starts_decl.unionWith(TokenSet.initMany(&.{ .l_brace, .r_brace, .semi }));
@@ -580,7 +581,7 @@ fn parseRoot(self: *Parse) Allocator.Error!void {
         .opener = null,
         .code = .expected_declaration,
         .expected = "a declaration",
-        .help = "a file holds 'import', 'type', 'fn', and 'let'",
+        .help = "a file holds 'import', 'type', 'fn', 'extern fn', and 'let'",
         .bails = TokenSet.initEmpty(),
     });
 
@@ -596,7 +597,17 @@ fn parseDecl(self: *Parse) Allocator.Error!Node.Index {
     switch (self.current()) {
         .kw_import => return self.parseImportDecl(),
         .kw_type => return self.parseTypeDecl(),
-        .kw_fn => return self.parseFnDecl(),
+        .kw_fn => return self.parseFnDecl(.written),
+        .kw_extern => {
+            _ = self.nextToken();
+            if (self.at(.kw_fn)) return self.parseFnDecl(.linked);
+            try self.errExpected(
+                .expected_declaration,
+                Token.Tag.kw_fn.symbol(),
+                "'extern' declares a function the linker finds elsewhere",
+            );
+            return self.skip();
+        },
         .kw_let => return self.parseVarDecl(),
         .kw_var => {
             try self.err(.{
@@ -702,7 +713,26 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-fn parseFnDecl(self: *Parse) Allocator.Error!Node.Index {
+const Body = enum { written, linked };
+
+/// The block is read and dropped, so one mistake does not become two.
+fn errExternBody(self: *Parse, fn_token: Token.Index) Allocator.Error!void {
+    @branchHint(.cold);
+    try self.err(.{
+        .code = .extern_fn_body,
+        .span = self.here(),
+        .message = "an 'extern fn' is a signature, and this one has a body",
+        .label = "no body belongs here",
+        .help = "drop the body, or drop the 'extern' to declare it here",
+        .notes = try self.arena.allocator().dupe(Diagnostic.Note, &.{.{
+            .message = "declared 'extern' here",
+            .span = self.spanOf(fn_token.before(1)),
+        }}),
+    });
+    _ = try self.parseBlock();
+}
+
+fn parseFnDecl(self: *Parse, form: Body) Allocator.Error!Node.Index {
     assert(self.at(.kw_fn));
     const fn_token = self.nextToken();
     try self.expectToken(.ident);
@@ -730,13 +760,19 @@ fn parseFnDecl(self: *Parse) Allocator.Error!Node.Index {
     else
         .none;
 
-    const body = try self.parseBlock();
+    const body: Node.OptionalIndex = switch (form) {
+        .written => (try self.parseBlock()).toOptional(),
+        .linked => absent: {
+            if (self.at(.l_brace)) try self.errExternBody(fn_token);
+            break :absent .none;
+        },
+    };
 
     const start = self.extraStart();
     try self.extraList(self.scratch.items[top..params_start]);
     try self.extraList(self.scratch.items[params_start..]);
     try self.extraOpt(return_type);
-    try self.extraNode(body);
+    try self.extraOpt(body);
     return self.addNode(.{
         .tag = .fn_decl,
         .main_token = fn_token,
@@ -807,7 +843,7 @@ fn parseMember(self: *Parse) Allocator.Error!Node.Index {
     if (self.at(.ident)) return self.parseField();
 
     _ = self.eatToken(.kw_pub);
-    if (self.at(.kw_fn)) return self.parseFnDecl();
+    if (self.at(.kw_fn)) return self.parseFnDecl(.written);
     try self.errExpected(.expected_struct_member, "a function after 'pub'", null);
     return self.hole();
 }

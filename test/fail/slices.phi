@@ -55,3 +55,13 @@ fn sealed() []u32 {
     let a: [4]u32 = [2, 3, 5, 7]
     return a
 }
+
+// the address a view holds is answered rather than written
+fn assign_an_address(xs: []var u32) {
+    xs.ptr = xs.ptr
+}
+
+// an array keeps no address of its own, so it is sliced first
+fn address_of_an_array(a: [4]u32) *u32 {
+    return a.ptr
+}

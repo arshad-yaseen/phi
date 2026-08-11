@@ -45,6 +45,7 @@ pub const Code = enum(u16) {
     ambiguous_line = 117,
     too_many_type_params = 118,
     expected_match_arm = 119,
+    extern_fn_body = 120,
 
     undefined_name = 201,
     not_a_type = 202,
@@ -93,6 +94,8 @@ pub const Code = enum(u16) {
     type_too_large = 261,
     out_of_range = 262,
     bad_text = 263,
+    extern_signature = 264,
+    extern_generic = 265,
 };
 
 comptime {

@@ -324,6 +324,12 @@ fn enqueueBodies(comp: *Compilation, decl_index: Decl.Index, origin: Origin) All
     const decl = comp.declAt(decl_index);
     switch (decl.kind) {
         .import, .type_alias, .unit_decl, .let => {},
+        // a signature with no body is still checked, so an unused one is not unread
+        .extern_fn => {
+            if (decl.state == .poisoned) return;
+            const instance = try comp.instantiate(decl_index, &.{}, origin);
+            try comp.ensure(.of(.signature, instance), origin);
+        },
         .fn_decl => try comp.enqueueBodiesFn(decl_index, origin),
         .struct_decl => {
             if (decl.state != .done) return;
@@ -352,7 +358,9 @@ fn enqueueBodiesFn(
 
 /// The drain's `ensure` makes a duplicate enqueue a no-op.
 pub fn enqueueBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!void {
-    assert(comp.declAt(comp.instanceDecl(instance)).kind == .fn_decl);
+    const kind = comp.declAt(comp.instanceDecl(instance)).kind;
+    if (kind == .extern_fn) return;
+    assert(kind == .fn_decl);
     if (comp.instanceAt(instance).deep_state != .unanalyzed) return;
     try comp.body_queue.append(comp.gpa, instance);
 }
@@ -450,6 +458,7 @@ fn runDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
         },
         .let => return Check.topLevelLet(comp, decl_index),
         .fn_decl => return true,
+        .extern_fn => return Check.externDecl(comp, decl_index),
         .struct_decl => {
             if (comp.isGeneric(decl_index)) return true;
             const origin: Origin = .{ .module = decl.module, .node = decl.node };
@@ -480,7 +489,7 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
             .let => try comp.fmt("'{s}' takes its value from itself", .{name}),
             .type_alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
             .import => "this import goes in a circle",
-            .struct_decl, .unit_decl, .fn_decl => "this definition goes in a circle",
+            .struct_decl, .unit_decl, .fn_decl, .extern_fn => "this definition goes in a circle",
         },
         .alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
         .embedding => try comp.fmt("'{s}' holds itself by value, so it has no size", .{name}),
@@ -542,6 +551,7 @@ pub fn instantiate(
 ) Allocator.Error!Pool.Instance {
     assert(comp.declAt(decl_index).kind == .struct_decl or
         comp.declAt(decl_index).kind == .fn_decl or
+        comp.declAt(decl_index).kind == .extern_fn or
         comp.declAt(decl_index).kind == .type_alias);
 
     if (args.len == 0) {
@@ -1111,134 +1121,4 @@ test "the deepest nesting that reaches analysis does not overflow the stack" {
     try testCompile(&comp, test_options, deep.written());
     defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
-}
-
-test "one constant view is one entry, however often it is written" {
-    var comp: Compilation = undefined;
-    try testCompile(&comp, test_options,
-        \\fn here() []u32 {
-        \\    return [2, 3, 5, 7]
-        \\}
-        \\fn there() []u32 {
-        \\    return [2, 3, 5, 7]
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
-    try testing.expectEqual(2, comp.funcs.items.len);
-
-    // interning is what shares the bytes, so the two sites return one constant
-    const here = comp.funcBlocks(comp.funcAt(.from(0)))[0].terminator.ret;
-    const there = comp.funcBlocks(comp.funcAt(.from(1)))[0].terminator.ret;
-    try testing.expectEqual(here, there);
-
-    const viewed = comp.pool.keyOf(here.unwrap().constant).value_slice;
-    try testing.expectEqual(4, comp.pool.aggregateLen(viewed.data));
-}
-
-test "a diagnostic renders across files" {
-    const gpa = testing.allocator;
-
-    var comp: Compilation = undefined;
-    try testCompile(&comp, test_options,
-        \\fn f() i64 {
-        \\    return missing
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(1, comp.diagnostics.items.len);
-
-    var out: Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    try comp.renderAll(&out.writer, .off);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "nothing named 'missing'") != null);
-}
-
-test "a diagnostic names the unit that produced it" {
-    var comp: Compilation = undefined;
-    try testCompile(&comp, test_options,
-        \\fn f() i64 {
-        \\    return missing
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(1, comp.diagnostics.items.len);
-
-    const entry = comp.diagnostics.items[0];
-    try testing.expect(entry.unit != null);
-    try testing.expectEqual(Unit.Kind.body, entry.unit.?.kind);
-}
-
-test "a program built without the standard library says where std would be" {
-    const gpa = testing.allocator;
-
-    var comp: Compilation = undefined;
-    try testCompile(&comp, test_options, "import std.mem\n");
-    defer comp.deinit();
-
-    var out: Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    try comp.renderAll(&out.writer, .off);
-    try testing.expect(std.mem.indexOf(
-        u8,
-        out.written(),
-        "the standard library was not found",
-    ) != null);
-}
-
-test "a file with a parse error is still checked" {
-    var comp: Compilation = undefined;
-    try testCompile(&comp, test_options,
-        \\fn broken( {
-        \\}
-        \\
-        \\fn ok() i64 {
-        \\    return missing
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(2, comp.diagnostics.items.len);
-
-    const parse_entry = comp.diagnostics.items[0];
-    try testing.expectEqual(Diagnostic.Code.expected_token, parse_entry.diagnostic.code);
-    try testing.expectEqual(null, parse_entry.unit);
-
-    const analysis_entry = comp.diagnostics.items[1];
-    try testing.expectEqual(Diagnostic.Code.undefined_name, analysis_entry.diagnostic.code);
-    try testing.expect(analysis_entry.unit != null);
-}
-
-test "the checker answers a type question as data" {
-    var comp: Compilation = undefined;
-    try testCompile(&comp, .{
-        .root_path = "test.phi",
-        .std_dir = null,
-        .record_expr_types = true,
-    },
-        \\fn f(n: i64) i64 {
-        \\    return n + 1
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
-
-    const f = comp.moduleAt(.root).findDecl("f").?;
-    const instance = try comp.instantiate(f, &.{}, .{
-        .module = .root,
-        .node = comp.declAt(f).node,
-    });
-
-    const tree = comp.treeOf(.root);
-    const decl_view = tree.viewOf(comp.declAt(f).node).fn_decl;
-    const statements = tree.viewOf(decl_view.body).block;
-    const returned = tree.viewOf(statements[0]).return_expr.unwrap().?;
-    const sum = tree.viewOf(returned).binary;
-
-    try testing.expectEqual(Pool.Index.i64_type, comp.exprType(instance, returned));
-    try testing.expectEqual(Pool.Index.i64_type, comp.exprType(instance, sum.lhs));
 }

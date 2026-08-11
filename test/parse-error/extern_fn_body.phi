@@ -1,0 +1,5 @@
+extern fn write(fd: i32) i64 {
+    return 0
+}
+
+extern fn abort() {}

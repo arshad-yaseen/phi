@@ -1,0 +1,7 @@
+extern let n = 1
+
+extern type Point = {
+    x: i32
+}
+
+extern

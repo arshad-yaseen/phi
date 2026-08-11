@@ -28,6 +28,8 @@ pub const Builtin = enum {
     min_int,
     /// `@max_int[T]()`, the highest value the integer type `T` holds, a constant.
     max_int,
+    /// `@fill(v)`, an array whose every element is `v`.
+    fill,
     /// `@trap()`, stopping the program where it stands.
     trap,
 
@@ -43,6 +45,7 @@ pub const Builtin = enum {
         return switch (builtin) {
             .ptr_cast => .{ .types_min = 1, .types_max = 1, .args = 1 },
             .int_cast => .{ .types_min = 0, .types_max = 1, .args = 1 },
+            .fill => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .size_of, .align_of, .min_int, .max_int => .{
                 .types_min = 1,
                 .types_max = 1,
@@ -57,7 +60,7 @@ pub const Builtin = enum {
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast => true,
-            .int_cast, .size_of, .align_of, .min_int, .max_int, .trap => false,
+            .int_cast, .size_of, .align_of, .min_int, .max_int, .fill, .trap => false,
         };
     }
 
@@ -171,6 +174,10 @@ pub const Builtin = enum {
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
+            .fill => {
+                const wanted = try fillDestination(check, node, hint) orelse return .poison;
+                return fill(check, node, args[0], wanted, values[0]);
+            },
             .trap => {
                 try check.trap();
                 return .diverged;
@@ -314,7 +321,108 @@ fn intCast(
         }) };
     }
 
-    return Check.runtimeValue(try check.emitOne(.int_cast, result, Check.refOf(operand)), result);
+    const ref = try check.emitOne(node, .int_cast, result, Check.refOf(operand));
+    return Check.runtimeValue(ref, result);
+}
+
+/// The array `@fill` builds. Null once reported.
+fn fillDestination(
+    check: *Check,
+    node: Node.Index,
+    hint: ?Pool.Index,
+) Allocator.Error!?Pool.Index {
+    const comp = check.comp;
+
+    const landing = comp.pool.firstMember(hint orelse .void_type);
+    if (comp.pool.keyOf(landing) == .type_array) return landing;
+
+    if (check.typeCanHold(landing)) {
+        try failFillDestination(check, node, landing);
+        return null;
+    }
+    try check.fail(node, .{
+        .code = .inference_failed,
+        .message = "nothing here says what array '@fill' builds",
+        .label = "no type in sight",
+        .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @fill(0)'",
+    });
+    return null;
+}
+
+fn failFillDestination(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .bad_operand,
+        .message = try check.comp.fmt("'@fill' builds an array, and this lands on {s}", .{
+            try check.comp.typeName(found),
+        }),
+        .label = "not an array type",
+    });
+}
+
+fn fill(
+    check: *Check,
+    node: Node.Index,
+    operand_node: Node.Index,
+    wanted: Pool.Index,
+    operand: Value,
+) Allocator.Error!Value {
+    if (operand != .constant) {
+        try check.fail(operand_node, .{
+            .code = .not_constant,
+            .message = "'@fill' repeats a constant, and this is settled at run time",
+            .label = "not a constant",
+            .help = "write a loop to fill storage with something worked out as it runs",
+        });
+        return .poison;
+    }
+
+    const filled = try fillArray(check, node, wanted, operand.constant, 0) orelse return .poison;
+    return .{ .constant = filled };
+}
+
+fn fillArray(
+    check: *Check,
+    node: Node.Index,
+    wanted: Pool.Index,
+    value: Pool.Index,
+    depth: u32,
+) Allocator.Error!?Pool.Index {
+    const comp = check.comp;
+    // a written type nests no deeper than the parser allows
+    assert(depth < AST.nest_max);
+
+    const array = comp.pool.keyOf(wanted).type_array;
+    const element: Pool.Index = element: {
+        if (comp.pool.keyOf(array.child) == .type_array) {
+            break :element try fillArray(check, node, array.child, value, depth + 1) orelse
+                return null;
+        }
+        switch (try comp.pool.fit(comp.gpa, value, array.child)) {
+            .value => |fitted| break :element fitted,
+            .does_not_fit, .wrong_kind => {
+                try check.fail(node, .{
+                    .code = .does_not_fit,
+                    .message = try comp.fmt("{s} does not fit in {s}, which is what '{s}' holds", .{
+                        try comp.spellValue(value),
+                        try comp.typeName(array.child),
+                        try comp.typeName(wanted),
+                    }),
+                    .label = "the wrong element",
+                });
+                return null;
+            },
+        }
+    };
+
+    if (array.len == 0) {
+        return try comp.pool.intern(comp.gpa, .{
+            .value_aggregate = .{ .type = wanted, .elems = &.{} },
+        });
+    }
+    return try comp.pool.intern(comp.gpa, .{
+        .value_splat = .{ .type = wanted, .element = element },
+    });
 }
 
 /// A size or an alignment, an untyped constant, so it meets any integer.
@@ -388,7 +496,7 @@ fn ptrCast(
     const pointer = try check.pointerAt(node, found, "@ptr_cast", null) orelse return .poison;
 
     const result = try check.pointerTo(wanted, pointer.mutable);
-    const ref = try check.emitOne(.ptr_cast, result, Check.refOf(operand));
+    const ref = try check.emitOne(node, .ptr_cast, result, Check.refOf(operand));
     return Check.runtimeValue(ref, result);
 }
 

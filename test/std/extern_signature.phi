@@ -1,0 +1,28 @@
+type Point = {
+    x: i32
+    y: i32
+}
+
+type Timeout
+
+// a view is two words, and nothing on the far side is shaped like one
+extern fn takes_a_view(xs: []u8)
+
+// a struct by value is three different machine answers on three targets
+extern fn takes_a_struct(p: Point)
+extern fn returns_a_struct() Point
+
+// only the niche crosses, because it is one word
+extern fn takes_a_union(reply: u32 | Timeout)
+
+// nor is an array a value that crosses
+extern fn takes_an_array(a: [4]u8)
+
+// 'bool' is a union of unit types, not a number
+extern fn takes_a_bool(flag: bool)
+
+// and one symbol has one signature
+extern fn generic[T](value: T)
+
+// a view hides in the null address too, and is two words either way
+extern fn takes_an_absent_view(xs: []u8 | none)

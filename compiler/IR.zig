@@ -3,6 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
 const Pool = @import("Pool.zig");
 const handle = @import("util/handle.zig");
@@ -94,6 +95,8 @@ pub const Inst = struct {
     tag: Tag,
     /// `void_type` for an effect.
     type: Pool.Index,
+    /// Where this came from, read against the owning `Func`'s module.
+    node: AST.Node.Index,
     data: Data,
 
     pub const Index = handle.Index("inst");
@@ -134,6 +137,8 @@ pub const Inst = struct {
         order_check,
         /// The count a view carries.
         slice_len,
+        /// The address a view carries.
+        slice_ptr,
         slice_make,
 
         /// Traps where the sum does not fit.
@@ -192,7 +197,7 @@ pub const Inst = struct {
                 .field_ptr, .field_val => .field,
                 .union_is => .probe,
                 .call, .slice_make, .aggregate_init => .payload,
-                .load, .slice_len, .negate, .not, .bit_not => .un,
+                .load, .slice_len, .slice_ptr, .negate, .not, .bit_not => .un,
                 .ptr_cast, .int_widen, .float_widen, .int_cast => .un,
                 .union_init, .union_narrow => .un,
                 .store, .elem_ptr, .bounds_check, .order_check => .bin,
@@ -244,6 +249,7 @@ pub const Terminator = union(enum) {
 comptime {
     assert(@sizeOf(Inst.Tag) == 1);
     assert(@sizeOf(Ref) == 4);
+    assert(@sizeOf(AST.Node.Index) == 4);
     if (std.debug.runtime_safety == false) assert(@sizeOf(Inst.Data) == 8);
     assert(@sizeOf(Block) <= 24);
     // the largest instruction ref stays one below `none`, never colliding

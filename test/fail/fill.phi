@@ -1,0 +1,29 @@
+// nothing says which array this builds
+fn no_type() {
+    _ = @fill(0)
+}
+
+// what it lands on is not an array
+fn not_an_array() u32 {
+    return @fill(0)
+}
+
+// the value has to fit the element
+fn does_not_fit() [2]u8 {
+    return @fill(300)
+}
+
+// a fill repeats a constant, so a value settled at run time is refused
+fn runtime_value(n: u8) [2]u8 {
+    return @fill(n)
+}
+
+// and it takes one value
+fn wrong_arity() [2]u8 {
+    return @fill(1, 2)
+}
+
+// the array comes from where it lands, so there is no type to write
+fn written_type() [2]u8 {
+    return @fill[u8](0)
+}

@@ -1,0 +1,11 @@
+/// Written into the file descriptor.
+extern fn write(fd: i32, buf: *u8, len: u64) i64
+
+pub extern fn malloc(size: u64) *var u8 | none
+
+extern fn abort()
+
+fn calls_them(text: *u8) {
+    _ = write(2, text, 3)
+    abort()
+}

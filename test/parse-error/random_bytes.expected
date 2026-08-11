@@ -4,5 +4,5 @@ error[E0104]: expected a declaration, found invalid bytes
 1 |   ÿ AÃ( ş \`$#@
   | ^^^^^ expected a declaration
   |
-  = help: a file holds 'import', 'type', 'fn', and 'let'
+  = help: a file holds 'import', 'type', 'fn', 'extern fn', and 'let'
 

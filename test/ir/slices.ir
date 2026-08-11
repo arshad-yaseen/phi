@@ -148,3 +148,29 @@ b4:
   %6 = union_narrow %0 : none
   %7 = store %1, 0:u64
   jump b1
+
+fn address(xs: []u32) *u32
+b0:
+  %0 = param xs : []u32
+  %1 = slice_ptr %0 : *u32
+  return %1
+
+fn writable_address(xs: []var u32) *var u32
+b0:
+  %0 = param xs : []var u32
+  %1 = slice_ptr %0 : *var u32
+  return %1
+
+fn address_through_a_pointer(p: *[]u32) *u32
+b0:
+  %0 = param p : *[]u32
+  %1 = load %0 : []u32
+  %2 = slice_ptr %1 : *u32
+  return %2
+
+fn address_of_storage(a: *[4]u32) *u32
+b0:
+  %0 = param a : *[4]u32
+  %1 = slice_make %0, 0:u64, 4:u64 : []u32
+  %2 = slice_ptr %1 : *u32
+  return %2

@@ -1,0 +1,33 @@
+root
+  fn_decl write extern
+    doc /// Written into the file descriptor.
+    param fd
+      type: ident i32
+    param buf
+      type: pointer_type
+        child: ident u8
+    param len
+      type: ident u64
+    ret: ident i64
+  fn_decl malloc pub extern
+    param size
+      type: ident u64
+    ret: union_type
+      pointer_type var
+        child: ident u8
+      ident none
+  fn_decl abort extern
+  fn_decl calls_them
+    param text
+      type: pointer_type
+        child: ident u8
+    body: block
+      assign =
+        lhs: ident _
+        rhs: call
+          callee: ident write
+          arg: number_literal 2
+          arg: ident text
+          arg: number_literal 3
+      call
+        callee: ident abort
