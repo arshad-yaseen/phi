@@ -2,8 +2,43 @@
 
 ## [Unreleased]
 
+Unions gave 0.2.0 its shape. This release gives a program something to hold:
+`[N]T` lays values end to end, `[]T` views values it does not own, `a[x..y]` is
+the one bridge between them, and text is bytes that fit either. Every type now
+answers its size and alignment, so what a value costs is settled before
+anything runs. A standard library opens on top of that, over a prelude that
+gives `none`, `bool`, and `str` one meaning in every file.
+
 ### Language
 
+- `[N]T` is an array, N values of one type laid out end to end and written
+  `[1, 2, 3]`. The length lives in the type, so it costs no memory and answers
+  as `a.len`, `a[i]` is a place the way a field is, and an index past the end is
+  refused before anything runs or checked before the memory is touched.
+- `[]T` is a view of elements it does not own, two words wide, and `[]var T`
+  also writes through and fits wherever a `[]T` is asked. It holds no elements,
+  so a type may hold a view of itself, and `[]T | none` costs no more than the
+  view alone.
+- `a[x..y]` is the single bridge from storage to a view, spelled as an
+  expression so a reader sees the moment it happens. `a..` runs to the base's
+  own length, what the view may write is what the place it came from allowed,
+  and a range that leaves its base is refused before anything runs or checked
+  before the view is made.
+- A constant that lands on a view gets bytes the program owns, so `[2, 3, 5, 7]`
+  fits a `[]u32` and one written twice is one set of bytes. It never fits a
+  `[]var T`, and an array with a part settled at run time is refused rather
+  than viewed from a frame that is about to leave.
+- A string is bytes and a character is a number, both written as constants that
+  fit where their values fit: `"text/plain"` returned as `[]u8` is bytes the
+  program owns, `let magic: [2]u8 = "hi"` is storage with its length checked,
+  and `s[i] == 'a'` compares two numbers. Escapes decode at compile time, and a
+  literal never crosses a line.
+- `loop i in 0..n` counts a range: the name is a `let` for the pass, both ends
+  are read once before the first, and the counter takes the type of the ends,
+  `u64` where neither says. `in` joins the keywords.
+- Every type answers its size and alignment: `bool` is one byte, and
+  `*T | none` is one word, with `none` as the zero no valid pointer holds.
+  A type past 4 GiB is refused with `E0261`.
 - A narrower number lands on a wider one with nothing written, because every
   value of the narrower type is already a value of the wider. Signedness may
   change where no value is lost, an `f32` is exactly an `f64`, and the two ends
@@ -15,20 +50,12 @@
 - An operation the compiler performs itself is written `@name`, so `intrinsic`
   is no longer a keyword. Only one that could break a guarantee the checker
   made, `@ptr_cast`, is still the standard library's alone.
-- Reaching a member by the wrong kind is refused: calling a field used to
-  compile silently, reading a method now says to call it, and a missed name
-  suggests methods as well as fields.
-- Every type answers its size and alignment: `bool` is one byte, and
-  `*T | none` is one word, with `none` as the zero no valid pointer holds.
-  A type past 4 GiB is refused with `E0261`.
-- A string is bytes and a character is a number, both written as constants that
-  fit where their values fit: `"text/plain"` returned as `[]u8` is bytes the
-  program owns, `let magic: [2]u8 = "hi"` is storage with its length checked,
-  and `s[i] == 'a'` compares two numbers. Escapes decode at compile time, and a
-  literal never crosses a line.
 - `@size_of[T]()`, `@align_of[T]()`, `@min_int[T]()`, and `@max_int[T]()` answer
   as constants that fit wherever their value fits, so `let n: u32 =
   @size_of[Node]()` needs no conversion and `@max_int[u64]()` is exact.
+- The prelude arrives: `none`, `true`, `false`, `bool`, and `str` are declared
+  once in `std.prelude` and visible in every file, so optionals, truth, and
+  text share one identity across modules. A file's own declaration still wins.
 - `std.mem` opens the standard library with `align_up`, which rounds an address
   to an alignment it asserts is a power of two, and `eql`, which answers whether
   two views hold the same elements in the same order.
@@ -36,40 +63,12 @@
   program where it stands. `std.math` opens with `is_power_of_two`.
 - A union may stand in a bracket, so `Box[u32 | none]` means the union it
   spells.
-- The prelude arrives: `none`, `true`, `false`, `bool`, and `str` are declared
-  once in `std.prelude` and visible in every file, so optionals, truth, and
-  text share one identity across modules. A file's own declaration still wins.
 - What a call feeds may pin its type argument: in `let a: u64 =
-  mem.align_up(11, 8)`, the annotation decides `T` where the arguments
-  leave it open. An argument pins through whatever its parameter is
-  written in, so `T`, `*T`, `[]T`, and `[N]T` all read what they hold,
-  and every parameter written in it is read until one has a type to give,
-  so a bare number may sit beside the argument that pins it. The return
-  type reads the same way, so an annotation reaches a type argument no
-  parameter mentions. A width stated nowhere still refuses.
-- `[N]T` is an array, N values of one type laid out end to end and written
-  `[1, 2, 3]`. The length lives in the type, so it costs no memory, answers as
-  `a.len`, and may size another array. A literal has no type until it lands, so
-  one written once fits wherever its value fits. `a[i]` names an element, which
-  is read, written, and pointed at the way a field is, and a constant index past
-  the end is refused before anything runs, while every other index is checked
-  before the memory is touched.
-- `[]T` is a view of elements it does not own, two words wide, and `[]var T`
-  also writes through and fits wherever a `[]T` is asked. It answers `len` and
-  indexes the way an array does, holds no elements so a type may hold a view of
-  itself, and `[]T | none` costs no more than the view alone.
-- A constant that lands on a view gets bytes the program owns, so `[2, 3, 5, 7]`
-  fits a `[]u32` and one written twice is one set of bytes. It never fits a
-  `[]var T`, and an array with a part settled at run time is refused rather
-  than viewed from a frame that is about to leave.
-- `a[x..y]` makes one, the single bridge from storage to a view, spelled as an
-  expression so a reader sees the moment it happens. `a..` runs to the base's
-  own length, the ends take each other's type, what the view may write is what
-  the place it came from allowed, and a range that leaves its base is refused
-  before anything runs, or checked before the view is made.
-- `loop i in 0..n` counts a range: the name is a `let` for the pass, both ends
-  are read once before the first, and the counter takes the type of the ends,
-  `u64` where neither says. `in` joins the keywords.
+  mem.align_up(11, 8)` the annotation decides `T` where the arguments leave it
+  open, and the return type reads the same way, so an annotation reaches a type
+  argument no parameter mentions. An argument pins through whatever its
+  parameter is written in, `T`, `*T`, `[]T`, and `[N]T` alike, and a width
+  stated nowhere still refuses.
 - A struct literal may leave out the type where what it lands on says it, so
   `let p: Point = .{ x: 1, y: 2 }` reads once instead of twice, as do an
   argument, a return, a field, and an element. It still names the type where
@@ -78,12 +77,15 @@
   struct, so `Point.{ x: 1, y: 2 }` binds at the top level, sits inside an
   array, and costs no instruction, while one with a runtime part is built where
   it stands.
-- A `var` no longer asks a sealed constant for the type it already carries:
-  `let n: u64 = 2` followed by `var c = n` used to be refused.
 - `==` and `!=` compare two pointers by the address each one is, and what may be
   written through a pointer is not part of that. Everything they still refuse
-  says what answers instead: `is` and `match` for a union, `std.mem.eql` for a
-  view, a written comparison for a struct.
+  says what answers instead: `is` for a union, `std.mem.eql` for a view, a
+  written comparison for a struct.
+- Reaching a member by the wrong kind is refused: calling a field used to
+  compile silently, reading a method now says to call it, and a missed name
+  suggests methods as well as fields.
+- A `var` no longer asks a sealed constant for the type it already carries:
+  `let n: u64 = 2` followed by `var c = n` used to be refused.
 
 ### Compiler
 
