@@ -1,5 +1,4 @@
-//! One item per type and per payload, so equality is index equality. An array
-//! of one repeated value has two, its elements and the value it repeats.
+//! One item per type and per payload, so equality is index equality.
 
 const std = @import("std");
 const assert = std.debug.assert;
