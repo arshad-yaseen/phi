@@ -12,7 +12,6 @@ compiler/    the compiler, importable as the `compiler` module
 tools/phi/   the binary: argv, dispatch, exit codes
 lib/std/     the standard library, shipped as source beside the binary
 test/        file tests, one directory per kind
-docs/        the design, one document per area
 ```
 
 ## Commands
