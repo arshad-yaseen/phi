@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-08-11
 
 Unions gave 0.2.0 its shape. This release gives a program something to hold:
 `[N]T` lays values end to end, `[]T` views values it does not own, `a[x..y]` is
@@ -198,6 +198,7 @@ Initial release. `phi` checks a program and prints its typed IR. Nothing runs ye
 - `phi check <entry>` and `phi ir <entry>`.
 - `--std <dir>`, `--color auto|on|off`, and `--version`.
 
-[Unreleased]: https://github.com/arshad-yaseen/phi/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/arshad-yaseen/phi/compare/0.3.0...HEAD
+[0.3.0]: https://github.com/arshad-yaseen/phi/compare/0.2.0...0.3.0
 [0.2.0]: https://github.com/arshad-yaseen/phi/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/arshad-yaseen/phi/releases/tag/0.1.0
