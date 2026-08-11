@@ -1,0 +1,54 @@
+// what it lands on names the type, so the destination is written once
+fn substituted(n: u32) u8 {
+    return @int_cast(n) or 0
+}
+
+fn clamped(n: u32) u8 {
+    return @int_cast(n) or @max_int[u8]()
+}
+
+fn guarded(n: u32) u8 {
+    let small: u8 = @int_cast(n) or return 0
+    return small
+}
+
+// the result leads with the type, so a union it lands on names it too
+fn handed_up(n: u64) u16 | none {
+    return @int_cast(n)
+}
+
+// and it is an ordinary union, so it matches like any other
+fn matched(n: u64) u16 {
+    return match @int_cast[u16](n) {
+        u16 => 1
+        none => 0
+    }
+}
+
+// same width, still a conversion, because a negative has nowhere to go
+fn to_unsigned(n: i32) u32 {
+    return @int_cast(n) or 0
+}
+
+fn to_signed(n: u32) i32 {
+    return @int_cast(n) or 0
+}
+
+// a known value folds, whichever member it settles on
+fn fits() u8 {
+    return @int_cast(200) or 0
+}
+
+fn does_not_fit() u8 {
+    return @int_cast(300) or 7
+}
+
+// a type parameter settles per instantiation, and one body serves both
+fn narrowed[T](n: u64) T {
+    return @int_cast[T](n) or 0
+}
+
+fn drive(n: u64) u64 {
+    _ = narrowed[u8](n)
+    return narrowed[u64](n)
+}

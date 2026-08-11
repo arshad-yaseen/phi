@@ -649,6 +649,13 @@ pub fn unionMemberAt(pool: *const Pool, index: Index, at: u32) Index {
     return @enumFromInt(pool.extra.items[data + 1 + at]);
 }
 
+/// What a type leads with, which a union answers with its first member and every
+/// other type with itself.
+pub fn firstMember(pool: *const Pool, index: Index) Index {
+    if (pool.isUnion(index) == false) return index;
+    return pool.unionMemberAt(index, 0);
+}
+
 pub fn string(pool: *Pool, gpa: Allocator, text: []const u8) Allocator.Error!String {
     // guarded, because a scanning assert survives into release builds
     if (std.debug.runtime_safety) assert(std.mem.indexOfScalar(u8, text, 0) == null);
@@ -766,11 +773,22 @@ pub fn isNumeric(index: Index) bool {
     return isFloat(index);
 }
 
+pub fn isSizedInt(index: Index) bool {
+    if (isInteger(index) == false) return false;
+    return index != .untyped_int_type;
+}
+
+/// Whether every value of `from` is also a value of `into`, so no value is lost.
+pub fn intWidens(from: Index, into: Index) bool {
+    if (isSizedInt(from) == false) return false;
+    if (isSizedInt(into) == false) return false;
+    if (minInt(into) > minInt(from)) return false;
+    return maxInt(from) <= maxInt(into);
+}
+
 /// The lowest value an integer type holds. Exact, because every width folds in 128 bits.
 pub fn minInt(type_index: Index) i128 {
-    // a written type is never untyped, so every case below is a stated width
-    assert(isInteger(type_index));
-    assert(type_index != .untyped_int_type);
+    assert(isSizedInt(type_index));
 
     return switch (type_index) {
         .i8_type => std.math.minInt(i8),
@@ -783,8 +801,7 @@ pub fn minInt(type_index: Index) i128 {
 }
 
 pub fn maxInt(type_index: Index) i128 {
-    assert(isInteger(type_index));
-    assert(type_index != .untyped_int_type);
+    assert(isSizedInt(type_index));
 
     return switch (type_index) {
         .i8_type => std.math.maxInt(i8),
@@ -831,8 +848,8 @@ pub const Fold = union(enum) {
     /// Past the 128 bits constants fold in.
     overflow,
     division_by_zero,
-    /// Outside `0 ..< 128`, the width constants fold in.
-    bad_shift: i128,
+    /// Outside the width the shifted value occupies.
+    bad_shift: struct { count: i128, type: Index },
     /// Refused by the type both operands carry.
     does_not_fit: struct { value: i128, type: Index },
     mismatch: struct { left: Index, right: Index },
@@ -897,6 +914,19 @@ pub fn foldBitNot(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!F
     return pool.internInt(gpa, complementOf(number.int, number.type), number.type);
 }
 
+/// The bits a value of this type occupies, which bounds every shift of it.
+pub fn widthOf(type_index: Index) u16 {
+    assert(isInteger(type_index));
+    return switch (type_index) {
+        .i8_type, .u8_type => 8,
+        .i16_type, .u16_type => 16,
+        .i32_type, .u32_type => 32,
+        .i64_type, .u64_type => 64,
+        .untyped_int_type => fold_bits,
+        else => unreachable,
+    };
+}
+
 /// Unsigned complements inside the width, everything else in two's complement.
 fn complementOf(value: i128, type_index: Index) i128 {
     assert(isInteger(type_index));
@@ -911,10 +941,10 @@ fn complementOf(value: i128, type_index: Index) i128 {
     };
 }
 
-/// Null outside `0 ..< fold_bits`, which bounds every type Phi has.
-fn shiftAmount(count: i128) ?std.math.Log2Int(i128) {
+/// Null where the distance is not one the value's own width allows.
+fn shiftAmount(count: i128, type_index: Index) ?std.math.Log2Int(i128) {
     if (count < 0) return null;
-    if (count >= fold_bits) return null;
+    if (count >= widthOf(type_index)) return null;
     return @intCast(count);
 }
 
@@ -1091,13 +1121,15 @@ fn numberOf(key: Key) ?Number {
     };
 }
 
-/// The type two operands share, or null. An untyped operand takes the other.
-fn sharedType(left: Index, right: Index) ?Index {
+/// The type two operands share, or null where no value of one is a value of the other.
+pub fn sharedType(left: Index, right: Index) ?Index {
     if (left == right) return left;
     if (left == .untyped_int_type) return right;
     if (right == .untyped_int_type) return left;
     if (left == .untyped_float_type) return if (isFloat(right)) right else null;
     if (right == .untyped_float_type) return if (isFloat(left)) left else null;
+    if (intWidens(left, right)) return right;
+    if (intWidens(right, left)) return left;
     return null;
 }
 
@@ -1135,12 +1167,16 @@ fn foldInt(
         .bit_or => return pool.internInt(gpa, a | b, result_type),
         .bit_xor => return pool.internInt(gpa, a ^ b, result_type),
         .shift_left => {
-            const amount = shiftAmount(b) orelse return .{ .bad_shift = b };
+            const amount = shiftAmount(b, result_type) orelse {
+                return .{ .bad_shift = .{ .count = b, .type = result_type } };
+            };
             const wide = std.math.shlExact(i128, a, amount) catch return .overflow;
             return pool.internInt(gpa, wide, result_type);
         },
         .shift_right => {
-            const amount = shiftAmount(b) orelse return .{ .bad_shift = b };
+            const amount = shiftAmount(b, result_type) orelse {
+                return .{ .bad_shift = .{ .count = b, .type = result_type } };
+            };
             return pool.internInt(gpa, a >> amount, result_type);
         },
         .equal => return boolFold(a == b),

@@ -2,11 +2,24 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+
+const AST = @import("AST.zig");
+const Check = @import("Check.zig");
+const Layout = @import("Layout.zig");
+const Pool = @import("Pool.zig");
+const Token = @import("Token.zig");
+const spell = @import("util/spell.zig");
+
+const Node = AST.Node;
+const Value = Check.Value;
 
 /// Spelled in source exactly as the tag is written, after the `@`.
 pub const Builtin = enum {
     /// `@ptr_cast[T](pointer)`, retyping a pointer without moving it.
     ptr_cast,
+    /// `@int_cast[T](n)`, the number where `T` holds it, and `none` where it does not.
+    int_cast,
     /// `@size_of[T]()`, the bytes a value of `T` occupies, a constant.
     size_of,
     /// `@align_of[T]()`, the alignment a value of `T` requires, a constant.
@@ -20,15 +33,22 @@ pub const Builtin = enum {
 
     /// Validated before typing a call. Type rules live with the case that needs them.
     pub const Shape = struct {
-        type_params: u8,
-        params: u8,
+        /// Below `types_max` where the result names the type, so a hint can pin it.
+        types_min: u8,
+        types_max: u8,
+        args: u8,
     };
 
     pub fn shape(builtin: Builtin) Shape {
         return switch (builtin) {
-            .ptr_cast => .{ .type_params = 1, .params = 1 },
-            .size_of, .align_of, .min_int, .max_int => .{ .type_params = 1, .params = 0 },
-            .trap => .{ .type_params = 0, .params = 0 },
+            .ptr_cast => .{ .types_min = 1, .types_max = 1, .args = 1 },
+            .int_cast => .{ .types_min = 0, .types_max = 1, .args = 1 },
+            .size_of, .align_of, .min_int, .max_int => .{
+                .types_min = 1,
+                .types_max = 1,
+                .args = 0,
+            },
+            .trap => .{ .types_min = 0, .types_max = 0, .args = 0 },
         };
     }
 
@@ -37,7 +57,7 @@ pub const Builtin = enum {
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast => true,
-            .size_of, .align_of, .min_int, .max_int, .trap => false,
+            .int_cast, .size_of, .align_of, .min_int, .max_int, .trap => false,
         };
     }
 
@@ -56,15 +76,325 @@ pub const Builtin = enum {
     /// For a suggestion when a name is missed.
     pub const names = std.meta.fieldNames(Builtin);
 
-    /// Sized from the table, so no call site has to check its buffers.
-    pub const type_params_max = 1;
-    pub const params_max = 1;
+    /// The widest the table goes, so no call site has to check its buffers.
+    pub const types_max = blk: {
+        var most: u8 = 0;
+        for (std.enums.values(Builtin)) |builtin| most = @max(most, builtin.shape().types_max);
+        break :blk most;
+    };
+
+    pub const args_max = blk: {
+        var most: u8 = 0;
+        for (std.enums.values(Builtin)) |builtin| most = @max(most, builtin.shape().args);
+        break :blk most;
+    };
+
+    /// The builtin a `@name` spells, and whether this file may reach it. Null once reported.
+    pub fn resolve(check: *Check, name_token: Token.Index) Allocator.Error!?Builtin {
+        const comp = check.comp;
+        const name_text = Builtin.nameOf(check.tree.tokenSlice(name_token));
+
+        const which = Builtin.fromName(name_text) orelse {
+            try check.failToken(name_token, .{
+                .code = .no_such_member,
+                .message = try comp.fmt("there is no builtin named '@{s}'", .{name_text}),
+                .label = "no such builtin",
+                .help = try suggest(check, name_text),
+            });
+            return null;
+        };
+        if (which.stdOnly() and check.module.space != .std) {
+            try check.failToken(name_token, .{
+                .code = .builtin_outside_std,
+                .message = try comp.fmt("only the standard library reaches '@{s}'", .{name_text}),
+                .label = "not available here",
+                .help = "std wraps it in an ordinary declaration, so call that instead",
+            });
+            return null;
+        }
+        return which;
+    }
+
+    /// A builtin stands only in a call, so a bare `@name` is a mistake.
+    pub fn notAValue(check: *Check, node: Node.Index) Allocator.Error!Value {
+        try check.fail(node, .{
+            .code = .not_a_function,
+            .message = "a builtin is not a value, so call it",
+            .label = "missing the call",
+            .help = "write '@name(...)', with its type arguments if it takes any",
+        });
+        return .poison;
+    }
+
+    /// Arity from the table, then the one case that knows what this builtin means.
+    pub fn call(
+        builtin: Builtin,
+        check: *Check,
+        node: Node.Index,
+        type_args: []const Node.Index,
+        args: []const Node.Index,
+        hint: ?Pool.Index,
+    ) Allocator.Error!Value {
+        const comp = check.comp;
+        const form = builtin.shape();
+
+        if (args.len != form.args) {
+            try check.fail(node, .{
+                .code = .wrong_arity,
+                .message = try comp.fmt("'@{s}' takes {d} argument{s}, and this call has {d}", .{
+                    @tagName(builtin), form.args, Check.plural(form.args), args.len,
+                }),
+                .label = "wrong number of arguments",
+            });
+            return .poison;
+        }
+
+        var types: [types_max]Pool.Index = undefined;
+        if (try resolveTypes(check, node, builtin, type_args, &types) == false) return .poison;
+
+        var values: [args_max]Value = undefined;
+        for (args, 0..) |argument, position| {
+            const value = try check.checkExpr(argument, null);
+            if (value == .diverged) return .diverged;
+            if (try check.valueOnly(argument, value) == false) return .poison;
+            if (value == .poison) return .poison;
+            values[position] = value;
+        }
+
+        switch (builtin) {
+            .ptr_cast => return ptrCast(check, args[0], types[0], values[0]),
+            .int_cast => {
+                const written: ?Pool.Index = if (type_args.len == 1) types[0] else null;
+                const wanted = try intCastDestination(check, node, written, hint) orelse
+                    return .poison;
+                return intCast(check, node, args[0], wanted, values[0]);
+            },
+            .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
+            .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
+            .trap => {
+                try check.trap();
+                return .diverged;
+            },
+        }
+    }
 };
+
+fn suggest(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
+    var closest: spell.Closest = .{ .target = text };
+    for (Builtin.names) |candidate| closest.consider(candidate);
+    return check.comp.didYouMean(closest);
+}
+
+/// The type arguments as written, within the count the table allows. False once reported.
+fn resolveTypes(
+    check: *Check,
+    node: Node.Index,
+    builtin: Builtin,
+    written: []const Node.Index,
+    out: *[Builtin.types_max]Pool.Index,
+) Allocator.Error!bool {
+    const comp = check.comp;
+    const form = builtin.shape();
+    assert(form.types_max <= out.len);
+
+    if (written.len < form.types_min or written.len > form.types_max) {
+        const bound: []const u8 = if (form.types_min < form.types_max) "at most " else "";
+        try check.fail(node, .{
+            .code = .generic_arguments,
+            .message = try comp.fmt("'@{s}' takes {s}{d} type argument{s}, and this writes {d}", .{
+                @tagName(builtin),
+                bound,
+                form.types_max,
+                Check.plural(form.types_max),
+                written.len,
+            }),
+            .label = "wrong number of type arguments",
+        });
+        return false;
+    }
+
+    for (written, 0..) |type_arg, position| {
+        const resolved = try check.resolveWrittenType(type_arg);
+        if (resolved == .poison) return false;
+        out[position] = resolved;
+    }
+    return true;
+}
+
+/// The type `@int_cast` converts to. Its result leads with the destination, so a
+/// landing names it whole or as its first member. Null once reported.
+fn intCastDestination(
+    check: *Check,
+    node: Node.Index,
+    written: ?Pool.Index,
+    hint: ?Pool.Index,
+) Allocator.Error!?Pool.Index {
+    const comp = check.comp;
+
+    if (written) |wanted| {
+        if (Pool.isSizedInt(wanted)) return wanted;
+        try failDestination(check, node, wanted, "and this is");
+        return null;
+    }
+
+    const landing = comp.pool.firstMember(hint orelse .void_type);
+    if (Pool.isSizedInt(landing)) return landing;
+
+    // a type that cannot be the destination is not the same as no type at all
+    if (check.typeCanHold(landing)) {
+        try failDestination(check, node, landing, "and this lands on");
+        return null;
+    }
+    try check.fail(node, .{
+        .code = .inference_failed,
+        .message = "nothing here says what type '@int_cast' converts to",
+        .label = "no type in sight",
+        .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
+    });
+    return null;
+}
+
+fn failDestination(
+    check: *Check,
+    node: Node.Index,
+    found: Pool.Index,
+    reached: []const u8,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .bad_operand,
+        .message = try check.comp.fmt("'@int_cast' converts between integers, {s} {s}", .{
+            reached,
+            try check.comp.typeName(found),
+        }),
+        .label = "not an integer type",
+    });
+}
+
+/// The number where the type holds it, and `none` where it does not.
+fn intCast(
+    check: *Check,
+    node: Node.Index,
+    operand_node: Node.Index,
+    wanted: Pool.Index,
+    operand: Value,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(Pool.isSizedInt(wanted));
+
+    const found = check.typeOf(operand);
+    if (Pool.isInteger(found) == false) {
+        try check.fail(operand_node, .{
+            .code = .bad_operand,
+            .message = try comp.fmt("'@int_cast' converts a number, and this is {s}", .{
+                try comp.typeName(found),
+            }),
+            .label = "not a number",
+        });
+        return .poison;
+    }
+
+    const absent = try check.noneType(node);
+    if (absent == .poison) return .poison;
+    const result = switch (try comp.pool.unite(comp.gpa, &.{ wanted, absent })) {
+        .index => |index| index,
+        // an integer type is never `none`, and two members are never too wide
+        .duplicate, .too_wide => unreachable,
+    };
+
+    if (operand == .constant) {
+        assert(comp.pool.keyOf(operand.constant) == .value_int);
+        const written = comp.pool.keyOf(operand.constant).value_int.value;
+        const member = if (Pool.fitsInt(written, wanted))
+            try comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = wanted, .value = written } })
+        else
+            try comp.pool.intern(comp.gpa, .{ .value_unit = absent });
+        return .{ .constant = try comp.pool.intern(comp.gpa, .{
+            .value_union = .{ .type = result, .value = member },
+        }) };
+    }
+
+    return Check.runtimeValue(try check.emitOne(.int_cast, result, Check.refOf(operand)), result);
+}
+
+/// A size or an alignment, an untyped constant, so it meets any integer.
+fn layoutOf(
+    check: *Check,
+    node: Node.Index,
+    builtin: Builtin,
+    wanted: Pool.Index,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(builtin == .size_of or builtin == .align_of);
+
+    switch (try Layout.of(comp, check.origin(node), wanted)) {
+        .layout => |layout| {
+            const answer: u32 = if (builtin == .size_of) layout.size else layout.alignment;
+            return .{ .constant = try comp.pool.intern(comp.gpa, .{
+                .value_int = .{ .type = .untyped_int_type, .value = answer },
+            }) };
+        },
+        .poison => return .poison,
+        .too_large => {
+            try check.fail(node, .{
+                .code = .type_too_large,
+                .message = try comp.fmt("'{s}' is larger than the 4 GiB a type may hold", .{
+                    try comp.typeName(wanted),
+                }),
+                .label = "too large",
+            });
+            return .poison;
+        },
+    }
+}
+
+/// An edge of an integer type, an untyped constant, so it meets any type it fits.
+fn limitOf(
+    check: *Check,
+    node: Node.Index,
+    builtin: Builtin,
+    wanted: Pool.Index,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(builtin == .min_int or builtin == .max_int);
+
+    if (Pool.isInteger(wanted) == false) {
+        try check.fail(node, .{
+            .code = .bad_operand,
+            .message = try comp.fmt("'@{s}' needs an integer type, and this is {s}", .{
+                @tagName(builtin), try comp.typeName(wanted),
+            }),
+            .label = "not an integer type",
+            .help = "the integer types are 'i8' through 'i64' and 'u8' through 'u64'",
+        });
+        return .poison;
+    }
+
+    const edge = if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted);
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = .untyped_int_type, .value = edge },
+    }) };
+}
+
+/// Retypes the pointee and keeps what the pointer may do.
+fn ptrCast(
+    check: *Check,
+    node: Node.Index,
+    wanted: Pool.Index,
+    operand: Value,
+) Allocator.Error!Value {
+    const found = check.typeOf(operand);
+
+    const pointer = try check.pointerAt(node, found, "@ptr_cast", null) orelse return .poison;
+
+    const result = try check.pointerTo(wanted, pointer.mutable);
+    const ref = try check.emitOne(.ptr_cast, result, Check.refOf(operand));
+    return Check.runtimeValue(ref, result);
+}
 
 comptime {
     assert(@typeInfo(Builtin).@"enum".fields.len > 0);
     for (std.enums.values(Builtin)) |builtin| {
-        assert(builtin.shape().type_params <= Builtin.type_params_max);
-        assert(builtin.shape().params <= Builtin.params_max);
+        assert(builtin.shape().types_min <= builtin.shape().types_max);
     }
 }

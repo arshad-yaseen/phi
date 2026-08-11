@@ -4,6 +4,13 @@
 
 ### Language
 
+- A narrower integer lands on a wider one with nothing written, because every
+  value of the narrower type is already a value of the wider. Signedness may
+  change where no value is lost, and the two ends of an operator meet the same
+  way, so a `u32` counter reaches a `u64` length with no conversion between them.
+- `@int_cast(n)` is the conversion that can lose a value, and answers `T | none`,
+  so `or` says what happens when it does not fit. It converts to what it lands
+  on, and takes `[T]` where nothing lands it.
 - An operation the compiler performs itself is written `@name`, so `intrinsic`
   is no longer a keyword. Only one that could break a guarantee the checker
   made, `@ptr_cast`, is still the standard library's alone.
@@ -74,6 +81,8 @@
 
 ### Compiler
 
+- A shift is bounded by the width it shifts rather than the width constants
+  fold in, so `a << 9` on a `u8` says that a `u8` shifts by 0 to 7.
 - `E0248` retires. It named a byte a number cannot contain, which the
   tokenizer never puts inside one, so no program could reach it. What it
   described is `E0247` along with every other malformed number.

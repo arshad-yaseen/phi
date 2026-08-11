@@ -1,3 +1,5 @@
-fn f(value: u32, shift: u8) u32 {
+// A count that is not a value of the shifted type does not bridge either.
+
+fn f(value: u32, shift: i32) u32 {
     return value << shift
 }

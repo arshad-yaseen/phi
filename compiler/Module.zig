@@ -47,6 +47,7 @@ pub const Space = enum { root, std };
 pub const std_name = "std";
 pub const prelude_name = "prelude";
 pub const bool_name = "bool";
+pub const none_name = "none";
 const discard_name = "_";
 
 /// Whether this text is the discard, which is never a name.

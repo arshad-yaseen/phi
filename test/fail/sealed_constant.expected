@@ -1,10 +1,10 @@
-error[E0207]: '+' mixes u32 and u64
-  --> test/fail/sealed_constant.phi:10:25
+error[E0206]: expected u32, found u64
+  --> test/fail/sealed_constant.phi:10:23
    |
 10 |         u32 => return a + b
-   |                         ^ two different types
+   |                       ^^^^^ the wrong type
    |
-   = help: nothing converts on its own, so give both sides one type
+   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
 
 error[E0206]: expected u32, found u64
   --> test/fail/sealed_constant.phi:19:18
@@ -12,7 +12,7 @@ error[E0206]: expected u32, found u64
 19 |     let c: u32 = b
    |                  ^ the wrong type
    |
-   = help: nothing converts on its own
+   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
 
 error[E0206]: expected u8, found u32 | u8
   --> test/fail/sealed_constant.phi:25:17

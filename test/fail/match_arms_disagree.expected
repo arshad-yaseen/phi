@@ -4,5 +4,5 @@ error[E0206]: expected u32, found i64
 8 |         false => b
   |                  ^ the wrong type
   |
-  = help: nothing converts on its own
+  = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
 

@@ -40,5 +40,5 @@ error[E0206]: expected u32, found u64
 23 |     return a.len
    |            ^^^^^ the wrong type
    |
-   = help: nothing converts on its own
+   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
 

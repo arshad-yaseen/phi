@@ -490,6 +490,8 @@ fn inst(
         .load,
         .slice_len,
         .ptr_cast,
+        .int_widen,
+        .int_cast,
         .union_init,
         .union_narrow,
         .negate,

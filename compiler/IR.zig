@@ -174,16 +174,22 @@ pub const Inst = struct {
         slice_make,
 
         // all `bin`
+        /// Traps where the sum does not fit.
         add,
+        /// Traps where the difference does not fit.
         sub,
+        /// Traps where the product does not fit.
         mul,
+        /// Traps where the quotient does not fit, and where the divisor is zero.
         div,
+        /// Traps where the divisor is zero.
         mod,
         bit_and,
         bit_or,
         bit_xor,
+        /// Traps where the count is not below the width. Bits shifted out are lost.
         shift_left,
-        /// Arithmetic, so a negative value keeps its sign.
+        /// Arithmetic, so a negative value keeps its sign. Traps on the same counts.
         shift_right,
         cmp_eq,
         cmp_ne,
@@ -193,12 +199,17 @@ pub const Inst = struct {
         cmp_ge,
 
         // all `un`
+        /// Traps where the negation does not fit, which is the type's lowest value.
         negate,
         not,
         bit_not,
 
         /// Uses `un`. Retypes a pointer and emits nothing.
         ptr_cast,
+        /// Uses `un`. Sign- or zero-extends into a type holding every value of the old one.
+        int_widen,
+        /// Uses `un`. The value where its type holds it, and the union's other member where not.
+        int_cast,
 
         /// Uses `un`. A value entering a union that lists it, or a union widening.
         union_init,

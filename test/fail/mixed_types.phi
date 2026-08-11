@@ -1,3 +1,13 @@
-fn mix(a: i32, b: i64) i64 {
+// Neither type holds every value of the other, so nothing bridges them.
+
+fn signs(a: u32, b: i32) i64 {
+    return a + b
+}
+
+fn wide_and_negative(a: i8, b: u64) u64 {
+    return a + b
+}
+
+fn kinds(a: u32, b: f64) f64 {
     return a + b
 }

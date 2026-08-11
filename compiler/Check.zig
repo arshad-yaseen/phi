@@ -28,8 +28,9 @@ tree: *const AST,
 bindings: []const Binding,
 /// Null means constants only.
 builder: ?*Builder,
-/// The module's `bool` once found, `.poison` until then.
+/// The module's `bool` and `none` once found, `.poison` until then.
 bool_type: Pool.Index,
+none_type: Pool.Index,
 /// Field types skip the embedding demand, because their struct gets its own walk.
 demand_embedding: bool,
 
@@ -51,7 +52,7 @@ const Binding = struct { name: Pool.String, type: Pool.Index };
 pub const Operand = struct { value: Value, initializer: Node.OptionalIndex };
 
 /// What an expression turned out to be. A `named_` case is not a value.
-const Value = union(enum) {
+pub const Value = union(enum) {
     constant: Pool.Index,
     runtime: Runtime,
     /// No value, no diagnostic owed. `poison` is the same after one.
@@ -323,6 +324,7 @@ fn context(comp: *Compilation, decl_index: Decl.Index, bindings: []const Binding
         .bindings = bindings,
         .builder = null,
         .bool_type = .poison,
+        .none_type = .poison,
         .demand_embedding = true,
     };
 }
@@ -340,7 +342,7 @@ fn mainTokenText(check: *const Check, node: Node.Index) []const u8 {
 // type expressions, where the type grammar meets the pool
 
 /// A written type promises storage, so what it embeds must have a size.
-fn resolveWrittenType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
+pub fn resolveWrittenType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     const resolved = try check.resolveType(node);
     if (check.demand_embedding and resolved != .poison) {
         try walkEmbedded(check.comp, resolved, check.origin(node), 0);
@@ -398,7 +400,7 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     return .poison;
 }
 
-fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
+pub fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
     const comp = check.comp;
     return comp.pool.intern(comp.gpa, .{ .type_pointer = .{ .child = child, .mutable = mutable } });
 }
@@ -960,7 +962,7 @@ fn emit(
     return .fromInst(index);
 }
 
-fn emitOne(
+pub fn emitOne(
     check: *Check,
     tag: IR.Inst.Tag,
     type_index: Pool.Index,
@@ -1019,6 +1021,12 @@ fn blockOpen(check: *const Check) bool {
 }
 
 /// What follows a leave lands in a block nothing reaches, which `finishFunc` drops.
+/// The path ends here, so what follows it belongs to another block.
+pub fn trap(check: *Check) Allocator.Error!void {
+    try check.reopenDead();
+    check.endBlock(.trap);
+}
+
 fn reopenDead(check: *Check) Allocator.Error!void {
     const builder = check.body();
     if (builder.currentBlock().terminator == .none) return;
@@ -2438,13 +2446,36 @@ fn boolType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     if (shaped == .poison) {
         // failure stays unmemoized, so every site that needs `bool` reports
         try check.fail(node, .{
-            .code = .no_bool,
+            .code = .no_prelude_type,
             .message = "this needs 'bool', a union of two unit types",
             .label = "no such 'bool' in scope",
             .help = "declare 'type true', 'type false', and 'type bool = true | false'",
         });
     }
     check.bool_type = shaped;
+    return shaped;
+}
+
+/// The absent member of an optional. `none` is declared, never built in.
+pub fn noneType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
+    const comp = check.comp;
+    if (check.none_type != .poison) return check.none_type;
+
+    const shaped: Pool.Index = shaped: {
+        const decl_index = check.visibleDecl(Module.none_name) orelse break :shaped .poison;
+        const found = try check.declAsType(decl_index, node);
+        if (comp.pool.keyOf(found) != .type_unit) break :shaped .poison;
+        break :shaped found;
+    };
+    if (shaped == .poison) {
+        try check.fail(node, .{
+            .code = .no_prelude_type,
+            .message = "this needs 'none', a unit type",
+            .label = "no such 'none' in scope",
+            .help = "declare 'type none'",
+        });
+    }
+    check.none_type = shaped;
     return shaped;
 }
 
@@ -2692,7 +2723,7 @@ fn reportUnusedValue(
 
 // expressions
 
-fn checkExpr(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+pub fn checkExpr(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     const value = try check.checkExprInner(node, hint);
     if (check.comp.record_expr_types) try check.checkExprRemember(node, value);
     return value;
@@ -2720,7 +2751,7 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
 
     switch (check.tree.viewOf(node)) {
         // a builtin is reached only by calling it, which `resolveCallee` answers
-        .builtin => return check.failBuiltinNotValue(node),
+        .builtin => return Builtin.notAValue(check, node),
         .ident => return check.checkIdent(node),
         .number_literal => return check.checkNumber(node),
         .string_literal => return check.checkString(node),
@@ -2733,10 +2764,10 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
         .return_expr => |operand| return check.checkReturn(node, operand),
         .break_expr => |view| return check.checkBreak(node, view),
         .continue_expr => |label| return check.checkContinue(node, label),
-        .binary => |view| return check.checkBinary(view),
+        .binary => |view| return check.checkBinary(view, hint),
         .unary => |view| return check.checkUnary(node, view),
         .is_expr => |view| return check.checkIs(node, view),
-        .or_bind => |view| return check.checkOrBind(node, view),
+        .or_bind => |view| return check.checkOrBind(node, view, hint),
         .field_access => |view| return check.checkFieldAccess(node, view),
         .deref => return check.checkDeref(node),
         .call => return check.checkCall(node, hint),
@@ -2903,9 +2934,9 @@ const Operation = struct {
     rhs_node: Node.Index,
 };
 
-fn checkBinary(check: *Check, view: AST.View.Binary) Allocator.Error!Value {
+fn checkBinary(check: *Check, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Error!Value {
     if (view.op == .bool_and) return check.checkShortCircuit(view);
-    if (view.op == .bool_or) return check.checkOr(view);
+    if (view.op == .bool_or) return check.checkOr(view, hint);
 
     const lhs = try check.checkExpr(view.lhs, null);
     const rhs = try check.checkExpr(view.rhs, null);
@@ -2961,11 +2992,12 @@ fn settleFold(
             .message = "this divides by zero",
             .label = "the divisor is zero",
         },
-        .bad_shift => |amount| .{
+        .bad_shift => |bad| .{
             .code = .bad_shift,
-            .message = try comp.fmt("a shift counts from 0 to {d}, and this shifts by {d}", .{
-                Pool.fold_bits - 1,
-                amount,
+            .message = try comp.fmt("{s} shifts by 0 to {d}, and this shifts by {d}", .{
+                try comp.typeName(bad.type),
+                Pool.widthOf(bad.type) - 1,
+                bad.count,
             }),
             .label = "not a shift count",
         },
@@ -3016,24 +3048,19 @@ fn failMixedTypes(
 }
 
 fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
-    var lhs = it.lhs;
-    var rhs = it.rhs;
-
-    // an untyped constant adopts the runtime side's type, a typed one agrees or mixes
-    if (lhs == .constant and Pool.isUntyped(check.typeOf(lhs))) {
-        lhs = try check.coerce(lhs, check.typeOf(rhs), it.lhs_node);
-    }
-    if (rhs == .constant and Pool.isUntyped(check.typeOf(rhs))) {
-        rhs = try check.coerce(rhs, check.typeOf(lhs), it.rhs_node);
-    }
-    if (lhs == .poison or rhs == .poison) return .poison;
-
-    const left = check.typeOf(lhs);
-    const right = check.typeOf(rhs);
-    if (left != right) {
-        try check.failMixedTypes(it.op_token, left, right, operand_help);
+    const left = Pool.sharedType(check.typeOf(it.lhs), check.typeOf(it.rhs)) orelse {
+        try check.failMixedTypes(
+            it.op_token,
+            check.typeOf(it.lhs),
+            check.typeOf(it.rhs),
+            operand_help,
+        );
         return .poison;
-    }
+    };
+
+    const lhs = try check.coerce(it.lhs, left, it.lhs_node);
+    const rhs = try check.coerce(it.rhs, left, it.rhs_node);
+    if (lhs == .poison or rhs == .poison) return .poison;
 
     const admissible = switch (it.op) {
         .add, .sub, .mul, .div => Pool.isNumeric(left),
@@ -3130,9 +3157,10 @@ fn checkShortCircuit(check: *Check, view: AST.View.Binary) Allocator.Error!Value
 }
 
 /// The first member of `e`, or else `f`.
-fn checkOr(check: *Check, view: AST.View.Binary) Allocator.Error!Value {
+fn checkOr(check: *Check, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Error!Value {
     assert(view.op == .bool_or);
-    const lhs = try check.checkExpr(view.lhs, null);
+    // both sides are asked for the first member, so both are hinted with it
+    const lhs = try check.checkExpr(view.lhs, hint);
     if (lhs == .diverged) return .diverged;
     if (lhs == .poison) {
         _ = try check.checkExpr(view.rhs, null);
@@ -3170,7 +3198,7 @@ fn checkOrFold(
     assert(comp.pool.typeOfValue(lhs) == lhs_type);
 
     const held = comp.pool.keyOf(lhs).value_union.value;
-    const first = comp.pool.unionMemberAt(lhs_type, 0);
+    const first = comp.pool.firstMember(lhs_type);
     if (comp.pool.typeOfValue(held) == first) {
         return .{ .constant = held };
     }
@@ -3181,9 +3209,14 @@ fn checkOrFold(
     return check.coerce(rhs, first, rhs_node);
 }
 
-fn checkOrBind(check: *Check, node: Node.Index, view: AST.View.OrBind) Allocator.Error!Value {
+fn checkOrBind(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.OrBind,
+    hint: ?Pool.Index,
+) Allocator.Error!Value {
     const comp = check.comp;
-    const lhs = try check.checkExpr(view.lhs, null);
+    const lhs = try check.checkExpr(view.lhs, hint);
     if (lhs == .diverged) return .diverged;
     if (lhs == .poison) return .poison;
     if (try check.valueOnly(view.lhs, lhs) == false) return .poison;
@@ -3213,7 +3246,7 @@ fn checkOrSplit(
 ) Allocator.Error!Value {
     const comp = check.comp;
     const builder = check.body();
-    const first = comp.pool.unionMemberAt(lhs_type, 0);
+    const first = comp.pool.firstMember(lhs_type);
     const rest = try comp.pool.unionWithout(comp.gpa, lhs_type, first);
 
     const slot = try check.emitSlot(.empty, lhs_type);
@@ -3560,7 +3593,7 @@ fn lengthValue(
 const deref_help = "'.*' reads what a pointer points at, and a field is reached with '.name'";
 
 /// What the value points at, where it points at anything. Null once reported.
-fn pointerAt(
+pub fn pointerAt(
     check: *Check,
     node: Node.Index,
     found: Pool.Index,
@@ -4598,7 +4631,7 @@ fn checkCall(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error
     };
     switch (callee.kind) {
         .builtin => |which| {
-            return check.checkBuiltin(node, which, callee.explicit orelse &.{}, view.args);
+            return which.call(check, node, callee.explicit orelse &.{}, view.args, hint);
         },
         else => return check.checkCallResolved(node, callee, view.args, hint),
     }
@@ -4625,11 +4658,17 @@ const Callee = struct {
 /// Without evaluating a receiver or an argument. Null once reported.
 fn resolveCallee(check: *Check, callee_node: Node.Index) Allocator.Error!?Callee {
     switch (check.tree.viewOf(callee_node)) {
-        .builtin => |name_token| return check.resolveBuiltin(name_token),
+        .builtin => |name_token| {
+            const which = try Builtin.resolve(check, name_token) orelse return null;
+            return .{ .kind = .{ .builtin = which }, .explicit = null };
+        },
         .field_access => |access| return check.resolveCalleeMember(callee_node, access),
         .bracket => |bracket| {
             var callee = switch (check.tree.viewOf(bracket.base)) {
-                .builtin => |name_token| try check.resolveBuiltin(name_token) orelse return null,
+                .builtin => |name_token| callee: {
+                    const which = try Builtin.resolve(check, name_token) orelse return null;
+                    break :callee Callee{ .kind = .{ .builtin = which }, .explicit = null };
+                },
                 .field_access => |access| try check.resolveCalleeMember(bracket.base, access) orelse
                     return null,
                 else => callee: {
@@ -4657,32 +4696,6 @@ fn resolveCallee(check: *Check, callee_node: Node.Index) Allocator.Error!?Callee
             return check.calleeOfValue(callee_node, value);
         },
     }
-}
-
-/// The builtin a `@name` spells, and whether this file may reach it. Null once reported.
-fn resolveBuiltin(check: *Check, name_token: Token.Index) Allocator.Error!?Callee {
-    const comp = check.comp;
-    const name_text = Builtin.nameOf(check.tree.tokenSlice(name_token));
-
-    const which = Builtin.fromName(name_text) orelse {
-        try check.failToken(name_token, .{
-            .code = .no_such_member,
-            .message = try comp.fmt("there is no builtin named '@{s}'", .{name_text}),
-            .label = "no such builtin",
-            .help = try check.suggestBuiltin(name_text),
-        });
-        return null;
-    };
-    if (which.stdOnly() and check.module.space != .std) {
-        try check.failToken(name_token, .{
-            .code = .builtin_outside_std,
-            .message = try comp.fmt("only the standard library reaches '@{s}'", .{name_text}),
-            .label = "not available here",
-            .help = "std wraps it in an ordinary declaration, so call that instead",
-        });
-        return null;
-    }
-    return .{ .kind = .{ .builtin = which }, .explicit = null };
 }
 
 /// Pure name chains reach modules and types. Anything else is a receiver, unevaluated.
@@ -4969,159 +4982,7 @@ fn checkCallResolved(
     return runtimeValue(result, return_type);
 }
 
-/// Arity from the table, then the one case that knows what this builtin means.
-fn checkBuiltin(
-    check: *Check,
-    node: Node.Index,
-    which: Builtin,
-    type_args: []const Node.Index,
-    args: []const Node.Index,
-) Allocator.Error!Value {
-    const comp = check.comp;
-    const shape = which.shape();
-    const name = @tagName(which);
-
-    if (type_args.len != shape.type_params) {
-        try check.fail(node, .{
-            .code = .generic_arguments,
-            .message = try comp.fmt("'@{s}' takes {d} type argument{s}, and this writes {d}", .{
-                name, shape.type_params, plural(shape.type_params), type_args.len,
-            }),
-            .label = "wrong number of type arguments",
-        });
-        return .poison;
-    }
-    if (args.len != shape.params) {
-        try check.fail(node, .{
-            .code = .wrong_arity,
-            .message = try comp.fmt("'@{s}' takes {d} argument{s}, and this call has {d}", .{
-                name, shape.params, plural(shape.params), args.len,
-            }),
-            .label = "wrong number of arguments",
-        });
-        return .poison;
-    }
-
-    var types: [Builtin.type_params_max]Pool.Index = undefined;
-    for (type_args, 0..) |type_arg, position| {
-        const resolved = try check.resolveWrittenType(type_arg);
-        if (resolved == .poison) return .poison;
-        types[position] = resolved;
-    }
-
-    var values: [Builtin.params_max]Value = undefined;
-    for (args, 0..) |argument, position| {
-        const value = try check.checkExpr(argument, null);
-        if (value == .diverged) return .diverged;
-        if (try check.valueOnly(argument, value) == false) return .poison;
-        if (value == .poison) return .poison;
-        values[position] = value;
-    }
-
-    switch (which) {
-        .ptr_cast => return check.builtinPtrCast(args[0], types[0], values[0]),
-        .size_of, .align_of => return check.builtinLayoutOf(node, which, types[0]),
-        .min_int, .max_int => return check.builtinLimitOf(node, which, types[0]),
-        .trap => {
-            try check.reopenDead();
-            check.endBlock(.trap);
-            return .diverged;
-        },
-    }
-}
-
-/// A size or an alignment, an untyped constant, so it meets any integer.
-fn builtinLayoutOf(
-    check: *Check,
-    node: Node.Index,
-    which: Builtin,
-    wanted: Pool.Index,
-) Allocator.Error!Value {
-    const comp = check.comp;
-    assert(which == .size_of or which == .align_of);
-
-    switch (try Layout.of(comp, check.origin(node), wanted)) {
-        .layout => |layout| {
-            const answer: u32 = if (which == .size_of) layout.size else layout.alignment;
-            return .{ .constant = try comp.pool.intern(comp.gpa, .{
-                .value_int = .{ .type = .untyped_int_type, .value = answer },
-            }) };
-        },
-        .poison => return .poison,
-        .too_large => {
-            try check.fail(node, .{
-                .code = .type_too_large,
-                .message = try comp.fmt("'{s}' is larger than the 4 GiB a type may hold", .{
-                    try comp.typeName(wanted),
-                }),
-                .label = "too large",
-            });
-            return .poison;
-        },
-    }
-}
-
-/// An edge of an integer type, an untyped constant, so it meets any type it fits.
-fn builtinLimitOf(
-    check: *Check,
-    node: Node.Index,
-    which: Builtin,
-    wanted: Pool.Index,
-) Allocator.Error!Value {
-    const comp = check.comp;
-    assert(which == .min_int or which == .max_int);
-
-    if (Pool.isInteger(wanted) == false) {
-        try check.fail(node, .{
-            .code = .bad_operand,
-            .message = try comp.fmt("'@{s}' needs an integer type, and this is {s}", .{
-                @tagName(which), try comp.typeName(wanted),
-            }),
-            .label = "not an integer type",
-            .help = "the integer types are 'i8' through 'i64' and 'u8' through 'u64'",
-        });
-        return .poison;
-    }
-
-    const edge = if (which == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted);
-    return .{ .constant = try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = edge },
-    }) };
-}
-
-/// Retypes the pointee and keeps what the pointer may do.
-fn builtinPtrCast(
-    check: *Check,
-    node: Node.Index,
-    wanted: Pool.Index,
-    operand: Value,
-) Allocator.Error!Value {
-    const found = check.typeOf(operand);
-
-    const pointer = try check.pointerAt(node, found, "@ptr_cast", null) orelse return .poison;
-
-    const result = try check.pointerTo(wanted, pointer.mutable);
-    const ref = try check.emitOne(.ptr_cast, result, refOf(operand));
-    return runtimeValue(ref, result);
-}
-
-fn failBuiltinNotValue(check: *Check, node: Node.Index) Allocator.Error!Value {
-    try check.fail(node, .{
-        .code = .not_a_function,
-        .message = "a builtin is not a value, so call it",
-        .label = "missing the call",
-        .help = "write '@name(...)', with its type arguments if it takes any",
-    });
-    return .poison;
-}
-
-fn suggestBuiltin(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
-    var closest: spell.Closest = .{ .target = text };
-    for (Builtin.names) |candidate| closest.consider(candidate);
-    return check.comp.didYouMean(closest);
-}
-
-fn plural(count: u64) []const u8 {
+pub fn plural(count: u64) []const u8 {
     return if (count == 1) "" else "s";
 }
 
@@ -5967,7 +5828,7 @@ fn moduleMember(
 
 // coercion and small shared answers
 
-fn typeOf(check: *const Check, value: Value) Pool.Index {
+pub fn typeOf(check: *const Check, value: Value) Pool.Index {
     return switch (value) {
         .constant => |constant| check.comp.pool.typeOfValue(constant),
         .runtime => |runtime| runtime.type,
@@ -5976,12 +5837,12 @@ fn typeOf(check: *const Check, value: Value) Pool.Index {
     };
 }
 
-fn runtimeValue(ref: Ref, type_index: Pool.Index) Value {
+pub fn runtimeValue(ref: Ref, type_index: Pool.Index) Value {
     return .{ .runtime = .{ .ref = ref, .type = type_index } };
 }
 
 /// Anything with no ref of its own becomes poison.
-fn refOf(value: Value) Ref {
+pub fn refOf(value: Value) Ref {
     return switch (value) {
         .constant => |constant| .fromConstant(constant),
         .runtime => |runtime| runtime.ref,
@@ -5990,7 +5851,7 @@ fn refOf(value: Value) Ref {
     };
 }
 
-fn typeCanHold(check: *const Check, type_index: Pool.Index) bool {
+pub fn typeCanHold(check: *const Check, type_index: Pool.Index) bool {
     if (type_index == .void_type) return false;
     if (Pool.isUntyped(type_index)) return false;
     return check.comp.pool.isType(type_index);
@@ -6029,6 +5890,11 @@ fn coerce(
 
             const have = comp.pool.keyOf(runtime.type);
             const want = comp.pool.keyOf(wanted);
+
+            if (Pool.intWidens(runtime.type, wanted)) {
+                const widened = try check.emitOne(.int_widen, wanted, runtime.ref);
+                return runtimeValue(widened, wanted);
+            }
 
             // the one subtyping edge, which a view has for a pointer's reason
             if (writesThrough(&comp.pool, runtime.type, wanted)) |writable| {
@@ -6105,6 +5971,15 @@ fn fitValue(
     if (constant == .poison) return .poison;
     if (wanted == .poison) return .poison;
 
+    // a sealed integer widens where it lands, never inside a literal it is part of
+    const found = comp.pool.typeOfValue(constant);
+    if (found != wanted and Pool.intWidens(found, wanted)) {
+        const held = comp.pool.keyOf(constant).value_int.value;
+        return .{ .constant = try comp.pool.intern(comp.gpa, .{
+            .value_int = .{ .type = wanted, .value = held },
+        }) };
+    }
+
     return switch (try comp.pool.fit(comp.gpa, constant, wanted)) {
         .value => |final| .{ .constant = final },
         .does_not_fit => fitted: {
@@ -6155,6 +6030,9 @@ fn reportMismatch(
                 try comp.typeName(wanted),
             });
         }
+        if (Pool.isSizedInt(found) and Pool.isSizedInt(wanted)) {
+            break :help "not every value fits, so '@int_cast(...)' gives 'none' where one does not";
+        }
         if (check.needsBridge(found, wanted)) {
             break :help "slice it to make a view of it, as in 'a[0..]'";
         }
@@ -6199,7 +6077,7 @@ fn needsBridge(check: *const Check, found: Pool.Index, wanted: Pool.Index) bool 
     return stored == viewed;
 }
 
-fn valueOnly(check: *Check, node: Node.Index, value: Value) Allocator.Error!bool {
+pub fn valueOnly(check: *Check, node: Node.Index, value: Value) Allocator.Error!bool {
     switch (value) {
         .constant, .runtime, .poison, .diverged => return true,
         else => {
@@ -6329,15 +6207,19 @@ fn suggestName(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     return comp.didYouMean(closest);
 }
 
-fn origin(check: *const Check, node: Node.Index) Compilation.Origin {
+pub fn origin(check: *const Check, node: Node.Index) Compilation.Origin {
     return .{ .module = check.module_index, .node = node };
 }
 
-fn fail(check: *Check, node: Node.Index, report: Compilation.Report) Allocator.Error!void {
+pub fn fail(check: *Check, node: Node.Index, report: Compilation.Report) Allocator.Error!void {
     try check.comp.reportNode(check.module_index, node, report);
 }
 
-fn failToken(check: *Check, token: Token.Index, report: Compilation.Report) Allocator.Error!void {
+pub fn failToken(
+    check: *Check,
+    token: Token.Index,
+    report: Compilation.Report,
+) Allocator.Error!void {
     try check.comp.reportToken(check.module_index, token, report);
 }
 

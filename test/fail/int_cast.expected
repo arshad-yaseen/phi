@@ -1,0 +1,42 @@
+error[E0242]: nothing here says what type '@int_cast' converts to
+ --> test/fail/int_cast.phi:3:8
+  |
+3 |     if @int_cast(n) is u8 {
+  |        ^^^^^^^^^^^ no type in sight
+  |
+  = help: write it, as in '@int_cast[u8](n)', or annotate what the call feeds
+
+error[E0242]: nothing here says what type '@int_cast' converts to
+  --> test/fail/int_cast.phi:11:9
+   |
+11 |     _ = @int_cast(n)
+   |         ^^^^^^^^^^^ no type in sight
+   |
+   = help: write it, as in '@int_cast[u8](n)', or annotate what the call feeds
+
+error[E0211]: '@int_cast' converts between integers, and this lands on f64
+  --> test/fail/int_cast.phi:17:12
+   |
+17 |     return @int_cast(n) or 0
+   |            ^^^^^^^^^^^ not an integer type
+
+error[E0211]: '@int_cast' converts between integers, and this is f32
+  --> test/fail/int_cast.phi:21:12
+   |
+21 |     return @int_cast[f32](n) or 0
+   |            ^^^^^^^^^^^^^^^^ not an integer type
+
+error[E0211]: '@int_cast' converts a number, and this is *u32
+  --> test/fail/int_cast.phi:25:26
+   |
+25 |     return @int_cast[u8](p) or 0
+   |                          ^ not a number
+
+error[E0206]: expected u8, found u64
+  --> test/fail/int_cast.phi:30:12
+   |
+30 |     return n
+   |            ^ the wrong type
+   |
+   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+

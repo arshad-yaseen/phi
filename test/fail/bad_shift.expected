@@ -1,10 +1,10 @@
-error[E0253]: a shift counts from 0 to 127, and this shifts by 200
+error[E0253]: an untyped number shifts by 0 to 127, and this shifts by 200
  --> test/fail/bad_shift.phi:1:17
   |
 1 | let too_far = 1 << 200
   |                 ^^ not a shift count
 
-error[E0253]: a shift counts from 0 to 127, and this shifts by -1
+error[E0253]: an untyped number shifts by 0 to 127, and this shifts by -1
  --> test/fail/bad_shift.phi:2:19
   |
 2 | let backwards = 1 << -1
