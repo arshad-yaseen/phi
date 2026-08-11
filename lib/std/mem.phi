@@ -11,3 +11,18 @@ pub fn align_up[T](addr: T, alignment: T) T {
     // 18 & ~7    = 00010000 =       16
     return (addr + alignment - 1) & ~(alignment - 1)
 }
+
+/// Whether two views hold the same elements, in the same order.
+pub fn eql[T](a: []T, b: []T) bool {
+    if a.len != b.len {
+        return false
+    }
+
+    loop i in 0..a.len {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+
+    return true
+}

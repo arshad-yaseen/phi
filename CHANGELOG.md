@@ -30,7 +30,8 @@
   as constants that fit wherever their value fits, so `let n: u32 =
   @size_of[Node]()` needs no conversion and `@max_int[u64]()` is exact.
 - `std.mem` opens the standard library with `align_up`, which rounds an address
-  to an alignment it asserts is a power of two.
+  to an alignment it asserts is a power of two, and `eql`, which answers whether
+  two views hold the same elements in the same order.
 - `std.debug.assert(ok)` arrives over `@trap()`: a violated contract stops the
   program where it stands. `std.math` opens with `is_power_of_two`.
 - A union may stand in a bracket, so `Box[u32 | none]` means the union it
