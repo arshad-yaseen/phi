@@ -1,4 +1,4 @@
-//! One item per type and per constant, so equality is index equality.
+//! One item per type and per payload, so equality is index equality.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -176,6 +176,8 @@ pub const Key = union(enum) {
     value_union: Wrapped,
     /// A view of bytes the program owns, which is what a constant becomes on a `[]T`.
     value_slice: Viewed,
+    /// An array whose every element is the same, held once. The length is in the type.
+    value_splat: Splat,
 
     pub const Pointer = struct { child: Index, mutable: bool };
     /// A length no layout can hold is refused where the size is asked, not here.
@@ -186,6 +188,7 @@ pub const Key = union(enum) {
     pub const Wrapped = struct { type: Index, value: Index };
     /// The view's own type, and the array constant holding the bytes it views.
     pub const Viewed = struct { type: Index, data: Index };
+    pub const Splat = struct { type: Index, element: Index };
     pub const Aggregate = struct { type: Index, elems: []const Index };
 
     fn hash(key: Key) u64 {
@@ -218,6 +221,7 @@ pub const Key = union(enum) {
             .value_unit => |unit_type| return hashWords(seed, .{unit_type.int()}),
             .value_union => |it| return hashWords(seed, .{ it.type.int(), it.value.int() }),
             .value_slice => |it| return hashWords(seed, .{ it.type.int(), it.data.int() }),
+            .value_splat => |it| return hashWords(seed, .{ it.type.int(), it.element.int() }),
             .value_int => |it| {
                 const value: [4]u32 = @bitCast(it.value);
                 return hashWords(seed, .{ it.type.int(), value[0], value[1], value[2], value[3] });
@@ -254,6 +258,8 @@ pub const Key = union(enum) {
                 it.value == other.value_union.value,
             .value_slice => |it| it.type == other.value_slice.type and
                 it.data == other.value_slice.data,
+            .value_splat => |it| it.type == other.value_splat.type and
+                it.element == other.value_splat.element,
             .value_int => |it| it.type == other.value_int.type and
                 it.value == other.value_int.value,
             // by bits, so float equality is never asked
@@ -292,6 +298,8 @@ const Item = struct {
         value_union,
         /// `data` points at `extra`. The view type, then the array it views.
         value_slice,
+        /// `data` points at `extra`. The array type, then the one element.
+        value_splat,
     };
 };
 
@@ -411,10 +419,18 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .value_slice => |it| item: {
             assert(pool.keyOf(it.type) == .type_slice);
             // the bytes are an array constant, so the view has a length and a layout
-            assert(pool.keyOf(it.data) == .value_aggregate);
+            assert(pool.keyOf(pool.typeOfValue(it.data)) == .type_array);
             break :item .{
                 .tag = .value_slice,
                 .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.data.int()}),
+            };
+        },
+        .value_splat => |it| item: {
+            assert(pool.keyOf(it.type) == .type_array);
+            assert(pool.isType(it.element) == false);
+            break :item .{
+                .tag = .value_splat,
+                .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.element.int()}),
             };
         },
         .value_aggregate => |it| item: {
@@ -493,6 +509,10 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
         .value_slice => .{ .value_slice = .{
             .type = @enumFromInt(pool.extra.items[data]),
             .data = @enumFromInt(pool.extra.items[data + 1]),
+        } },
+        .value_splat => .{ .value_splat = .{
+            .type = @enumFromInt(pool.extra.items[data]),
+            .element = @enumFromInt(pool.extra.items[data + 1]),
         } },
         .value_int => .{ .value_int = .{
             .type = @enumFromInt(pool.extra.items[data]),
@@ -690,6 +710,7 @@ pub fn typeOfValue(pool: *const Pool, value: Index) Index {
         .value_unit => |unit_type| unit_type,
         .value_union => |it| it.type,
         .value_slice => |it| it.type,
+        .value_splat => |it| it.type,
         .type_simple => |simple| simple: {
             assert(simple == .poison);
             break :simple .poison;
@@ -704,20 +725,28 @@ pub fn isType(pool: *const Pool, index: Index) bool {
         .type_simple, .type_pointer, .type_array, .type_slice => true,
         .type_struct, .type_unit, .type_union => true,
         .value_int, .value_float, .value_aggregate => false,
-        .value_unit, .value_union, .value_slice => false,
+        .value_unit, .value_union, .value_slice, .value_splat => false,
     };
 }
 
 /// With `aggregateAt`, for walks that intern. `keyOf` only borrows.
-pub fn aggregateLen(pool: *const Pool, index: Index) u32 {
-    assert(pool.items.items(.tag)[index.int()] == .value_aggregate);
-    return pool.extra.items[pool.items.items(.data)[index.int()] + 1];
+pub fn aggregateLen(pool: *const Pool, index: Index) u64 {
+    const data = pool.items.items(.data)[index.int()];
+    return switch (pool.items.items(.tag)[index.int()]) {
+        .value_aggregate => pool.extra.items[data + 1],
+        .value_splat => pool.keyOf(@enumFromInt(pool.extra.items[data])).type_array.len,
+        else => unreachable,
+    };
 }
 
-pub fn aggregateAt(pool: *const Pool, index: Index, at: u32) Index {
+pub fn aggregateAt(pool: *const Pool, index: Index, at: u64) Index {
     assert(at < pool.aggregateLen(index));
     const data = pool.items.items(.data)[index.int()];
-    return @enumFromInt(pool.extra.items[data + 2 + at]);
+    return switch (pool.items.items(.tag)[index.int()]) {
+        .value_aggregate => @enumFromInt(pool.extra.items[data + 2 + at]),
+        .value_splat => @enumFromInt(pool.extra.items[data + 1]),
+        else => unreachable,
+    };
 }
 
 pub fn isInteger(index: Index) bool {
@@ -1026,8 +1055,9 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
                 else => return .wrong_kind,
             }
         },
-        .value_slice => |it| {
-            return if (type_index == it.type) .{ .value = value } else .wrong_kind;
+        .value_slice, .value_splat => {
+            // both are built already typed, so neither takes another
+            return if (type_index == pool.typeOfValue(value)) .{ .value = value } else .wrong_kind;
         },
         .value_unit => |unit_type| {
             return if (type_index == unit_type) .{ .value = value } else .wrong_kind;

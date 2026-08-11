@@ -1,0 +1,37 @@
+fn zeroed() [4]u8
+b0:
+  return [0:u8, 0:u8, 0:u8, 0:u8]
+
+fn page() [64]u8
+b0:
+  return [170:u8, 170:u8, 170:u8, 170:u8, 170:u8, 170:u8, 170:u8, 170:u8, +56 more]
+
+fn grid() [2][3]u32
+b0:
+  return [[7:u32, 7:u32, 7:u32], [7:u32, 7:u32, 7:u32]]
+
+fn buffered() u8
+b0:
+  %0 = local buffer : *var [4]u8
+  %1 = store %0, [0:u8, 0:u8, 0:u8, 0:u8]
+  %2 = elem_ptr %0, 1:u64 : *var u8
+  %3 = store %2, 9:u8
+  %4 = elem_ptr %0, 1:u64 : *var u8
+  %5 = load %4 : u8
+  return %5
+
+fn absent() [2]u8 | none
+b0:
+  return [3:u8, 3:u8]
+
+fn written_out() [4]u8
+b0:
+  return [0:u8, 0:u8, 0:u8, 0:u8]
+
+fn folded() u8
+b0:
+  return 3:u8
+
+fn repeated() []u8
+b0:
+  return [97:u8, 97:u8, 97:u8]:[]u8

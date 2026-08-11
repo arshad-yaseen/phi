@@ -76,3 +76,19 @@ error[E0206]: expected []u32, found [4]u32
    |
    = help: slice it to make a view of it, as in 'a[0..]'
 
+error[E0221]: 'ptr' is a value and not a place
+  --> test/fail/slices.phi:61:8
+   |
+61 |     xs.ptr = xs.ptr
+   |        ^^^ nothing to write to or point at
+   |
+   = help: a view keeps the address it holds, so write through the view itself
+
+error[E0219]: [4]u32 has no field named 'ptr'
+  --> test/fail/slices.phi:66:14
+   |
+66 |     return a.ptr
+   |              ^^^ no such field
+   |
+   = help: slice it to make a view of it, as in 'a[0..].ptr'
+

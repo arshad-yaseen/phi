@@ -52,7 +52,7 @@ pub fn writeType(comp: *const Compilation, writer: *Writer, index: Pool.Index) W
                 return;
             },
             .value_int, .value_float, .value_aggregate => unreachable,
-            .value_unit, .value_union, .value_slice => unreachable,
+            .value_unit, .value_union, .value_slice, .value_splat => unreachable,
         }
     }
     try writer.writeAll("...");
@@ -188,6 +188,19 @@ fn writeConstant(
             try writer.writeByte(':');
             try writeType(comp, writer, it.type);
         },
+        .value_splat => |it| {
+            const len = comp.pool.keyOf(it.type).type_array.len;
+            try writer.writeByte('[');
+            var at: u64 = 0;
+            while (at < @min(len, aggregate_shown_max)) : (at += 1) {
+                if (at > 0) try writer.writeAll(", ");
+                try writeConstant(comp, writer, it.element);
+            }
+            if (len > aggregate_shown_max) try writer.print(", +{d} more", .{
+                len - aggregate_shown_max,
+            });
+            try writer.writeByte(']');
+        },
         .type_pointer, .type_array, .type_slice => unreachable,
         .type_struct, .type_unit, .type_union => unreachable,
     }
@@ -261,11 +274,15 @@ fn node(
         },
         .unit_decl => |it| try declHead(ast, writer, index, below, it.name_token, it.is_pub),
         .fn_decl => |it| {
-            try declHead(ast, writer, index, below, it.name_token, it.is_pub);
+            try writer.print(" {s}", .{ast.tokenSlice(it.name_token)});
+            try flag(writer, it.is_pub, "pub");
+            try flag(writer, it.is_extern, "extern");
+            try writer.writeByte('\n');
+            try docs(ast, writer, index, below);
             for (it.type_params) |param| try node(ast, writer, param, below, "");
             for (it.params) |param| try node(ast, writer, param, below, "");
             if (it.return_type.unwrap()) |returned| try node(ast, writer, returned, below, "ret");
-            try node(ast, writer, it.body, below, "body");
+            if (it.body.unwrap()) |body| try node(ast, writer, body, below, "body");
         },
         .var_decl => |it| {
             const keyword = if (it.is_mutable) "var" else "let";

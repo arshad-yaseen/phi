@@ -42,5 +42,5 @@ error[E0104]: expected a declaration, found ')'
 203 | )
     | ^ expected a declaration
     |
-    = help: a file holds 'import', 'type', 'fn', and 'let'
+    = help: a file holds 'import', 'type', 'fn', 'extern fn', and 'let'
 

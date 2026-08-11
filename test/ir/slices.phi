@@ -83,3 +83,23 @@ fn matched(found: []u32 | none) u64 {
         none => 0
     }
 }
+
+// the address a view already holds
+fn address(xs: []u32) *u32 {
+    return xs.ptr
+}
+
+// what may be written through it is exactly what the view allowed
+fn writable_address(xs: []var u32) *var u32 {
+    return xs.ptr
+}
+
+// one pointer is followed to reach the view, the way the length is
+fn address_through_a_pointer(p: *[]u32) *u32 {
+    return p.ptr
+}
+
+// storage crosses by being sliced first, so the bridge is still written out
+fn address_of_storage(a: *[4]u32) *u32 {
+    return a[0..].ptr
+}

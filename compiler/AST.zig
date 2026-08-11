@@ -395,11 +395,13 @@ pub const View = union(enum) {
     pub const FnDecl = struct {
         name_token: Token.Index,
         is_pub: bool,
+        is_extern: bool,
         type_params: []const Node.Index,
         params: []const Node.Index,
         /// `.none` is a function returning nothing.
         return_type: Node.OptionalIndex,
-        body: Node.Index,
+        /// `.none` is a signature whose body is declared elsewhere.
+        body: Node.OptionalIndex,
     };
     pub const VarDecl = struct {
         name_token: Token.Index,
@@ -518,10 +520,11 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
             break :blk .{ .fn_decl = .{
                 .name_token = main.after(1),
                 .is_pub = tree.isPub(main),
+                .is_extern = tree.isExtern(main),
                 .type_params = payload.list(),
                 .params = payload.list(),
                 .return_type = payload.optNode(),
-                .body = payload.node(),
+                .body = payload.optNode(),
             } };
         },
         .var_decl => .{ .var_decl = .{
@@ -669,12 +672,20 @@ fn listAt(tree: AST, start: ExtraIndex) []const Node.Index {
     return payload.list();
 }
 
-/// `pub` is always the token before the keyword a declaration is named by.
+/// `pub` sits before the keyword a declaration is named by, or before `extern`.
 fn isPub(tree: AST, main: Token.Index) bool {
     assert(main.int() < tree.tokens.len);
 
+    const keyword = if (tree.isExtern(main)) main.before(1) else main;
+    if (keyword == .first) return false;
+    return tree.tokenTag(keyword.before(1)) == .kw_pub;
+}
+
+fn isExtern(tree: AST, main: Token.Index) bool {
+    assert(main.int() < tree.tokens.len);
+
     if (main == .first) return false;
-    return tree.tokenTag(main.before(1)) == .kw_pub;
+    return tree.tokenTag(main.before(1)) == .kw_extern;
 }
 
 fn loopHead(binding: Node.OptionalIndex, head: Node.OptionalIndex) View.LoopHead {
@@ -748,7 +759,8 @@ fn commentOrder(offset: u32, comment: Comment) std.math.Order {
 
 fn declStart(tree: AST, node: Node.Index) Token.Index {
     const main = tree.nodeMainToken(node);
-    return if (tree.isPub(main)) main.before(1) else main;
+    const keyword = if (tree.isExtern(main)) main.before(1) else main;
+    return if (tree.isPub(main)) keyword.before(1) else keyword;
 }
 
 // tokens
@@ -877,7 +889,11 @@ fn rightStep(tree: AST, node: Node.Index) Step {
         .return_expr => |operand| unwrapOr(operand, main),
         .import_decl => |it| .{ .down = it.path },
         .alias_decl => |it| .{ .down = it.aliased },
-        .fn_decl => |it| .{ .down = it.body },
+        .fn_decl => |it| step: {
+            if (it.body.unwrap()) |body| break :step .{ .down = body };
+            if (it.return_type.unwrap()) |returned| break :step .{ .down = returned };
+            break :step lastOf(it.params, .{ .at = main.after(1) });
+        },
         .var_decl => |it| .{ .down = it.init_expr },
         .param, .field => |it| .{ .down = it.type_expr },
         .assign => |it| .{ .down = it.rhs },

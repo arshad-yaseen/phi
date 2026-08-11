@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Language
+
+- `extern fn` declares a function the linker finds elsewhere, so a program can
+  reach outside itself. Only the standard library writes one, and a signature
+  carries numbers and addresses alone, `*T | none` among them, because those
+  are what pass unchanged on every target.
+- `@fill(v)` is an array whose every element is `v`, taking its type from
+  where it lands, so `var buffer: [4096]u8 = @fill(0)` is written once. An
+  array of one repeated value is held once however it was written, so its
+  length costs nothing to compile.
+- A view answers `.ptr` beside `.len`, which is the address it already holds
+  and may be written through exactly where the view may.
+
 ## [0.3.0] - 2026-08-11
 
 Unions gave 0.2.0 its shape. This release gives a program something to hold:
