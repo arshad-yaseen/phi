@@ -43,8 +43,6 @@ comptime {
     assert(depth_max > Compilation.analyze_max + AST.nest_max);
 }
 
-/// `Poison` was refused underneath and already reported. `TooLarge` is past
-/// `size_max`, which the caller reports where the size was asked.
 pub const Error = Allocator.Error || error{ Poison, TooLarge };
 
 pub fn of(comp: *Compilation, origin: Compilation.Origin, index: Pool.Index) Error!Layout {
