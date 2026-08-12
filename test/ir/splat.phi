@@ -2,30 +2,30 @@ type none
 
 // every element the same, settled before anything runs
 fn zeroed() [4]u8 {
-    let buffer: [4]u8 = @fill(0)
+    let buffer: [4]u8 = @splat(0)
     return buffer
 }
 
 // the length costs nothing to write
 fn page() [64]u8 {
-    return @fill(0xAA)
+    return @splat(0xAA)
 }
 
 // nested storage fills element by element, so one value reaches every one
 fn grid() [2][3]u32 {
-    return @fill(7)
+    return @splat(7)
 }
 
 // a 'var' takes storage, and the fill is what it starts as
 fn buffered() u8 {
-    var buffer: [4]u8 = @fill(0)
+    var buffer: [4]u8 = @splat(0)
     buffer[1] = 9
     return buffer[1]
 }
 
 // and a fill enters a union the way any other constant does
 fn absent() [2]u8 | none {
-    return @fill(3)
+    return @splat(3)
 }
 
 // a fill and the elements written out are the same constant
@@ -35,7 +35,7 @@ fn written_out() [4]u8 {
 
 // indexing one still answers before anything runs
 fn folded() u8 {
-    let buffer: [8]u8 = @fill(3)
+    let buffer: [8]u8 = @splat(3)
     return buffer[5]
 }
 

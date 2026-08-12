@@ -28,8 +28,8 @@ pub const Builtin = enum {
     min_int,
     /// `@max_int[T]()`, the highest value the integer type `T` holds, a constant.
     max_int,
-    /// `@fill(v)`, an array whose every element is `v`.
-    fill,
+    /// `@splat(v)`, an array whose every element is `v`.
+    splat,
     /// `@trap()`, stopping the program where it stands.
     trap,
 
@@ -45,7 +45,7 @@ pub const Builtin = enum {
         return switch (builtin) {
             .ptr_cast => .{ .types_min = 1, .types_max = 1, .args = 1 },
             .int_cast => .{ .types_min = 0, .types_max = 1, .args = 1 },
-            .fill => .{ .types_min = 0, .types_max = 0, .args = 1 },
+            .splat => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .size_of, .align_of, .min_int, .max_int => .{
                 .types_min = 1,
                 .types_max = 1,
@@ -59,7 +59,7 @@ pub const Builtin = enum {
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast => true,
-            .int_cast, .size_of, .align_of, .min_int, .max_int, .fill, .trap => false,
+            .int_cast, .size_of, .align_of, .min_int, .max_int, .splat, .trap => false,
         };
     }
 
@@ -173,9 +173,9 @@ pub const Builtin = enum {
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
-            .fill => {
-                const wanted = try fillDestination(check, node, hint) orelse return .poison;
-                return fill(check, node, args[0], wanted, values[0]);
+            .splat => {
+                const wanted = try splatDestination(check, node, hint) orelse return .poison;
+                return splat(check, node, args[0], wanted, values[0]);
             },
             .trap => {
                 try check.trap();
@@ -324,8 +324,8 @@ fn intCast(
     return Check.runtimeValue(ref, result);
 }
 
-/// The array `@fill` builds. Null once reported.
-fn fillDestination(
+/// The array `@splat` builds. Null once reported.
+fn splatDestination(
     check: *Check,
     node: Node.Index,
     hint: ?Pool.Index,
@@ -336,30 +336,30 @@ fn fillDestination(
     if (comp.pool.keyOf(landing) == .type_array) return landing;
 
     if (check.typeCanHold(landing)) {
-        try failFillDestination(check, node, landing);
+        try failSplatDestination(check, node, landing);
         return null;
     }
     try check.fail(node, .{
         .code = .inference_failed,
-        .message = "nothing here says what array '@fill' builds",
+        .message = "nothing here says what array '@splat' builds",
         .label = "no type in sight",
-        .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @fill(0)'",
+        .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @splat(0)'",
     });
     return null;
 }
 
-fn failFillDestination(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!void {
+fn failSplatDestination(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!void {
     @branchHint(.cold);
     try check.fail(node, .{
         .code = .bad_operand,
-        .message = try check.comp.fmt("'@fill' builds an array, and this lands on {s}", .{
+        .message = try check.comp.fmt("'@splat' builds an array, and this lands on {s}", .{
             try check.comp.typeName(found),
         }),
         .label = "not an array type",
     });
 }
 
-fn fill(
+fn splat(
     check: *Check,
     node: Node.Index,
     operand_node: Node.Index,
@@ -369,18 +369,18 @@ fn fill(
     if (operand != .constant) {
         try check.fail(operand_node, .{
             .code = .not_constant,
-            .message = "'@fill' repeats a constant, and this is settled at run time",
+            .message = "'@splat' repeats a constant, and this is settled at run time",
             .label = "not a constant",
             .help = "write a loop to fill storage with something worked out as it runs",
         });
         return .poison;
     }
 
-    const filled = try fillArray(check, node, wanted, operand.constant, 0) orelse return .poison;
-    return .{ .constant = filled };
+    const repeated = try splatArray(check, node, wanted, operand.constant, 0) orelse return .poison;
+    return .{ .constant = repeated };
 }
 
-fn fillArray(
+fn splatArray(
     check: *Check,
     node: Node.Index,
     wanted: Pool.Index,
@@ -394,7 +394,7 @@ fn fillArray(
     const array = comp.pool.keyOf(wanted).type_array;
     const element: Pool.Index = element: {
         if (comp.pool.keyOf(array.child) == .type_array) {
-            break :element try fillArray(check, node, array.child, value, depth + 1) orelse
+            break :element try splatArray(check, node, array.child, value, depth + 1) orelse
                 return null;
         }
         switch (try comp.pool.fit(comp.gpa, value, array.child)) {

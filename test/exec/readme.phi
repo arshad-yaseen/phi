@@ -29,7 +29,7 @@ fn check(text: str) {
 fn point(text: str, at: u64) {
     io.print(text)
     io.print("\n")
-    var margin: [64]u8 = @fill(' ')
+    var margin: [64]u8 = @splat(' ')
     margin[at] = '^'
     io.print(margin[0..at + 1])
     io.print("\n")
