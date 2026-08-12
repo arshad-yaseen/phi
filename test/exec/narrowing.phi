@@ -1,0 +1,18 @@
+import std.io
+
+fn shout(n: u8) {
+    if n == 42 {
+        io.print("42!\n")
+    }
+}
+
+fn main() {
+    let missing: u8 | none = none
+    if missing is u8 {
+        shout(missing)
+    }
+    let present: u8 | none = 42
+    if present is u8 {
+        shout(present)
+    }
+}

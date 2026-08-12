@@ -1,0 +1,17 @@
+extern fn write(fd: i32, buf: *u8, len: u64) i64
+
+/// Write text to standard output.
+pub fn print(text: str) {
+    var rest = text
+    loop {
+        if rest.len == 0 {
+            return
+        }
+        let wrote = write(1, rest.ptr, rest.len)
+        if wrote <= 0 {
+            return
+        }
+        let count = @int_cast[u64](wrote) or return
+        rest = rest[count..]
+    }
+}

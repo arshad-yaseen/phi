@@ -6,7 +6,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 0:u8 : u8 | none
+  %4 = union_init 0:u8, u8 : u8 | none
   %5 = store %2, %4
   jump b2
 b2:
@@ -22,7 +22,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 255:u8 : u8 | none
+  %4 = union_init 255:u8, u8 : u8 | none
   %5 = store %2, %4
   jump b2
 b2:
@@ -77,7 +77,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 0:u32 : u32 | none
+  %4 = union_init 0:u32, u32 : u32 | none
   %5 = store %2, %4
   jump b2
 b2:
@@ -93,7 +93,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 0:i32 : i32 | none
+  %4 = union_init 0:i32, i32 : i32 | none
   %5 = store %2, %4
   jump b2
 b2:
@@ -107,7 +107,7 @@ b0:
   %1 = store %0, 200:u8
   branch 200:u8, b2, b1
 b1:
-  %2 = union_init 0:u8 : u8 | none
+  %2 = union_init 0:u8, u8 : u8 | none
   %3 = store %0, %2
   jump b2
 b2:
@@ -121,7 +121,7 @@ b0:
   %1 = store %0, none
   branch none, b2, b1
 b1:
-  %2 = union_init 7:u8 : u8 | none
+  %2 = union_init 7:u8, u8 : u8 | none
   %3 = store %0, %2
   jump b2
 b2:
@@ -144,7 +144,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 0:u8 : u8 | none
+  %4 = union_init 0:u8, u8 : u8 | none
   %5 = store %2, %4
   jump b2
 b2:
@@ -160,7 +160,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 0:u64 : u64 | none
+  %4 = union_init 0:u64, u64 : u64 | none
   %5 = store %2, %4
   jump b2
 b2:

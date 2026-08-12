@@ -1,0 +1,32 @@
+fn checked(a: i64, b: i64) i64 {
+    return a + b * a - b
+}
+
+fn divided(a: i64, b: i64) i64 {
+    return a / b + a % b
+}
+
+fn shifted(a: u32, b: u32) u32 {
+    return a << b | a >> b & ~a
+}
+
+fn negated(a: i32) i32 {
+    return -a
+}
+
+fn compared(a: i64, b: i64) bool {
+    return a < b
+}
+
+fn floated(a: f64, b: f64) f64 {
+    return a * b / (a - b)
+}
+
+fn main() {
+    _ = checked(6, 7)
+    _ = divided(6, 7)
+    _ = shifted(6, 7)
+    _ = negated(6)
+    _ = compared(6, 7)
+    _ = floated(6.5, 7.5)
+}

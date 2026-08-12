@@ -35,7 +35,7 @@ pub const Report = struct {
     notes: []const Note = &.{},
 };
 
-/// Parse owns E01xx, analysis E02xx.
+/// Parse owns E01xx, analysis E02xx, and the C backend E03xx.
 pub const Code = enum(u16) {
     expected_token = 101,
     expected_expression = 102,
@@ -105,6 +105,9 @@ pub const Code = enum(u16) {
     bad_text = 263,
     extern_signature = 264,
     extern_generic = 265,
+
+    entry_signature = 301,
+    backend_unsupported = 302,
 };
 
 comptime {

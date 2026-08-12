@@ -179,7 +179,7 @@ pub const Inst = struct {
         /// The value when the type holds it, the union's other member when not.
         int_cast,
 
-        /// A value entering a union that lists it, or a union widening.
+        /// A value entering a union, with the member the checker admitted it as.
         union_init,
         /// Void where only a branch reads it.
         union_is,
@@ -195,11 +195,11 @@ pub const Inst = struct {
             return switch (tag) {
                 .param, .local => .name,
                 .field_ptr, .field_val => .field,
-                .union_is => .probe,
+                .union_is, .union_init => .probe,
                 .call, .slice_make, .aggregate_init => .payload,
                 .load, .slice_len, .slice_ptr, .negate, .not, .bit_not => .un,
                 .ptr_cast, .int_widen, .float_widen, .int_cast => .un,
-                .union_init, .union_narrow => .un,
+                .union_narrow => .un,
                 .store, .elem_ptr, .bounds_check, .order_check => .bin,
                 .add, .sub, .mul, .div, .mod => .bin,
                 .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => .bin,

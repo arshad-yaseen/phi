@@ -10,7 +10,7 @@ b0:
   %1 = call flag(%0) : true | false
   branch %1, b1, b2
 b1:
-  %2 = union_init %0 : u32 | none
+  %2 = union_init %0, u32 : u32 | none
   return %2
 b2:
   jump b3
@@ -25,7 +25,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 0:u32 : u32 | none
+  %4 = union_init 0:u32, u32 : u32 | none
   %5 = store %2, %4
   jump b2
 b2:

@@ -28,7 +28,7 @@ b0:
   %3 = store %2, %1
   branch %1, b2, b1
 b1:
-  %4 = union_init 8080:u32 : u32 | none
+  %4 = union_init 8080:u32, u32 : u32 | none
   %5 = store %2, %4
   jump b2
 b2:
@@ -45,13 +45,13 @@ b0:
   branch %1, b2, b1
 b1:
   %4 = union_narrow %1 : Timeout | NotFound
-  %5 = union_init %4 : u32 | Timeout | NotFound
+  %5 = union_init %4, Timeout | NotFound : u32 | Timeout | NotFound
   return %5
 b2:
   %6 = load %2 : u32 | Timeout | NotFound
   %7 = union_narrow %6 : u32
   %8 = add %7, 1:u32 : u32
-  %9 = union_init %8 : u32 | Timeout | NotFound
+  %9 = union_init %8, u32 : u32 | Timeout | NotFound
   return %9
 
 fn consume(errors: Timeout | NotFound) u32
@@ -69,7 +69,7 @@ b0:
 b1:
   %4 = union_narrow %1 : Timeout | NotFound
   %5 = call consume(%4) : u32
-  %6 = union_init %5 : u32 | Timeout | NotFound
+  %6 = union_init %5, u32 : u32 | Timeout | NotFound
   %7 = store %2, %6
   jump b2
 b2:

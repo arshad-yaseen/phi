@@ -13,7 +13,7 @@ fn escalate(flag: true | false) u32 | Timeout | none
 b0:
   %0 = param flag : true | false
   %1 = call find(%0) : u32 | none
-  %2 = union_init %1 : u32 | Timeout | none
+  %2 = union_init %1, u32 | none : u32 | Timeout | none
   return %2
 
 fn take(value: u32 | none) u32 | none

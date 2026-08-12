@@ -4,6 +4,8 @@
 
 ### Language
 
+- A program starts at `fn main()` in its entry file, a plain function taking
+  nothing and returning nothing.
 - `extern fn` declares a function the linker finds elsewhere, so a program can
   reach outside itself. Only the standard library writes one, and a signature
   carries numbers and addresses alone, `*T | none` among them, because those
@@ -14,6 +16,18 @@
   length costs nothing to compile.
 - A view answers `.ptr` beside `.len`, which is the address it already holds
   and may be written through exactly where the view may.
+- `is` folds where its operand is already settled, and a settled condition
+  picks its `if` edge before anything runs, so the arm that cannot run is
+  never entered, the way a settled `and` never enters its dead side. Testing
+  a constant optional used to crash the compiler.
+- `std.io` opens with `print`, which writes text whole to standard output.
+
+### Command line
+
+- `phi build` compiles the program to a native binary, through C and the
+  system C compiler, and `phi run` builds and then runs it. `--opt fast|small`
+  says which the C compiler favours, and neither setting changes what a
+  program means.
 
 ## [0.3.0] - 2026-08-11
 

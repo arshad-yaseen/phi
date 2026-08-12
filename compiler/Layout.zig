@@ -36,7 +36,7 @@ comptime {
 }
 
 /// Far past any embedding chain the declaration limits admit.
-const depth_max = 512;
+pub const depth_max = 512;
 
 comptime {
     // a chain costs one `ensure` per link, and a type nests no deeper than the parser allows

@@ -1559,30 +1559,44 @@ fn checkIf(
 
     const cond = try check.checkCondition(view.cond);
 
+    // a settled condition takes its edge here, and the dead arm is never
+    // entered, the way a settled 'and' never enters its dead side
+    const decided = check.conditionTruth(cond);
+    const then_live = decided orelse true;
+    const else_live = !(decided orelse false);
+
     const facts_mark: u32 = @intCast(builder.facts.items.len);
     defer builder.facts.shrinkRetainingCapacity(facts_mark);
 
     const facts = try check.gatherFacts(view.cond);
 
     try check.reopenDead();
-    check.endBlock(.{ .branch = .{
-        .cond = cond,
-        .then_block = then_block,
-        .else_block = else_block,
-    } });
+    if (decided) |truth| {
+        check.endBlock(.{ .jump = if (truth) then_block else else_block });
+    } else {
+        check.endBlock(.{ .branch = .{
+            .cond = cond,
+            .then_block = then_block,
+            .else_block = else_block,
+        } });
+    }
 
     const narrows_mark = builder.narrows.items.len;
 
     check.startBlock(then_block);
+    if (then_live == false) builder.reachable = false;
     try check.applyFacts(facts.when_true);
     const then_value = try check.checkExpr(view.then_block, hint);
     builder.narrows.shrinkRetainingCapacity(narrows_mark);
     try join.take(check, then_value, view.then_block);
 
     var join_reachable = check.jumpTo(join_block);
+    // a skipped arm was spared the walk, not proven to leave, so it counts
+    // as flowing and what follows the if stays checked
+    if (then_live == false and entry_reachable) join_reachable = true;
 
     check.startBlock(else_block);
-    builder.reachable = entry_reachable;
+    builder.reachable = entry_reachable and else_live;
     var else_value: Value = .diverged;
     if (view.else_node.unwrap()) |else_node| {
         try check.applyFacts(facts.when_false);
@@ -1593,6 +1607,7 @@ fn checkIf(
         try join.take(check, else_value, else_node);
 
         if (check.jumpTo(join_block)) join_reachable = true;
+        if (else_live == false and entry_reachable) join_reachable = true;
     } else {
         if (entry_reachable) join_reachable = true;
         check.endBlock(.{ .jump = join_block });
@@ -2430,6 +2445,14 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
         return .poison;
     }
 
+    // a settled union knows its member, so the test folds like any operator
+    if (operand == .constant) {
+        const held = comp.pool.keyOf(operand.constant).value_union.value;
+        const holds = comp.pool.typeOfValue(held) == member;
+        const bools = try check.boolType(node);
+        return .{ .constant = try check.truthValue(bools, holds != view.negated) };
+    }
+
     assert(operand == .runtime);
     const bools = try check.boolType(node);
     const tested = try check.emit(node, .union_is, bools, .{
@@ -2511,6 +2534,20 @@ fn truthValue(check: *Check, bools: Pool.Index, truth: bool) Allocator.Error!Poo
     const member = pool.unionMemberAt(bools, if (truth) 0 else 1);
     const held = try pool.intern(check.comp.gpa, .{ .value_unit = member });
     return pool.intern(check.comp.gpa, .{ .value_union = .{ .type = bools, .value = held } });
+}
+
+/// What a settled condition already answered, null where it runs.
+fn conditionTruth(check: *const Check, cond: Ref) ?bool {
+    const pool = &check.comp.pool;
+    switch (cond.unwrap()) {
+        .inst => return null,
+        .constant => |value| {
+            // a broken condition stays a branch, and stays silent
+            if (value == .poison) return null;
+            const wrapped = pool.keyOf(value).value_union;
+            return pool.typeOfValue(wrapped.value) == pool.firstMember(wrapped.type);
+        },
+    }
 }
 
 /// A condition is a union, and asks whether it holds its first member.
@@ -3284,7 +3321,9 @@ fn checkOrSplit(
             const settled = if (widened or met == .poison)
                 refOf(met)
             else
-                try check.emitOne(rhs_node, .union_init, lhs_type, refOf(met));
+                try check.emit(rhs_node, .union_init, lhs_type, .{
+                    .probe = .{ .operand = refOf(met), .member = first },
+                });
             try check.emitStore(rhs_node, slot, settled);
         }
         builder.narrows.shrinkRetainingCapacity(narrows_mark);
@@ -5950,7 +5989,9 @@ fn coerce(
                 else
                     comp.pool.unionHas(wanted, runtime.type);
                 if (listed) {
-                    const wrapped = try check.emitOne(node, .union_init, wanted, runtime.ref);
+                    const wrapped = try check.emit(node, .union_init, wanted, .{
+                        .probe = .{ .operand = runtime.ref, .member = runtime.type },
+                    });
                     return runtimeValue(wrapped, wanted);
                 }
             }

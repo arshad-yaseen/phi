@@ -9,6 +9,8 @@ const test_dirs = [_][]const u8{
     "test/fail",
     "test/multi",
     "test/std",
+    "test/c",
+    "test/exec",
 };
 
 /// Room for the deepest analysis recursion the parser allows.

@@ -1,0 +1,35 @@
+// an 'is' whose operand the checker settled folds like any operator, and the
+// edge it decides is taken here, so the arm that cannot run is never entered
+
+fn held() u8 {
+    let present: u8 | none = 7
+    if present is u8 {
+        return present
+    }
+    return 0
+}
+
+fn absent() u8 {
+    let missing: u8 | none = none
+    if missing is u8 {
+        return missing
+    }
+    return 0
+}
+
+fn flipped() u8 {
+    let missing: u8 | none = none
+    if missing is not u8 {
+        return 1
+    }
+    return 0
+}
+
+// a bare union condition asks for its first member, and settles the same way
+fn bare() u8 {
+    let missing: u8 | none = none
+    if missing {
+        return 1
+    }
+    return 0
+}

@@ -1,5 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
@@ -15,28 +16,23 @@ const Kind = enum {
     multi,
     /// Compiled as though it were the standard library, so a std-only builtin resolves.
     std,
+    /// The C the backend emits, the way `ir` is the IR the checker leaves.
+    c,
+    /// Compiled with `zig cc` and run, the golden being what the program prints.
+    exec,
 
     fn extension(kind: Kind) []const u8 {
         return switch (kind) {
             .@"parse-pass" => ".tree",
-            .@"parse-error", .fail, .multi, .std => ".expected",
+            .@"parse-error", .fail, .multi, .std, .exec => ".expected",
             .ir => ".ir",
-        };
-    }
-
-    fn analyzes(kind: Kind) bool {
-        return switch (kind) {
-            .@"parse-pass", .@"parse-error" => false,
-            .ir, .fail, .multi, .std => true,
+            .c => ".c",
         };
     }
 
     /// Where `std.` resolves. A std case is its own standard library.
     fn stdDir(kind: Kind) []const u8 {
-        return switch (kind) {
-            .std => "test/std",
-            else => "lib/std",
-        };
+        return if (kind == .std) "test/std" else "lib/std";
     }
 };
 
@@ -88,10 +84,10 @@ fn runOne(
     var actual: Writer.Allocating = .init(gpa);
     defer actual.deinit();
 
-    const produced = if (kind.analyzes())
-        try runCompile(gpa, io, path, kind, &actual.writer, log)
-    else
-        try runParse(gpa, io, path, kind, &actual.writer, log);
+    const produced = switch (kind) {
+        .@"parse-pass", .@"parse-error" => try runParse(gpa, io, path, kind, &actual.writer, log),
+        else => try runCompile(gpa, io, path, kind, &actual.writer, log),
+    };
     if (produced == false) return false;
 
     const golden_path = try std.fmt.allocPrint(gpa, "{s}{s}", .{
@@ -178,12 +174,10 @@ fn runCompile(
 
     const failed = comp.hasErrors();
     switch (kind) {
-        .ir => {
-            if (failed) {
-                try log.print("{s}: expected to compile, but\n", .{path});
-                try comp.renderAll(log, .off);
-                return false;
-            }
+        .@"parse-pass", .@"parse-error" => unreachable,
+        .multi, .std => if (failed) {
+            try comp.renderAll(actual, .off);
+        } else {
             try comp.dumpIR(actual);
         },
         .fail => {
@@ -193,14 +187,100 @@ fn runCompile(
             }
             try comp.renderAll(actual, .off);
         },
-        .multi, .std => if (failed) {
-            try comp.renderAll(actual, .off);
-        } else {
+        .ir, .c, .exec => {
+            if (failed) {
+                try log.print("{s}: expected to compile, but\n", .{path});
+                try comp.renderAll(log, .off);
+                return false;
+            }
+            if (kind != .ir) return runBackend(gpa, io, &comp, path, kind, actual, log);
             try comp.dumpIR(actual);
         },
-        else => unreachable,
     }
     return true;
+}
+
+fn runBackend(
+    gpa: Allocator,
+    io: std.Io,
+    comp: *compiler.Compilation,
+    path: []const u8,
+    kind: Kind,
+    actual: *Writer,
+    log: *Writer,
+) !bool {
+    assert(kind == .c or kind == .exec);
+
+    const entry = switch (try compiler.backend.C.entryOf(comp)) {
+        .instance => |instance| instance,
+        .missing => {
+            try log.print("{s}: a backend case needs a 'fn main'\n", .{path});
+            return false;
+        },
+        .refused => {
+            try comp.renderAll(log, .off);
+            return false;
+        },
+    };
+
+    var c_text: Writer.Allocating = .init(gpa);
+    defer c_text.deinit();
+    compiler.backend.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
+        error.Refused => {
+            try comp.renderAll(log, .off);
+            return false;
+        },
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+
+    if (kind == .c) {
+        try actual.writeAll(c_text.written());
+        return true;
+    }
+
+    const work_dir = ".zig-cache/phi-exec";
+    try std.Io.Dir.cwd().createDirPath(io, work_dir);
+
+    const stem = std.fs.path.stem(path);
+    const c_path = try std.fmt.allocPrint(gpa, "{s}/{s}.c", .{ work_dir, stem });
+    defer gpa.free(c_path);
+    const binary_suffix = if (builtin.os.tag == .windows) ".exe" else "";
+    const binary_path = try std.fmt.allocPrint(gpa, "{s}/{s}{s}", .{
+        work_dir, stem, binary_suffix,
+    });
+    defer gpa.free(binary_path);
+
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = c_path, .data = c_text.written() });
+
+    const compiled = (try runChecked(gpa, io, &.{
+        "zig", "cc", "-w", c_path, "-o", binary_path,
+    }, path, "zig cc refused the generated C", log)) orelse return false;
+    gpa.free(compiled);
+
+    const output = (try runChecked(gpa, io, &.{binary_path}, path, "the program did not " ++
+        "exit cleanly", log)) orelse return false;
+    defer gpa.free(output);
+
+    try actual.writeAll(output);
+    return true;
+}
+
+/// Runs the argv and hands back its stdout, or logs what refused and why.
+fn runChecked(
+    gpa: Allocator,
+    io: std.Io,
+    argv: []const []const u8,
+    path: []const u8,
+    complaint: []const u8,
+    log: *Writer,
+) !?[]u8 {
+    const result = try std.process.run(gpa, io, .{ .argv = argv });
+    defer gpa.free(result.stderr);
+    if (result.term == .exited and result.term.exited == 0) return result.stdout;
+
+    gpa.free(result.stdout);
+    try log.print("{s}: {s}\n{s}", .{ path, complaint, result.stderr });
+    return null;
 }
 
 fn kindOf(path: []const u8) ?Kind {

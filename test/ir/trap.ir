@@ -24,7 +24,7 @@ b1:
 b2:
   jump b3
 b3:
-  %2 = union_init %0 : u32 | none
+  %2 = union_init %0, u32 : u32 | none
   return %2
 
 fn must(n: u32) u32
