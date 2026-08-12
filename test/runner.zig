@@ -261,6 +261,13 @@ fn runBackend(
         "exit cleanly", log)) orelse return false;
     defer gpa.free(output);
 
+    // the CRT writes text-mode newlines on Windows, and the golden holds the logical lines
+    if (builtin.os.tag == .windows) {
+        const bare = try std.mem.replaceOwned(u8, gpa, output, "\r\n", "\n");
+        defer gpa.free(bare);
+        try actual.writeAll(bare);
+        return true;
+    }
     try actual.writeAll(output);
     return true;
 }
