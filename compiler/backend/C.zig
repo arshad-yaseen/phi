@@ -14,6 +14,8 @@ const Source = @import("../Source.zig");
 const spell = @import("../util/spell.zig");
 
 const Ref = IR.Ref;
+/// An instruction's position inside the body being lowered, the `n` in `v{n}`.
+const Local = IR.Inst.Index;
 
 comp: *Compilation,
 gpa: Allocator,
@@ -653,9 +655,9 @@ fn ensureStoredDeps(backend: *C, index: Pool.Index, depth: u32) Fail!void {
 // functions
 
 /// `    v{n} = `, opening the statement that fills a declared value.
-const Assign = struct { local: u32 };
+const Assign = struct { local: Local };
 /// `v{n}`, a declared value standing inside an expression.
-const Value = struct { local: u32 };
+const Value = struct { local: Local };
 /// What a pointer ref points at, a local slot read as itself.
 const Deref = struct { ref: Ref };
 /// The ref as an unsigned 64-bit count, sign-widened the way `bounds_check` states.
@@ -663,10 +665,10 @@ const Widened = struct { ref: Ref };
 /// The address of the first element, behind a slice or an array pointer.
 const Base = struct { ref: Ref };
 
-fn assign(local: u32) Assign {
+fn assign(local: Local) Assign {
     return .{ .local = local };
 }
-fn value(local: u32) Value {
+fn value(local: Local) Value {
     return .{ .local = local };
 }
 fn deref(ref: Ref) Deref {
@@ -687,8 +689,8 @@ fn put(backend: *C, parts: anytype) Fail!void {
     const w = &backend.code.writer;
     inline for (parts) |part| {
         switch (@TypeOf(part)) {
-            Assign => try w.print("    v{d} = ", .{part.local}),
-            Value => try w.print("v{d}", .{part.local}),
+            Assign => try w.print("    v{d} = ", .{part.local.int()}),
+            Value => try w.print("v{d}", .{part.local.int()}),
             Deref => try backend.writeDeref(part.ref),
             Widened => try backend.writeWidened(part.ref),
             Base => try backend.writeBase(part.ref),
@@ -708,7 +710,7 @@ fn writeRef(backend: *C, ref: Ref) Fail!void {
     const w = &backend.code.writer;
     switch (ref.unwrap()) {
         .constant => |constant| try backend.writeConstant(w, constant, .expression, 0),
-        .inst => |inst| if (backend.instOf(inst.int()).tag == .local) {
+        .inst => |inst| if (backend.instOf(inst).tag == .local) {
             try w.print("(&s{d})", .{inst.int()});
         } else {
             try w.print("v{d}", .{inst.int()});
@@ -719,7 +721,7 @@ fn writeRef(backend: *C, ref: Ref) Fail!void {
 fn writeDeref(backend: *C, ref: Ref) Fail!void {
     assert(backend.comp.pool.keyOf(backend.typeOfRef(ref)) == .type_pointer);
     switch (ref.unwrap()) {
-        .inst => |inst| if (backend.instOf(inst.int()).tag == .local) {
+        .inst => |inst| if (backend.instOf(inst).tag == .local) {
             return backend.code.writer.print("s{d}", .{inst.int()});
         },
         .constant => {},
@@ -748,14 +750,14 @@ fn writeBase(backend: *C, ref: Ref) Fail!void {
     }
 }
 
-fn instOf(backend: *const C, local: u32) IR.Inst {
-    return backend.comp.instAt(backend.func.insts.at(local));
+fn instOf(backend: *const C, local: Local) IR.Inst {
+    return backend.comp.instAt(backend.func.insts.at(local.int()));
 }
 
 fn typeOfRef(backend: *const C, ref: Ref) Pool.Index {
     return switch (ref.unwrap()) {
         .constant => |constant| backend.comp.pool.typeOfValue(constant),
-        .inst => |inst| backend.instOf(inst.int()).type,
+        .inst => |inst| backend.instOf(inst).type,
     };
 }
 
@@ -787,39 +789,39 @@ fn writeFunc(backend: *C, instance: Pool.Instance, func: IR.Func) Fail!void {
 
     // the body opens with one param instruction per row, which the signature bound
     for (comp.instanceRows(instance), 0..) |row, position| {
-        const inst = comp.instAt(func.insts.at(@intCast(position)));
+        const inst = backend.instOf(.from(position));
         assert(inst.tag == .param);
         assert(inst.type == row.type);
     }
 
     // every value up front
-    var local: u32 = 0;
-    while (local < func.insts.len) : (local += 1) try backend.writeDeclaration(local);
+    var raw: u32 = 0;
+    while (raw < func.insts.len) : (raw += 1) try backend.writeDeclaration(.from(raw));
     try w.writeByte('\n');
 
     const blocks = comp.funcBlocks(func);
     assert(blocks.len > 0);
-    for (blocks, 0..) |block, raw| {
-        try w.print("b{d}:;\n", .{raw});
+    for (blocks, 0..) |block, number| {
+        try w.print("b{d}:;\n", .{number});
         var at = block.first;
-        while (at < block.end()) : (at += 1) try backend.writeInst(at);
+        while (at < block.end()) : (at += 1) try backend.writeInst(.from(at));
         try backend.writeTerminator(block.terminator);
     }
     try w.writeAll("}\n\n");
 }
 
 /// The declaration an instruction's value needs, if it produces one.
-fn writeDeclaration(backend: *C, local: u32) Fail!void {
+fn writeDeclaration(backend: *C, local: Local) Fail!void {
     const pool = &backend.comp.pool;
     const w = &backend.code.writer;
     const inst = backend.instOf(local);
 
     switch (inst.tag) {
         // bound by the signature already
-        .param => assert(local < backend.comp.instanceRows(backend.func.instance).len),
+        .param => assert(local.int() < backend.comp.instanceRows(backend.func.instance).len),
         .local => {
             try backend.put(.{ "    ", pool.keyOf(inst.type).type_pointer.child });
-            try w.print(" s{d};", .{local});
+            try w.print(" s{d};", .{local.int()});
             if (inst.data.name != .empty) {
                 try w.print(" // {s}", .{pool.stringText(inst.data.name)});
             }
@@ -827,25 +829,25 @@ fn writeDeclaration(backend: *C, local: u32) Fail!void {
         },
         else => if (inst.type != .void_type) {
             try backend.put(.{ "    ", inst.type });
-            try w.print(" v{d};\n", .{local});
+            try w.print(" v{d};\n", .{local.int()});
         } else switch (inst.tag) {
             // of the effects, only the compiler's own tests carry a value
             .cmp_eq, .cmp_ne, .cmp_lt, .cmp_le, .cmp_gt, .cmp_ge, .union_is => {
-                try w.print("    int v{d};\n", .{local});
+                try w.print("    int v{d};\n", .{local.int()});
             },
             else => {},
         },
     }
 }
 
-fn writeInst(backend: *C, local: u32) Fail!void {
+fn writeInst(backend: *C, local: Local) Fail!void {
     const comp = backend.comp;
     const pool = &comp.pool;
     const inst = backend.instOf(local);
 
     switch (inst.tag) {
         // both stand declared at the top of the function
-        .param => assert(local < comp.instanceRows(backend.func.instance).len),
+        .param => assert(local.int() < comp.instanceRows(backend.func.instance).len),
         .local => assert(pool.keyOf(inst.type).type_pointer.mutable),
 
         .load => try backend.put(.{ assign(local), deref(inst.data.un), ";\n" }),
@@ -929,13 +931,13 @@ fn writeInst(backend: *C, local: u32) Fail!void {
 }
 
 /// `v = lhs op rhs`, the shape every plain binary lands on.
-fn writeBinary(backend: *C, local: u32, inst: IR.Inst, operator: []const u8) Fail!void {
+fn writeBinary(backend: *C, local: Local, inst: IR.Inst, operator: []const u8) Fail!void {
     const bin = inst.data.bin;
     try backend.put(.{ assign(local), bin.lhs, operator, bin.rhs, ";\n" });
 }
 
 /// Checked by the builtin, so the sum that does not fit stops the program.
-fn writeArith(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeArith(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const operator, const builtin = switch (inst.tag) {
         .add => .{ " + ", "__builtin_add_overflow" },
         .sub => .{ " - ", "__builtin_sub_overflow" },
@@ -950,7 +952,7 @@ fn writeArith(backend: *C, local: u32, inst: IR.Inst) Fail!void {
     try backend.put(.{")) __builtin_trap();\n"});
 }
 
-fn writeDiv(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeDiv(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const bin = inst.data.bin;
     try backend.put(.{ "    if (", bin.rhs, " == 0) __builtin_trap();\n" });
 
@@ -962,7 +964,7 @@ fn writeDiv(backend: *C, local: u32, inst: IR.Inst) Fail!void {
     try backend.writeBinary(local, inst, " / ");
 }
 
-fn writeMod(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeMod(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     assert(Pool.isSizedInt(inst.type));
     const bin = inst.data.bin;
     try backend.put(.{ "    if (", bin.rhs, " == 0) __builtin_trap();\n" });
@@ -976,7 +978,7 @@ fn writeMod(backend: *C, local: u32, inst: IR.Inst) Fail!void {
 }
 
 /// Left shifts run unsigned so the bits shifted out are lost rather than undefined.
-fn writeShift(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeShift(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     assert(Pool.isSizedInt(inst.type));
     const bin = inst.data.bin;
     const width = Pool.widthOf(inst.type);
@@ -993,7 +995,7 @@ fn writeShift(backend: *C, local: u32, inst: IR.Inst) Fail!void {
 }
 
 /// The compiler's own test answers C truth, the file's answers a bool, tag zero true.
-fn writeCompare(backend: *C, local: u32, inst: IR.Inst, operator: []const u8) Fail!void {
+fn writeCompare(backend: *C, local: Local, inst: IR.Inst, operator: []const u8) Fail!void {
     if (inst.type == .void_type) return backend.writeBinary(local, inst, operator);
 
     assert(unionFormOf(&backend.comp.pool, inst.type) == .tag_only);
@@ -1001,7 +1003,7 @@ fn writeCompare(backend: *C, local: u32, inst: IR.Inst, operator: []const u8) Fa
     try backend.put(.{ assign(local), "!(", bin.lhs, operator, bin.rhs, ");\n" });
 }
 
-fn writeNegate(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeNegate(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     if (Pool.isFloat(inst.type)) {
         return backend.put(.{ assign(local), "-", inst.data.un, ";\n" });
     }
@@ -1014,7 +1016,7 @@ fn writeNegate(backend: *C, local: u32, inst: IR.Inst) Fail!void {
 }
 
 /// The number where the destination holds it, the union's other member where not.
-fn writeIntCast(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeIntCast(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const operand = inst.data.un;
 
@@ -1047,7 +1049,7 @@ fn writeIntCast(backend: *C, local: u32, inst: IR.Inst) Fail!void {
     try backend.put(.{"){ .tag = 1 };\n"});
 }
 
-fn writeUnionInit(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeUnionInit(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const member = inst.data.probe.member;
     const operand = inst.data.probe.operand;
@@ -1083,7 +1085,7 @@ fn writeUnionInit(backend: *C, local: u32, inst: IR.Inst) Fail!void {
     try backend.put(.{";\n"});
 }
 
-fn writeUnionIs(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeUnionIs(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const probe = inst.data.probe;
 
     try backend.put(.{assign(local)});
@@ -1098,7 +1100,7 @@ fn writeUnionIs(backend: *C, local: u32, inst: IR.Inst) Fail!void {
     try backend.put(.{";\n"});
 }
 
-fn writeUnionNarrow(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeUnionNarrow(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const source = backend.typeOfRef(inst.data.un);
     assert(pool.isUnion(source));
@@ -1144,7 +1146,7 @@ fn writeMemberTest(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     }
 }
 
-fn writeCall(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeCall(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const comp = backend.comp;
     const w = &backend.code.writer;
     const call = IR.callAt(comp.funcExtra(backend.func), inst.data.payload);
@@ -1175,7 +1177,7 @@ fn writeCall(backend: *C, local: u32, inst: IR.Inst) Fail!void {
     try w.writeAll(");\n");
 }
 
-fn writeAggregateInit(backend: *C, local: u32, inst: IR.Inst) Fail!void {
+fn writeAggregateInit(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const w = &backend.code.writer;
     const elements = IR.aggregateInitAt(backend.comp.funcExtra(backend.func), inst.data.payload);
