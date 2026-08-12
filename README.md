@@ -17,8 +17,6 @@ fn main() {
 ```console
 $ phi run main.phi
 Hello, world!
-4x2
- ^
 ```
 
 ## Builds
