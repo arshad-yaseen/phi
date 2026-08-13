@@ -8,4 +8,9 @@ zig-out/
 /index.json
 /NOTES.md
 
+# what 'phi build main.phi' leaves at the repo root
+/main
+/main.c
+*.dSYM/
+
 .DS_Store

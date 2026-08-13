@@ -1,0 +1,8 @@
+import std.io
+
+fn main() {
+    io.print("before\n")
+    var n: u64 = 64
+    _ = 1 << n
+    io.print("after\n")
+}

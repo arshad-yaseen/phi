@@ -1,0 +1,8 @@
+import std.io
+
+fn main() {
+    io.print("before\n")
+    var n: i64 = @min_int[i64]()
+    _ = -n
+    io.print("after\n")
+}

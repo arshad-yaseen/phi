@@ -1,8 +1,4 @@
-//! Runs the file tests. A case is a `.phi` file, or a directory holding a
-//! `main.phi`, and the goldens beside it say everything, each golden's
-//! extension names one assertion, so directories are free grouping and the
-//! runner never reads their names. A new case opts in by touching the golden
-//! it expects, then `zig build test-update` fills it.
+//! Runs the file tests.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -344,7 +340,7 @@ fn runBackend(
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = c_path, .data = c_text.written() });
 
     const compiled = (try runChecked(gpa, io, &.{
-        "zig", "cc", "-w", c_path, "-o", binary_path,
+        "zig", "cc", "-w", "-fno-strict-aliasing", c_path, "-o", binary_path,
     }, path, "zig cc refused the generated C", log)) orelse return false;
     gpa.free(compiled);
 

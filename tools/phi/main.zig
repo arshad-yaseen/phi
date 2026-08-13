@@ -228,8 +228,9 @@ fn compileC(
     };
 
     for (candidates) |candidate| {
-        // debug info reads through the #line directives, naming phi source lines
-        const argv = [_][]const u8{ candidate, optimize, "-g", "-w", c_path, "-o", out_path };
+        const argv = [_][]const u8{
+            candidate, optimize, "-g", "-w", "-fno-strict-aliasing", c_path, "-o", out_path,
+        };
         var child = std.process.spawn(init.io, .{ .argv = &argv }) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => return err,

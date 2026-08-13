@@ -1,0 +1,18 @@
+import std.io
+
+type Blank = {}
+
+fn consume(b: Blank) u64 {
+    _ = b
+    return 7
+}
+
+fn main() {
+    if @size_of[Blank]() == 0 {
+        io.print("zero size\n")
+    }
+    let b = Blank.{}
+    if consume(b) == 7 {
+        io.print("blank passes\n")
+    }
+}

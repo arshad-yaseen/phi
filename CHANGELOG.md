@@ -24,10 +24,11 @@
 
 ### Command line
 
-- `phi build` compiles the program to a native binary, through C and the
-  system C compiler, and `phi run` builds and then runs it. The binary carries
-  debug info naming phi source lines, `--opt fast|small` says which the C
-  compiler favours, and neither setting changes what a program means.
+- `phi build` compiles the program to a native binary for 64-bit targets,
+  through C and the system C compiler, and `phi run` builds and then runs it.
+  The binary carries debug info naming phi source lines, `--opt fast|small`
+  says which the C compiler favours, and neither setting changes what a
+  program means.
 
 ## [0.3.0] - 2026-08-11
 
