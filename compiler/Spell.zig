@@ -2,11 +2,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Writer = std.Io.Writer;
 
-const AST = @import("../AST.zig");
-const Token = @import("../Token.zig");
-const Compilation = @import("../Compilation.zig");
-const IR = @import("../IR.zig");
-const Pool = @import("../Pool.zig");
+const AST = @import("AST.zig");
+const Compilation = @import("Compilation.zig");
+const IR = @import("IR.zig");
+const Pool = @import("Pool.zig");
+const Token = @import("Token.zig");
 
 const Node = AST.Node;
 
@@ -620,45 +620,4 @@ fn terminator(
         },
         .trap => try writer.writeAll("  trap\n"),
     }
-}
-
-// a missed name
-
-/// The closest candidate under the suggestion threshold, if any came close.
-pub const Closest = struct {
-    target: []const u8,
-    best: ?[]const u8 = null,
-    best_distance: u32 = 3,
-
-    pub fn consider(closest: *Closest, candidate: []const u8) void {
-        const found = distance(closest.target, candidate);
-        if (found < closest.best_distance) {
-            closest.best_distance = found;
-            closest.best = candidate;
-        }
-    }
-};
-
-/// Levenshtein distance, with both names cut to forty bytes.
-fn distance(a: []const u8, b: []const u8) u32 {
-    const cap = 40;
-    const from = a[0..@min(a.len, cap)];
-    const to = b[0..@min(b.len, cap)];
-
-    var row: [cap + 1]u32 = undefined;
-    for (0..to.len + 1) |column| row[column] = @intCast(column);
-
-    for (from, 1..) |byte, at| {
-        var corner = row[0];
-        row[0] = @intCast(at);
-        for (to, 1..) |other, column| {
-            const cost: u32 = if (byte == other) 0 else 1;
-            const replaced = corner + cost;
-            const inserted = row[column - 1] + 1;
-            const removed = row[column] + 1;
-            corner = row[column];
-            row[column] = @min(replaced, @min(inserted, removed));
-        }
-    }
-    return row[to.len];
 }

@@ -8,14 +8,14 @@ const Writer = std.Io.Writer;
 const AST = @import("AST.zig");
 const Check = @import("Check.zig");
 const Diagnostic = @import("Diagnostic.zig");
+const Handle = @import("Handle.zig");
 const IR = @import("IR.zig");
 const Layout = @import("Layout.zig");
 const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
+const Spell = @import("Spell.zig");
 const Token = @import("Token.zig");
-const handle = @import("util/handle.zig");
-const spell = @import("util/spell.zig");
 
 const Decl = Module.Decl;
 
@@ -153,7 +153,7 @@ pub const Row = struct {
     type: Pool.Index,
     node: AST.Node.Index,
 
-    pub const Index = handle.Index("row");
+    pub const Index = Handle.Index("row");
 };
 
 /// One memoized computation, runnable only through `ensure`.
@@ -914,16 +914,55 @@ pub fn fmt(
     return std.fmt.allocPrint(comp.arena.allocator(), template, args);
 }
 
+/// The closest candidate to a missed name, if any came under the suggestion threshold.
+pub const Closest = struct {
+    target: []const u8,
+    best: ?[]const u8 = null,
+    best_distance: u32 = 3,
+
+    pub fn consider(closest: *Closest, candidate: []const u8) void {
+        const found = distance(closest.target, candidate);
+        if (found < closest.best_distance) {
+            closest.best_distance = found;
+            closest.best = candidate;
+        }
+    }
+
+    /// Levenshtein distance, with both names cut to forty bytes.
+    fn distance(a: []const u8, b: []const u8) u32 {
+        const cap = 40;
+        const from = a[0..@min(a.len, cap)];
+        const to = b[0..@min(b.len, cap)];
+
+        var row: [cap + 1]u32 = undefined;
+        for (0..to.len + 1) |column| row[column] = @intCast(column);
+
+        for (from, 1..) |byte, at| {
+            var corner = row[0];
+            row[0] = @intCast(at);
+            for (to, 1..) |other, column| {
+                const cost: u32 = if (byte == other) 0 else 1;
+                const replaced = corner + cost;
+                const inserted = row[column - 1] + 1;
+                const removed = row[column] + 1;
+                corner = row[column];
+                row[column] = @min(replaced, @min(inserted, removed));
+            }
+        }
+        return row[to.len];
+    }
+};
+
 pub fn didYouMean(
     comp: *Compilation,
-    closest: spell.Closest,
+    closest: Closest,
 ) Allocator.Error!?[]const u8 {
     const found = closest.best orelse return null;
     return try comp.fmt("did you mean '{s}'?", .{found});
 }
 
 /// Offers a range's top-level names to a suggestion.
-pub fn considerDecls(comp: *const Compilation, closest: *spell.Closest, range: Range) void {
+pub fn considerDecls(comp: *const Compilation, closest: *Closest, range: Range) void {
     for (comp.declsIn(range)) |decl| {
         if (decl.owner != .none) continue;
         closest.consider(comp.pool.stringText(decl.name));
@@ -950,11 +989,11 @@ pub fn dumpIR(comp: *const Compilation, writer: *Writer) Writer.Error!void {
         const index = instance.func.unwrap() orelse continue;
         if (printed) try writer.writeByte('\n');
         printed = true;
-        try spell.writeFunc(comp, comp.funcAt(index), writer);
+        try Spell.writeFunc(comp, comp.funcAt(index), writer);
     }
 }
 
-/// One of the `spell` writers into the diagnostic arena.
+/// One of the `Spell` writers into the diagnostic arena.
 fn spelled(comp: *Compilation, writer: anytype, subject: anytype) Allocator.Error![]const u8 {
     var out: Writer.Allocating = .init(comp.arena.allocator());
     writer(comp, &out.writer, subject) catch |err| switch (err) {
@@ -964,16 +1003,16 @@ fn spelled(comp: *Compilation, writer: anytype, subject: anytype) Allocator.Erro
 }
 
 pub fn typeName(comp: *Compilation, index: Pool.Index) Allocator.Error![]const u8 {
-    return comp.spelled(spell.writeType, index);
+    return comp.spelled(Spell.writeType, index);
 }
 
 pub fn instanceName(comp: *Compilation, index: Pool.Instance) Allocator.Error![]const u8 {
-    return comp.spelled(spell.writeInstance, index);
+    return comp.spelled(Spell.writeInstance, index);
 }
 
 /// The value alone, for a message naming what did not fit.
 pub fn spellValue(comp: *Compilation, value: Pool.Index) Allocator.Error![]const u8 {
-    return comp.spelled(spell.writeConstantBare, value);
+    return comp.spelled(Spell.writeConstantBare, value);
 }
 
 pub fn rowName(comp: *const Compilation, index: Row.Index) []const u8 {

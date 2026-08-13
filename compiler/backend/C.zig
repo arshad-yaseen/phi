@@ -11,7 +11,7 @@ const IR = @import("../IR.zig");
 const Layout = @import("../Layout.zig");
 const Pool = @import("../Pool.zig");
 const Source = @import("../Source.zig");
-const spell = @import("../util/spell.zig");
+const Spell = @import("../Spell.zig");
 
 const Ref = IR.Ref;
 /// An instruction's position inside the body being lowered, the `n` in `v{n}`.
@@ -410,7 +410,7 @@ fn ensureTypedef(backend: *C, index: Pool.Index, depth: u32) Fail!void {
         else => unreachable,
     }
     try w.writeAll("}; // ");
-    try spell.writeType(comp, w, index);
+    try Spell.writeType(comp, w, index);
     try w.writeByte('\n');
 
     try backend.types.writer.writeAll(body.written());
@@ -782,7 +782,7 @@ fn writeFunc(backend: *C, instance: Pool.Instance, func: IR.Func) Fail!void {
     backend.func = func;
 
     try w.writeAll("// fn ");
-    try spell.writeInstance(comp, w, instance);
+    try Spell.writeInstance(comp, w, instance);
     try w.writeByte('\n');
     try backend.writeSignature(w, instance, .local);
     try w.writeAll(" {\n");

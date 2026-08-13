@@ -6,11 +6,12 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
 const Check = @import("Check.zig");
+const Compilation = @import("Compilation.zig");
 const Layout = @import("Layout.zig");
 const Pool = @import("Pool.zig");
 const Token = @import("Token.zig");
-const spell = @import("util/spell.zig");
 
+const Closest = Compilation.Closest;
 const Node = AST.Node;
 const Value = Check.Value;
 
@@ -186,7 +187,7 @@ pub const Builtin = enum {
 };
 
 fn suggest(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
-    var closest: spell.Closest = .{ .target = text };
+    var closest: Closest = .{ .target = text };
     for (Builtin.names) |candidate| closest.consider(candidate);
     return check.comp.didYouMean(closest);
 }

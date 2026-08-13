@@ -7,17 +7,16 @@ const Allocator = std.mem.Allocator;
 const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
 const Diagnostic = @import("Diagnostic.zig");
+const Handle = @import("Handle.zig");
 const IR = @import("IR.zig");
 const Layout = @import("Layout.zig");
+const Literal = @import("Literal.zig");
 const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Builtin = @import("Builtin.zig").Builtin;
 const Token = @import("Token.zig");
-const handle = @import("util/handle.zig");
-const number = @import("util/number.zig");
-const spell = @import("util/spell.zig");
-const literal = @import("util/text.zig");
 
+const Closest = Compilation.Closest;
 const Decl = Module.Decl;
 const Node = AST.Node;
 const Ref = IR.Ref;
@@ -844,7 +843,7 @@ pub const Builder = struct {
             constant: Pool.Index,
         };
 
-        const Index = handle.Index("local");
+        const Index = Handle.Index("local");
 
         comptime {
             if (std.debug.runtime_safety == false) assert(@sizeOf(Payload) == 4);
@@ -1967,7 +1966,7 @@ fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error
 
 // match, the n-way `is`
 
-const Arm = handle.Index("match arm");
+const Arm = Handle.Index("match arm");
 
 /// Which arm covered a member, `.none` until one does.
 const ArmIndex = Arm.Optional;
@@ -2895,7 +2894,7 @@ fn checkNumber(check: *Check, node: Node.Index) Allocator.Error!Value {
     const comp = check.comp;
     const text = check.mainTokenText(node);
 
-    switch (try number.decode(comp.arena.allocator(), text)) {
+    switch (try Literal.decodeNumber(comp.arena.allocator(), text)) {
         .int => |value| return check.untypedInt(value),
         .float => |value| return .{ .constant = try comp.pool.intern(comp.gpa, .{
             .value_float = .{ .type = .untyped_float_type, .value = value },
@@ -2913,7 +2912,7 @@ fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
     const mark = comp.pool.scratch.items.len;
     defer comp.pool.scratch.shrinkRetainingCapacity(mark);
 
-    var reading = literal.bytesOf(check.mainTokenText(node));
+    var reading = Literal.bytesOf(check.mainTokenText(node));
     while (reading.next()) |piece| switch (piece) {
         // bytes, so a string never lands on a wider element than it spells
         .bytes => |run| {
@@ -2936,7 +2935,7 @@ fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
 }
 
 fn checkChar(check: *Check, node: Node.Index) Allocator.Error!Value {
-    switch (literal.decodeChar(check.mainTokenText(node))) {
+    switch (Literal.decodeChar(check.mainTokenText(node))) {
         .codepoint => |value| return check.untypedInt(value),
         .refused => |refusal| {
             try check.fail(node, refusal);
@@ -3847,7 +3846,7 @@ fn suggestMember(
     name_text: []const u8,
 ) Allocator.Error!?[]const u8 {
     const comp = check.comp;
-    var closest: spell.Closest = .{ .target = name_text };
+    var closest: Closest = .{ .target = name_text };
 
     switch (comp.pool.keyOf(owner)) {
         .type_array => {
@@ -6278,7 +6277,7 @@ fn reportUndefined(check: *Check, node: Node.Index, text: []const u8) Allocator.
 /// Among locals, type parameters, this file's declarations, and the prelude.
 fn suggestName(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     const comp = check.comp;
-    var closest: spell.Closest = .{ .target = text };
+    var closest: Closest = .{ .target = text };
 
     if (check.builder) |builder| {
         for (builder.locals.items) |local| {

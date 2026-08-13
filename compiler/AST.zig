@@ -5,10 +5,10 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
 const Diagnostic = @import("Diagnostic.zig");
+const Handle = @import("Handle.zig");
 const Parse = @import("Parse.zig");
 const Token = @import("Token.zig");
 const Tokenizer = @import("Tokenizer.zig");
-const handle = @import("util/handle.zig");
 
 const AST = @This();
 
@@ -35,7 +35,7 @@ pub const Comment = Tokenizer.Comment;
 const NodeList = std.MultiArrayList(Node);
 
 /// Where a node's payload starts in `extra`. Internal to the parser.
-pub const ExtraIndex = handle.Index("ast extra");
+pub const ExtraIndex = Handle.Index("ast extra");
 
 pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!AST {
     const tree = try Parse.run(gpa, source);
@@ -85,7 +85,7 @@ pub const Node = struct {
         }
     };
 
-    pub const OptionalIndex = handle.OptionalOf(Index);
+    pub const OptionalIndex = Handle.OptionalOf(Index);
 
     pub const Tag = enum(u8) {
         root,

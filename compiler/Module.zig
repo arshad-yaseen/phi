@@ -6,12 +6,12 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
+const Handle = @import("Handle.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Token = @import("Token.zig");
-const handle = @import("util/handle.zig");
-const spell = @import("util/spell.zig");
 
+const Closest = Compilation.Closest;
 const Range = Compilation.Range;
 
 /// `space:stem/stem`, so one file is one module.
@@ -92,7 +92,7 @@ pub const Decl = struct {
     /// Stored in `aux` beside the payload.
     pub const ImportTarget = enum(u8) { module, decl };
 
-    pub const Index = handle.Index("decl");
+    pub const Index = Handle.Index("decl");
     pub const OptionalIndex = Decl.Index.Optional;
 
     /// Members sit contiguously after their struct.
@@ -642,7 +642,7 @@ fn suggestIn(
     module: *const Module,
     name: []const u8,
 ) Allocator.Error!?[]const u8 {
-    var closest: spell.Closest = .{ .target = name };
+    var closest: Closest = .{ .target = name };
     comp.considerDecls(&closest, module.decls);
     return comp.didYouMean(closest);
 }

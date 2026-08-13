@@ -5,8 +5,8 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
+const Handle = @import("Handle.zig");
 const Module = @import("Module.zig");
-const handle = @import("util/handle.zig");
 
 items: std.MultiArrayList(Item),
 /// Wide payloads, each a type and its value words.
@@ -64,7 +64,7 @@ pub const Index = enum(u32) {
 };
 
 /// A struct instantiation. The rows live on `Compilation`.
-pub const Instance = handle.Index("instance");
+pub const Instance = Handle.Index("instance");
 pub const OptionalInstance = Instance.Optional;
 
 /// An offset into `bytes`. The text runs to the next zero byte.

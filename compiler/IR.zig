@@ -5,10 +5,10 @@ const assert = std.debug.assert;
 
 const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
+const Handle = @import("Handle.zig");
 const Pool = @import("Pool.zig");
-const handle = @import("util/handle.zig");
 
-pub const ExtraIndex = handle.Index("inst extra");
+pub const ExtraIndex = Handle.Index("inst extra");
 
 pub const InstList = std.MultiArrayList(Inst);
 
@@ -23,7 +23,7 @@ pub const Func = struct {
     /// Block zero is the entry, and every block is reachable.
     blocks: Compilation.Range,
 
-    pub const Index = handle.Index("func");
+    pub const Index = Handle.Index("func");
     pub const OptionalIndex = Index.Optional;
 };
 
@@ -99,7 +99,7 @@ pub const Inst = struct {
     node: AST.Node.Index,
     data: Data,
 
-    pub const Index = handle.Index("inst");
+    pub const Index = Handle.Index("inst");
 
     pub const Data = union {
         none: void,
