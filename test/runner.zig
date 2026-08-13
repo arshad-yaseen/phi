@@ -288,7 +288,7 @@ fn runBackend(
     update: bool,
     log: *Writer,
 ) !bool {
-    const entry = switch (try compiler.backend.C.entryOf(comp)) {
+    const entry = switch (try compiler.codegen.C.entryOf(comp)) {
         .instance => |instance| instance,
         .missing => {
             try log.print("{s}: a backend case needs a 'fn main'\n", .{path});
@@ -302,7 +302,7 @@ fn runBackend(
 
     var c_text: Writer.Allocating = .init(gpa);
     defer c_text.deinit();
-    compiler.backend.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
+    compiler.codegen.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
         error.Refused => {
             try comp.renderAll(log, .off);
             return false;

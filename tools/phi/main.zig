@@ -136,7 +136,7 @@ fn runBuild(
     const arena = init.arena.allocator();
     assert(comp.hasErrors() == false);
 
-    const entry = switch (try compiler.backend.C.entryOf(comp)) {
+    const entry = switch (try compiler.codegen.C.entryOf(comp)) {
         .instance => |instance| instance,
         .missing => {
             try log.print("phi: '{s}' has no 'fn main' to start from\n", .{request.path});
@@ -150,7 +150,7 @@ fn runBuild(
 
     var c_text: Writer.Allocating = .init(init.gpa);
     defer c_text.deinit();
-    compiler.backend.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
+    compiler.codegen.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
         error.Refused => {
             try comp.renderAll(log, color);
             return 1;
