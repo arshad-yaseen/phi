@@ -27,7 +27,6 @@ pub fn format_uint(buf: []var u8, value: u64) []u8 {
     var n = value
 
     loop {
-        // a remainder of ten is under ten, so the cast never answers 'none'
         let digit = @int_cast[u8](n % 10) or return buf[i..]
         i -= 1
         buf[i] = '0' + digit
