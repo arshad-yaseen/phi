@@ -20,7 +20,8 @@
   picks its `if` edge before anything runs, so the arm that cannot run is
   never entered, the way a settled `and` never enters its dead side. Testing
   a constant optional used to crash the compiler.
-- `std.io` opens with `print`, which writes text whole to standard output.
+- `std.io` opens with `print`, which writes text whole to standard output, and
+  `print_uint`, which writes an unsigned integer as decimal digits.
 
 ### Command line
 

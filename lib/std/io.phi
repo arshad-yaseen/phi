@@ -15,3 +15,22 @@ pub fn print(text: str) {
         rest = rest[count..]
     }
 }
+
+/// Write an unsigned integer to standard output, as decimal digits.
+pub fn print_uint(value: u64) {
+    var buf: [20]u8 = @splat('0')
+
+    var i: u64 = 20
+    var n = value
+
+    loop {
+        i -= 1
+        buf[i] = '0' + (@int_cast[u8](n % 10) or return)
+        n = n / 10
+        if n == 0 {
+            break
+        }
+    }
+
+    print(buf[i..])
+}

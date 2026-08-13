@@ -1,16 +1,7 @@
-type Err
-
-fn widen(x: i64 | none) i64 | none | Err {
-    return x
-}
-
-fn narrow(x: i64 | none | Err) i64 | none {
-    if x is Err {
-        return none
-    }
-    return x
-}
+import std.io
 
 fn main() {
-    _ = narrow(widen(7))
+    var num: u32 = 20
+    io.print_uint(num)
+    io.print("\n")
 }
