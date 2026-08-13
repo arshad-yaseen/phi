@@ -18,7 +18,7 @@ pub fn print(text: str) {
 
 /// Write an unsigned integer to standard output, as decimal digits.
 pub fn print_uint(value: u64) {
-    var buf: [20]u8 = @splat('0')
+    var buf: [20]u8 = @splat(0)
 
     var i: u64 = 20
     var n = value
