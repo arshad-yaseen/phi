@@ -1,4 +1,7 @@
 //! The C backend.
+//!
+//! It writes one translation unit of GNU C11 for 64-bit
+//! targets, which clang, gcc, and `zig cc` compile and MSVC does not.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -15,7 +18,7 @@ const Spell = @import("../Spell.zig");
 
 const Ref = IR.Ref;
 /// An instruction's position inside the body being lowered, the `n` in `v{n}`.
-const Local = IR.Inst.Index;
+const Position = IR.Inst.Index;
 
 comp: *Compilation,
 gpa: Allocator,
@@ -706,9 +709,9 @@ fn ensureStoredDeps(backend: *C, index: Pool.Index, depth: u32) Fail!void {
 // functions
 
 /// `    v{n} = `, opening the statement that fills a declared value.
-const Assign = struct { local: Local };
+const Assign = struct { local: Position };
 /// `v{n}`, a declared value standing inside an expression.
-const Value = struct { local: Local };
+const Value = struct { local: Position };
 /// What a pointer ref points at, a local slot read as itself.
 const Deref = struct { ref: Ref };
 /// The ref as an unsigned 64-bit count, sign-widened the way `bounds_check` states.
@@ -716,10 +719,10 @@ const Widened = struct { ref: Ref };
 /// The address of the first element, behind a slice or an array pointer.
 const Base = struct { ref: Ref };
 
-fn assign(local: Local) Assign {
+fn assign(local: Position) Assign {
     return .{ .local = local };
 }
-fn value(local: Local) Value {
+fn value(local: Position) Value {
     return .{ .local = local };
 }
 fn deref(ref: Ref) Deref {
@@ -801,7 +804,7 @@ fn writeBase(backend: *C, ref: Ref) Fail!void {
     }
 }
 
-fn instOf(backend: *const C, local: Local) IR.Inst {
+fn instOf(backend: *const C, local: Position) IR.Inst {
     return backend.comp.instAt(backend.func.insts.at(local.int()));
 }
 
@@ -859,7 +862,7 @@ fn writeFunc(backend: *C, instance: Pool.Instance, func: IR.Func) Fail!void {
         try w.print("b{d}:;\n", .{number});
         var at = block.first;
         while (at < block.end()) : (at += 1) {
-            const local: Local = .from(at);
+            const local: Position = .from(at);
             switch (backend.instOf(local).tag) {
                 .param, .local => {},
                 else => try backend.writeLine(backend.instOf(local).node),
@@ -891,7 +894,7 @@ fn writeLine(backend: *C, node: AST.Node.Index) Fail!void {
 }
 
 /// The declaration an instruction's value needs, if it produces one.
-fn writeDeclaration(backend: *C, local: Local) Fail!void {
+fn writeDeclaration(backend: *C, local: Position) Fail!void {
     const pool = &backend.comp.pool;
     const w = &backend.code.writer;
     const inst = backend.instOf(local);
@@ -920,7 +923,7 @@ fn writeDeclaration(backend: *C, local: Local) Fail!void {
     }
 }
 
-fn writeInst(backend: *C, local: Local) Fail!void {
+fn writeInst(backend: *C, local: Position) Fail!void {
     const comp = backend.comp;
     const pool = &comp.pool;
     const inst = backend.instOf(local);
@@ -1011,13 +1014,13 @@ fn writeInst(backend: *C, local: Local) Fail!void {
 }
 
 /// `v = lhs op rhs`, the shape every plain binary lands on.
-fn writeBinary(backend: *C, local: Local, inst: IR.Inst, operator: []const u8) Fail!void {
+fn writeBinary(backend: *C, local: Position, inst: IR.Inst, operator: []const u8) Fail!void {
     const bin = inst.data.bin;
     try backend.put(.{ assign(local), bin.lhs, operator, bin.rhs, ";\n" });
 }
 
 /// Checked by the builtin, so the sum that does not fit stops the program.
-fn writeArith(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeArith(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const operator, const builtin = switch (inst.tag) {
         .add => .{ " + ", "__builtin_add_overflow" },
         .sub => .{ " - ", "__builtin_sub_overflow" },
@@ -1032,7 +1035,7 @@ fn writeArith(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     try backend.put(.{")) __builtin_trap();\n"});
 }
 
-fn writeDiv(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeDiv(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const bin = inst.data.bin;
     try backend.put(.{ "    if (", bin.rhs, " == 0) __builtin_trap();\n" });
 
@@ -1044,7 +1047,7 @@ fn writeDiv(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     try backend.writeBinary(local, inst, " / ");
 }
 
-fn writeMod(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeMod(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     assert(Pool.isSizedInt(inst.type));
     const bin = inst.data.bin;
     try backend.put(.{ "    if (", bin.rhs, " == 0) __builtin_trap();\n" });
@@ -1058,7 +1061,7 @@ fn writeMod(backend: *C, local: Local, inst: IR.Inst) Fail!void {
 }
 
 /// Left shifts run unsigned so the bits shifted out are lost rather than undefined.
-fn writeShift(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeShift(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     assert(Pool.isSizedInt(inst.type));
     const bin = inst.data.bin;
     const width = Pool.widthOf(inst.type);
@@ -1075,7 +1078,7 @@ fn writeShift(backend: *C, local: Local, inst: IR.Inst) Fail!void {
 }
 
 /// The compiler's own test answers C truth, the file's answers a bool, tag zero true.
-fn writeCompare(backend: *C, local: Local, inst: IR.Inst, operator: []const u8) Fail!void {
+fn writeCompare(backend: *C, local: Position, inst: IR.Inst, operator: []const u8) Fail!void {
     if (inst.type == .void_type) return backend.writeBinary(local, inst, operator);
 
     assert(unionFormOf(&backend.comp.pool, inst.type) == .tag_only);
@@ -1083,7 +1086,7 @@ fn writeCompare(backend: *C, local: Local, inst: IR.Inst, operator: []const u8) 
     try backend.put(.{ assign(local), "!(", bin.lhs, operator, bin.rhs, ");\n" });
 }
 
-fn writeNegate(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeNegate(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     if (Pool.isFloat(inst.type)) {
         return backend.put(.{ assign(local), "-", inst.data.un, ";\n" });
     }
@@ -1096,7 +1099,7 @@ fn writeNegate(backend: *C, local: Local, inst: IR.Inst) Fail!void {
 }
 
 /// The number where the destination holds it, the union's other member where not.
-fn writeIntCast(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const operand = inst.data.un;
 
@@ -1132,7 +1135,7 @@ fn writeIntCast(backend: *C, local: Local, inst: IR.Inst) Fail!void {
 /// How a member's value arrives, as its own ref or held inside a source union.
 const MemberValue = union(enum) { direct: Ref, held: Ref };
 
-fn writeUnionInit(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeUnionInit(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const member = inst.data.probe.member;
     const operand = inst.data.probe.operand;
@@ -1215,7 +1218,7 @@ fn writeHeldMember(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
 }
 
 /// The value re-tagged into another union, one arm per member both sides list.
-fn writeUnionConvert(backend: *C, local: Local, dest: Pool.Index, source: Ref) Fail!void {
+fn writeUnionConvert(backend: *C, local: Position, dest: Pool.Index, source: Ref) Fail!void {
     const pool = &backend.comp.pool;
     const from = backend.typeOfRef(source);
     assert(pool.isUnion(from));
@@ -1244,7 +1247,7 @@ fn writeUnionConvert(backend: *C, local: Local, dest: Pool.Index, source: Ref) F
     try backend.put(.{"    __builtin_trap();\n"});
 }
 
-fn writeUnionIs(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeUnionIs(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const probe = inst.data.probe;
 
     try backend.put(.{assign(local)});
@@ -1259,7 +1262,7 @@ fn writeUnionIs(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     try backend.put(.{";\n"});
 }
 
-fn writeUnionNarrow(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeUnionNarrow(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     assert(pool.isUnion(backend.typeOfRef(inst.data.un)));
 
@@ -1295,7 +1298,7 @@ fn writeMemberTest(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     }
 }
 
-fn writeCall(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeCall(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const comp = backend.comp;
     const w = &backend.code.writer;
     const call = IR.callAt(comp.funcExtra(backend.func), inst.data.payload);
@@ -1326,7 +1329,7 @@ fn writeCall(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     try w.writeAll(");\n");
 }
 
-fn writeAggregateInit(backend: *C, local: Local, inst: IR.Inst) Fail!void {
+fn writeAggregateInit(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const w = &backend.code.writer;
     const elements = IR.aggregateInitAt(backend.comp.funcExtra(backend.func), inst.data.payload);
