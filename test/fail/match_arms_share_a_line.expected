@@ -1,0 +1,16 @@
+error[E0259]: this match leaves out 'B'
+ --> test/fail/match_arms_share_a_line.phi:5:12
+  |
+5 |     return match e { A => 1 B => 2 }
+  |            ^^^^^ not every member is handled
+  |
+  = help: add an arm per member, or 'else =>' for the rest
+
+error[E0101]: expected ',' or the end of the line, found an identifier
+ --> test/fail/match_arms_share_a_line.phi:5:29
+  |
+5 |     return match e { A => 1 B => 2 }
+  |                             ^ unexpected here
+  |
+  = help: one per line, or a ',' between them
+

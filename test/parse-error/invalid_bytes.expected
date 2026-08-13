@@ -1,6 +1,0 @@
-error[E0112]: these bytes are not part of the language
- --> test/parse-error/invalid_bytes.phi:2:12
-  |
-2 |     return ÿ
-  |            ^ not readable as anything
-

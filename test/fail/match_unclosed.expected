@@ -1,0 +1,35 @@
+error[E0231]: not every path through 'f' returns its u32
+ --> test/fail/match_unclosed.phi:4:4
+  |
+4 | fn f(e: A | B) u32 {
+  |    ^ a path falls off the end
+  |
+  = help: every path must end in 'return', or loop forever
+
+error[E0230]: this value goes nowhere
+ --> test/fail/match_unclosed.phi:6:14
+  |
+6 |         A => 1
+  |              ^ unused value
+  |
+  = help: bind it, return it, or drop it with '_ ='
+
+error[E0119]: expected a match arm, found 'return'
+ --> test/fail/match_unclosed.phi:7:5
+  |
+7 |     return 0
+  |     ^^^^^^ expected a match arm
+  |
+  = help: an arm is 'Member => expression', or 'else =>' for the rest
+
+error[E0101]: expected '}', found the end of the line
+ --> test/fail/match_unclosed.phi:8:2
+  |
+8 | }
+  |  ^ expected '}'
+note: to close the '{' opened here
+ --> test/fail/match_unclosed.phi:4:20
+  |
+4 | fn f(e: A | B) u32 {
+  |                    ^
+

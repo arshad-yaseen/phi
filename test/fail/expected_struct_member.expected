@@ -1,0 +1,6 @@
+error[E0106]: expected a field or a function, found a number
+ --> test/fail/expected_struct_member.phi:2:5
+  |
+2 |     1
+  |     ^ expected a field or a function
+

@@ -1,8 +1,0 @@
-error[E0101]: expected ',' or the end of the line, found an identifier
- --> test/parse-error/match_arms_share_a_line.phi:5:29
-  |
-5 |     return match e { A => 1 B => 2 }
-  |                             ^ unexpected here
-  |
-  = help: one per line, or a ',' between them
-

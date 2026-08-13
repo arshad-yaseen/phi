@@ -1,0 +1,8 @@
+import std.io
+
+fn main() {
+    io.print("before\n")
+    var x: u8 = 255
+    x += 1
+    io.print("after\n")
+}

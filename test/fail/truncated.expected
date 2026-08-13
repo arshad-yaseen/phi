@@ -1,0 +1,28 @@
+error[E0201]: nothing named 'Store' is in scope here
+ --> test/fail/truncated.phi:1:20
+  |
+1 | pub fn read(store: Store, path: i64) i64 {
+  |                    ^^^^^ unknown name
+
+error[E0101]: expected ')', found the end of the line
+ --> test/fail/truncated.phi:2:39
+  |
+2 |     let value = io.read_file(store, pa
+  |                                       ^ expected ')'
+note: to close the '(' opened here
+ --> test/fail/truncated.phi:2:29
+  |
+2 |     let value = io.read_file(store, pa
+  |                             ^
+
+error[E0101]: expected '}', found the end of the line
+ --> test/fail/truncated.phi:2:39
+  |
+2 |     let value = io.read_file(store, pa
+  |                                       ^ expected '}'
+note: to close the '{' opened here
+ --> test/fail/truncated.phi:1:42
+  |
+1 | pub fn read(store: Store, path: i64) i64 {
+  |                                          ^
+

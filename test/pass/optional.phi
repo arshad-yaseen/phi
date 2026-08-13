@@ -1,0 +1,27 @@
+import std.io
+
+type Empty
+
+fn pick(p: *var i64 | none | Empty, wanted: bool) *var i64 | none {
+    if p is Empty {
+        return none
+    }
+    if not wanted {
+        return none
+    }
+    return p
+}
+
+fn main() {
+    var n: i64 = 41
+    let q: *var i64 = &n
+    let some: *var i64 | none = q
+    let got = pick(some, true) or return
+    got.* = got.* + 1
+    if n == 42 {
+        io.print("forty two\n")
+    }
+    if pick(some, false) is none {
+        io.print("nothing\n")
+    }
+}

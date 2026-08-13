@@ -1,6 +1,0 @@
-error[E0102]: expected an expression, found '}'
- --> test/parse-error/match_missing_body.phi:8:5
-  |
-8 |     }
-  |     ^ expected an expression
-

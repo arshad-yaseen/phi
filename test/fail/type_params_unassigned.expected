@@ -1,0 +1,6 @@
+error[E0101]: expected '=', found the end of the line
+ --> test/fail/type_params_unassigned.phi:1:13
+  |
+1 | type Solo[T]
+  |             ^ expected '='
+

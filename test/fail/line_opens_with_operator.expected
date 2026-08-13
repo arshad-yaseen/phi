@@ -1,0 +1,17 @@
+error[E0103]: expected a statement, found '*'
+ --> test/fail/line_opens_with_operator.phi:3:5
+  |
+3 |     * b
+  |     ^ expected a statement
+
+error[E0250]: this cannot be reached
+ --> test/fail/line_opens_with_operator.phi:3:5
+  |
+3 |     * b
+  |     ^ never runs
+note: the block already left here
+ --> test/fail/line_opens_with_operator.phi:2:5
+  |
+2 |     return a
+  |     ^^^^^^^^
+

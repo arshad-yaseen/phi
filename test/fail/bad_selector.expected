@@ -1,0 +1,12 @@
+error[E0201]: nothing named 'Holder' is in scope here
+ --> test/fail/bad_selector.phi:1:14
+  |
+1 | fn f(holder: Holder) i64 {
+  |              ^^^^^^ unknown name
+
+error[E0101]: expected an identifier, found '+'
+ --> test/fail/bad_selector.phi:2:19
+  |
+2 |     return holder.+
+  |                   ^ expected an identifier
+

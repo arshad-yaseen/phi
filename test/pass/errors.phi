@@ -1,0 +1,39 @@
+import std.io
+
+type ParseErr
+type RangeErr
+
+fn digit(c: u8) u8 | ParseErr | RangeErr {
+    if c < '0' {
+        return ParseErr
+    }
+    if c > '9' {
+        return RangeErr
+    }
+    return c - '0'
+}
+
+fn add_digits(a: u8, b: u8) u8 | ParseErr | RangeErr {
+    let x = digit(a) or return
+    let y = digit(b) or return
+    return x + y
+}
+
+fn main() {
+    let sum = add_digits('3', '4') or err {
+        io.print("unexpected\n")
+        return
+    }
+    if sum == 7 {
+        io.print("sum is seven\n")
+    }
+    let bad = add_digits('!', '4') or err {
+        if err is ParseErr {
+            io.print("not a digit\n")
+        } else {
+            io.print("out of range\n")
+        }
+        return
+    }
+    _ = bad
+}

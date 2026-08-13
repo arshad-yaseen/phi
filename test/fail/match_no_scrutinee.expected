@@ -1,0 +1,14 @@
+error[E0102]: expected an expression, found '{'
+ --> test/fail/match_no_scrutinee.phi:2:11
+  |
+2 |     match {
+  |           ^ expected an expression
+
+error[E0230]: this value goes nowhere
+ --> test/fail/match_no_scrutinee.phi:3:17
+  |
+3 |         else => 1
+  |                 ^ unused value
+  |
+  = help: bind it, return it, or drop it with '_ ='
+

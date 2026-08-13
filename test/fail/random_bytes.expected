@@ -1,0 +1,8 @@
+error[E0104]: expected a declaration, found invalid bytes
+ --> test/fail/random_bytes.phi:1:1
+  |
+1 |   ÿ AÃ( ş \`$#@
+  | ^^^^^ expected a declaration
+  |
+  = help: a file holds 'import', 'type', 'fn', 'extern fn', and 'let'
+

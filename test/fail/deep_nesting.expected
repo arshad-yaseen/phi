@@ -1,0 +1,54 @@
+error[E0111]: this nests more than 128 levels deep
+   --> test/fail/deep_nesting.phi:129:1
+    |
+129 | (
+    | ^ too deep
+    |
+    = help: split it into shallower pieces
+
+error[E0101]: expected ')', found '('
+   --> test/fail/deep_nesting.phi:129:1
+    |
+129 | (
+    | ^ expected ')'
+note: to close the '(' opened here
+   --> test/fail/deep_nesting.phi:128:1
+    |
+128 | (
+    | ^
+
+error[E0214]: a top-level binding must be a constant, and a call happens at run time
+   --> test/fail/deep_nesting.phi:129:1
+    |
+129 | (
+    | ^ not a constant
+    |
+    = help: the constant set is literals, names of constants, operators, and parentheses
+
+error[E0101]: expected ',' or the end of the line, found '('
+   --> test/fail/deep_nesting.phi:131:1
+    |
+131 | (
+    | ^ unexpected here
+    |
+    = help: one per line, or a ',' between them
+
+error[E0101]: expected ')', found the end of the line
+   --> test/fail/deep_nesting.phi:202:2
+    |
+202 | )
+    |  ^ expected ')'
+note: to close the '(' opened here
+   --> test/fail/deep_nesting.phi:127:1
+    |
+127 | (
+    | ^
+
+error[E0104]: expected a declaration, found ')'
+   --> test/fail/deep_nesting.phi:203:1
+    |
+203 | )
+    | ^ expected a declaration
+    |
+    = help: a file holds 'import', 'type', 'fn', 'extern fn', and 'let'
+

@@ -1,6 +1,0 @@
-error[E0108]: expected 'field: value', found a number
- --> test/parse-error/expected_field_value.phi:6:21
-  |
-6 |     let p = Point.{ 1 }
-  |                     ^ expected 'field: value'
-

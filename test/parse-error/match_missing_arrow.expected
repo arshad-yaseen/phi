@@ -1,8 +1,0 @@
-error[E0101]: expected '=>', found a number
- --> test/parse-error/match_missing_arrow.phi:6:11
-  |
-6 |         A 1
-  |           ^ expected '=>'
-  |
-  = help: an arm is 'Member => expression', or 'else =>' for the rest
-

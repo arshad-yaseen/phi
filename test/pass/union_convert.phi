@@ -1,0 +1,19 @@
+fn widen(x: i64 | none) i64 | none | true {
+    return x
+}
+
+fn shed(x: i64 | none | true) i64 | none {
+    if x is true {
+        return none
+    }
+    return x
+}
+
+fn flags(b: bool) none | true | false {
+    return b
+}
+
+fn main() {
+    _ = shed(widen(7))
+    _ = flags(true)
+}

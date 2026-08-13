@@ -1,0 +1,16 @@
+error[E0101]: expected '=>', found a number
+ --> test/fail/match_missing_arrow.phi:6:11
+  |
+6 |         A 1
+  |           ^ expected '=>'
+  |
+  = help: an arm is 'Member => expression', or 'else =>' for the rest
+
+error[E0230]: this value goes nowhere
+ --> test/fail/match_missing_arrow.phi:7:14
+  |
+7 |         B => 2
+  |              ^ unused value
+  |
+  = help: bind it, return it, or drop it with '_ ='
+

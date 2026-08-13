@@ -2,17 +2,6 @@ const std = @import("std");
 
 const zon = @import("build.zig.zon");
 
-const test_dirs = [_][]const u8{
-    "test/parse-pass",
-    "test/parse-error",
-    "test/ir",
-    "test/fail",
-    "test/multi",
-    "test/std",
-    "test/c",
-    "test/exec",
-};
-
 /// Room for the deepest analysis recursion the parser allows.
 const analysis_stack_bytes = 128 << 20;
 
@@ -233,31 +222,8 @@ fn splitDescribe(described: []const u8) ?Describe {
     };
 }
 
+/// The runner discovers the cases itself, so the build just points it at them.
 fn addTestFiles(b: *std.Build, run: *std.Build.Step.Run) void {
     run.setCwd(b.path("."));
-    const io = b.graph.io;
-    for (test_dirs) |sub| {
-        var dir = b.build_root.handle.openDir(io, sub, .{ .iterate = true }) catch continue;
-        defer dir.close(io);
-
-        var names: std.ArrayList([]const u8) = .empty;
-        var walk = dir.iterate();
-        while (walk.next(io) catch null) |entry| {
-            // a multi-module case is a directory entered at main.phi
-            if (entry.kind == .directory) {
-                const main_path = b.fmt("{s}/{s}/main.phi", .{ sub, entry.name });
-                dir.access(io, b.fmt("{s}/main.phi", .{entry.name}), .{}) catch continue;
-                names.append(b.allocator, main_path) catch @panic("OOM");
-                continue;
-            }
-            if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".phi")) continue;
-            names.append(b.allocator, b.fmt("{s}/{s}", .{ sub, entry.name })) catch @panic("OOM");
-        }
-        std.mem.sort([]const u8, names.items, {}, stringLessThan);
-        for (names.items) |name| run.addArg(name);
-    }
-}
-
-fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
+    run.addArg("test");
 }

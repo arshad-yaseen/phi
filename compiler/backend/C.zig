@@ -9,6 +9,7 @@ const AST = @import("../AST.zig");
 const Compilation = @import("../Compilation.zig");
 const IR = @import("../IR.zig");
 const Layout = @import("../Layout.zig");
+const Module = @import("../Module.zig");
 const Pool = @import("../Pool.zig");
 const Source = @import("../Source.zig");
 const Spell = @import("../Spell.zig");
@@ -37,6 +38,8 @@ stored: std.AutoHashMapUnmanaged(Pool.Index, void),
 declared: std.AutoHashMapUnmanaged(Pool.Instance, void),
 /// The body being lowered.
 func: IR.Func,
+/// The module the body reads its `#line` positions from.
+module: Module.Index,
 
 const C = @This();
 
@@ -136,6 +139,7 @@ pub fn emit(
         .stored = .empty,
         .declared = .empty,
         .func = undefined,
+        .module = undefined,
     };
     defer backend.deinit();
 
@@ -271,7 +275,7 @@ fn ensureExtern(backend: *C, instance: Pool.Instance) Fail!void {
 const UnionForm = union(enum) {
     tag_only,
     /// The member that keeps the address.
-    /// See `Layout.nice`
+    /// See `Layout.niche`
     niche: Pool.Index,
     tagged,
 };
@@ -780,7 +784,9 @@ fn writeFunc(backend: *C, instance: Pool.Instance, func: IR.Func) Fail!void {
     const comp = backend.comp;
     const w = &backend.code.writer;
     backend.func = func;
+    backend.module = comp.declAt(comp.instanceDecl(instance)).module;
 
+    try backend.writeLine(comp.declAt(comp.instanceDecl(instance)).node);
     try w.writeAll("// fn ");
     try Spell.writeInstance(comp, w, instance);
     try w.writeByte('\n');
@@ -804,10 +810,36 @@ fn writeFunc(backend: *C, instance: Pool.Instance, func: IR.Func) Fail!void {
     for (blocks, 0..) |block, number| {
         try w.print("b{d}:;\n", .{number});
         var at = block.first;
-        while (at < block.end()) : (at += 1) try backend.writeInst(.from(at));
+        while (at < block.end()) : (at += 1) {
+            const local: Local = .from(at);
+            switch (backend.instOf(local).tag) {
+                .param, .local => {},
+                else => try backend.writeLine(backend.instOf(local).node),
+            }
+            try backend.writeInst(local);
+        }
         try backend.writeTerminator(block.terminator);
     }
     try w.writeAll("}\n\n");
+}
+
+fn writeLine(backend: *C, node: AST.Node.Index) Fail!void {
+    const module = backend.comp.moduleAt(backend.module);
+    const start = module.tree.tokenStart(module.tree.nodeMainToken(node));
+    const at = try module.source.lineColumn(backend.gpa, start);
+    assert(at.line > 0);
+    assert(at.column > 0);
+
+    const w = &backend.code.writer;
+    try w.print("#line {d} \"", .{at.line});
+    for (module.source.path) |byte| {
+        switch (byte) {
+            '\\' => try w.writeAll("\\\\"),
+            '"' => try w.writeAll("\\\""),
+            else => try w.writeByte(byte),
+        }
+    }
+    try w.writeAll("\"\n");
 }
 
 /// The declaration an instruction's value needs, if it produces one.
@@ -1049,23 +1081,43 @@ fn writeIntCast(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     try backend.put(.{"){ .tag = 1 };\n"});
 }
 
+/// How a member's value arrives, as its own ref or held inside a source union.
+const MemberValue = union(enum) { direct: Ref, held: Ref };
+
 fn writeUnionInit(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const member = inst.data.probe.member;
     const operand = inst.data.probe.operand;
 
-    if (pool.isUnion(member)) return backend.refuse(inst.node, "a union widening");
-    // the member the checker admitted, so membership is its promise
-    const position = pool.unionMemberPosition(inst.type, member).?;
+    // a union member means a whole union entering a wider one
+    if (pool.isUnion(member)) return backend.writeUnionConvert(local, inst.type, operand);
 
     try backend.put(.{assign(local)});
-    switch (unionFormOf(pool, inst.type)) {
+    try backend.writeUnionValue(inst.type, member, .{ .direct = operand });
+    try backend.put(.{";\n"});
+}
+
+/// One member's value spelled as the union that takes it.
+fn writeUnionValue(
+    backend: *C,
+    dest: Pool.Index,
+    member: Pool.Index,
+    source: MemberValue,
+) Fail!void {
+    const pool = &backend.comp.pool;
+    assert(pool.isUnion(dest));
+    assert(pool.isUnion(member) == false);
+
+    // the member the checker admitted, so membership is its promise
+    const position = pool.unionMemberPosition(dest, member).?;
+
+    switch (unionFormOf(pool, dest)) {
         .tag_only => {
             assert(pool.keyOf(member) == .type_unit);
             try backend.put(.{position});
         },
         .niche => |carrier| if (member == carrier) {
-            try backend.put(.{operand});
+            try backend.writeMemberValue(member, source);
         } else {
             // the null address stands for the unit member
             assert(pool.keyOf(member) == .type_unit);
@@ -1076,13 +1128,72 @@ fn writeUnionInit(backend: *C, local: Local, inst: IR.Inst) Fail!void {
             }
         },
         .tagged => if (pool.keyOf(member) == .type_unit) {
-            try backend.put(.{ "(", inst.type, "){ .tag = ", position, " }" });
+            try backend.put(.{ "(", dest, "){ .tag = ", position, " }" });
         } else {
-            try backend.put(.{ "(", inst.type, "){ .m", position, " = ", operand });
+            try backend.put(.{ "(", dest, "){ .m", position, " = " });
+            try backend.writeMemberValue(member, source);
             try backend.put(.{ ", .tag = ", position, " }" });
         },
     }
-    try backend.put(.{";\n"});
+}
+
+fn writeMemberValue(backend: *C, member: Pool.Index, source: MemberValue) Fail!void {
+    assert(backend.comp.pool.isUnion(member) == false);
+    switch (source) {
+        .direct => |ref| try backend.put(.{ref}),
+        .held => |ref| try backend.writeHeldMember(ref, member),
+    }
+}
+
+/// The member's value as the union ref holds it, in expression position.
+fn writeHeldMember(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
+    const pool = &backend.comp.pool;
+    const source = backend.typeOfRef(ref);
+    assert(pool.isUnion(source));
+    assert(pool.keyOf(member) != .type_unit);
+
+    switch (unionFormOf(pool, source)) {
+        // every member of a tag-only union is a unit, which holds no value
+        .tag_only => unreachable,
+        .niche => |carrier| {
+            assert(member == carrier);
+            try backend.put(.{ref});
+        },
+        .tagged => {
+            const position = pool.unionMemberPosition(source, member).?;
+            try backend.put(.{ ref, ".m", position });
+        },
+    }
+}
+
+/// The value re-tagged into another union, one arm per member both sides list.
+fn writeUnionConvert(backend: *C, local: Local, dest: Pool.Index, source: Ref) Fail!void {
+    const pool = &backend.comp.pool;
+    const from = backend.typeOfRef(source);
+    assert(pool.isUnion(from));
+    assert(pool.isUnion(dest));
+    assert(from != dest);
+
+    const count = pool.unionMemberCount(from);
+    var shared: u32 = 0;
+    var at: u32 = 0;
+    while (at < count) : (at += 1) {
+        const member = pool.unionMemberAt(from, at);
+        // a member the destination lacks was narrowed away, so no arm takes it
+        if (pool.unionHas(dest, member) == false) continue;
+        shared += 1;
+
+        try backend.put(.{"    if ("});
+        try backend.writeMemberTest(source, member);
+        try backend.put(.{ ") ", value(local), " = " });
+        try backend.writeUnionValue(dest, member, .{ .held = source });
+        try backend.put(.{"; else\n"});
+    }
+
+    assert(shared >= 2);
+
+    // the checker proved the held member is shared, so arriving here is a bug
+    try backend.put(.{"    __builtin_trap();\n"});
 }
 
 fn writeUnionIs(backend: *C, local: Local, inst: IR.Inst) Fail!void {
@@ -1102,28 +1213,18 @@ fn writeUnionIs(backend: *C, local: Local, inst: IR.Inst) Fail!void {
 
 fn writeUnionNarrow(backend: *C, local: Local, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
-    const source = backend.typeOfRef(inst.data.un);
-    assert(pool.isUnion(source));
+    assert(pool.isUnion(backend.typeOfRef(inst.data.un)));
 
     if (pool.isUnion(inst.type)) {
-        return backend.refuse(inst.node, "a union narrowing to a union");
+        return backend.writeUnionConvert(local, inst.type, inst.data.un);
     }
-    const position = pool.unionMemberPosition(source, inst.type).?;
 
     try backend.put(.{assign(local)});
-    switch (unionFormOf(pool, source)) {
-        .tag_only => try backend.put(.{"0"}),
-        .niche => |carrier| if (inst.type == carrier) {
-            try backend.put(.{inst.data.un});
-        } else {
-            assert(pool.keyOf(inst.type) == .type_unit);
-            try backend.put(.{"0"});
-        },
-        .tagged => if (pool.keyOf(inst.type) == .type_unit) {
-            try backend.put(.{"0"});
-        } else {
-            try backend.put(.{ inst.data.un, ".m", position });
-        },
+    if (pool.keyOf(inst.type) == .type_unit) {
+        // a unit narrows to its one value, which is a byte no one reads
+        try backend.put(.{"0"});
+    } else {
+        try backend.writeHeldMember(inst.data.un, inst.type);
     }
     try backend.put(.{";\n"});
 }
@@ -1228,21 +1329,6 @@ fn writeCondition(backend: *C, cond: Ref) Fail!void {
 
     assert(pool.isUnion(found));
     try backend.writeMemberTest(cond, pool.firstMember(found));
-}
-
-fn refuse(backend: *C, node: AST.Node.Index, what: []const u8) Fail {
-    @branchHint(.cold);
-    const comp = backend.comp;
-    const decl = comp.declAt(comp.instanceDecl(backend.func.instance));
-    comp.reportNode(decl.module, node, .{
-        .code = .backend_unsupported,
-        .message = comp.fmt("the C backend does not compile {s} yet", .{what}) catch
-            return error.OutOfMemory,
-        .label = "cannot build this yet",
-        .help = "'phi check' accepts it, and the backend refuses it rather than " ++
-            "compiling it wrong",
-    }) catch return error.OutOfMemory;
-    return error.Refused;
 }
 
 const testing = std.testing;

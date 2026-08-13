@@ -1,8 +1,5 @@
 import std.io
 
 fn main() {
-    let a = 10
-    if 10 + 10 == 20 {
-        io.print("yes")
-    }
+    io.print("Hello, world!\n")
 }

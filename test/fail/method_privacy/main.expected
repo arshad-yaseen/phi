@@ -1,0 +1,13 @@
+error[E0220]: 'hidden' is private to its file
+ --> test/fail/method_privacy/main.phi:8:14
+  |
+8 |     return b.hidden()
+  |              ^^^^^^ not public
+  |
+  = help: mark it 'pub' to reach it from another file
+note: declared here
+ --> test/fail/method_privacy/shape.phi:4:5
+  |
+4 |     fn hidden(self: *Box) i64 {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

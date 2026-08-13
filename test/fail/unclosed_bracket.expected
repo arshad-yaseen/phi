@@ -1,0 +1,17 @@
+error[E0201]: nothing named 'List' is in scope here
+ --> test/fail/unclosed_bracket.phi:1:17
+  |
+1 | pub type Ints = List[i64
+  |                 ^^^^ unknown name
+
+error[E0101]: expected ']', found the end of the line
+ --> test/fail/unclosed_bracket.phi:1:25
+  |
+1 | pub type Ints = List[i64
+  |                         ^ expected ']'
+note: to close the '[' opened here
+ --> test/fail/unclosed_bracket.phi:1:21
+  |
+1 | pub type Ints = List[i64
+  |                     ^
+

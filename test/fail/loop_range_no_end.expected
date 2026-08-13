@@ -1,0 +1,14 @@
+error[E0102]: expected an expression, found '{'
+ --> test/fail/loop_range_no_end.phi:2:19
+  |
+2 |     loop i in 0.. {
+  |                   ^ expected an expression
+
+error[E0101]: expected '..', found '{'
+ --> test/fail/loop_range_no_end.phi:7:17
+  |
+7 |     loop i in n {
+  |                 ^ expected '..'
+  |
+  = help: a loop counts a range, as in 'loop i in 0..n'
+

@@ -1,0 +1,16 @@
+error[E0117]: this line opens with '[', which may continue the line above
+ --> test/fail/line_opens_with_bracket.phi:3:5
+  |
+3 |     [1, 2]
+  |     ^ unclear what this belongs to
+  |
+  = help: move it up to continue that line, or write ',' before it to start a new one
+
+error[E0230]: this value goes nowhere
+ --> test/fail/line_opens_with_bracket.phi:3:5
+  |
+3 |     [1, 2]
+  |     ^^^^^ unused value
+  |
+  = help: bind it, return it, or drop it with '_ ='
+

@@ -1,8 +1,0 @@
-error[E0116]: a top-level binding cannot be 'var'
- --> test/parse-error/var_at_top_level.phi:1:1
-  |
-1 | var counter = 0
-  | ^^^ not allowed here
-  |
-  = help: top-level bindings are 'let', and hold a value the compiler can work out
-

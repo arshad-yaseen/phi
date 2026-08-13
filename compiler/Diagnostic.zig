@@ -107,7 +107,6 @@ pub const Code = enum(u16) {
     extern_generic = 265,
 
     entry_signature = 301,
-    backend_unsupported = 302,
 };
 
 comptime {

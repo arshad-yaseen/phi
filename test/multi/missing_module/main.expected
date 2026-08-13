@@ -1,8 +1,0 @@
-error[E0235]: no module named 'nowhere'
- --> test/multi/missing_module/main.phi:1:8
-  |
-1 | import nowhere
-  |        ^^^^^^^ nothing on disk answers to this
-  |
-  = help: modules live beside the root file, in 'test/multi/missing_module'
-

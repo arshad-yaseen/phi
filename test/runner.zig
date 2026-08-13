@@ -1,3 +1,9 @@
+//! Runs the file tests. A case is a `.phi` file, or a directory holding a
+//! `main.phi`, and the goldens beside it say everything, each golden's
+//! extension names one assertion, so directories are free grouping and the
+//! runner never reads their names. A new case opts in by touching the golden
+//! it expects, then `zig build test-update` fills it.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
@@ -6,35 +12,41 @@ const Writer = std.Io.Writer;
 
 const compiler = @import("compiler");
 
-/// The path component after `test/`.
-const Kind = enum {
-    @"parse-pass",
-    @"parse-error",
-    ir,
-    fail,
-    /// A directory of modules entered at `main.phi`.
-    multi,
-    /// Compiled as though it were the standard library, so a std-only builtin resolves.
-    std,
-    /// The C the backend emits, the way `ir` is the IR the checker leaves.
-    c,
-    /// Compiled with `zig cc` and run, the golden being what the program prints.
-    exec,
+/// Cases under here compile as the standard library, and are their own std.
+const std_root = "test/std";
 
-    fn extension(kind: Kind) []const u8 {
-        return switch (kind) {
-            .@"parse-pass" => ".tree",
-            .@"parse-error", .fail, .multi, .std, .exec => ".expected",
+/// What one golden asserts of its case.
+const Golden = enum {
+    /// The parse tree. The case must parse clean. Nothing is compiled
+    /// unless another golden asks.
+    tree,
+    /// Rendered diagnostics. The case must fail to compile.
+    expected,
+    /// The typed IR. The case must compile.
+    ir,
+    /// The C the backend emits. The case must compile, and have a `main`.
+    c,
+    /// What the program prints. Compiled with `zig cc`, run, must exit clean.
+    out,
+    /// What the program prints before it stops. The run must end at a trap.
+    trap,
+
+    fn extension(golden: Golden) []const u8 {
+        return switch (golden) {
+            .tree => ".tree",
+            .expected => ".expected",
             .ir => ".ir",
             .c => ".c",
+            .out => ".out",
+            .trap => ".trap",
         };
     }
-
-    /// Where `std.` resolves. A std case is its own standard library.
-    fn stdDir(kind: Kind) []const u8 {
-        return if (kind == .std) "test/std" else "lib/std";
-    }
 };
+
+const GoldenSet = std.EnumSet(Golden);
+
+/// Directories nest cases a few levels at most, far under this.
+const walk_depth_max = 8;
 
 pub fn main(init: std.process.Init) !u8 {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
@@ -44,27 +56,75 @@ pub fn main(init: std.process.Init) !u8 {
     var log = std.Io.File.stderr().writer(init.io, &log_buffer);
     defer log.interface.flush() catch {};
 
-    var update = false;
-    var failures: u32 = 0;
-    var ran: u32 = 0;
+    const arena = init.arena.allocator();
+    var cases: std.ArrayList([]const u8) = .empty;
 
+    var update = false;
     for (args[1..]) |argument| {
         if (std.mem.eql(u8, argument, "--update")) {
             update = true;
             continue;
         }
+        if (std.mem.endsWith(u8, argument, ".phi")) {
+            try cases.append(arena, argument);
+            continue;
+        }
+        try collectCases(arena, init.io, &cases, argument, 0);
+    }
+    std.mem.sort([]const u8, cases.items, {}, stringLessThan);
 
-        ran += 1;
-        const passed = try runOne(init.gpa, init.io, argument, update, &log.interface);
+    var failures: u32 = 0;
+    for (cases.items) |path| {
+        const passed = try runOne(init.gpa, init.io, path, update, &log.interface);
         if (passed == false) failures += 1;
     }
 
-    assert(ran >= failures);
+    assert(cases.items.len >= failures);
     if (failures > 0) {
-        try log.interface.print("{d} of {d} file tests failed\n", .{ failures, ran });
+        try log.interface.print("{d} of {d} file tests failed\n", .{
+            failures,
+            cases.items.len,
+        });
         return 1;
     }
     return 0;
+}
+
+/// Every case under `path`. A directory holding `main.phi` is one case,
+/// entered there, and its other files are the modules it imports.
+fn collectCases(
+    arena: Allocator,
+    io: std.Io,
+    cases: *std.ArrayList([]const u8),
+    path: []const u8,
+    depth: u32,
+) !void {
+    assert(path.len > 0);
+    assert(depth < walk_depth_max);
+
+    var dir = try std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true });
+    defer dir.close(io);
+
+    if (dir.access(io, "main.phi", .{})) |_| {
+        try cases.append(arena, try std.fmt.allocPrint(arena, "{s}/main.phi", .{path}));
+        return;
+    } else |_| {}
+
+    var walk = dir.iterate();
+    while (walk.next(io) catch null) |entry| {
+        const sub = try std.fmt.allocPrint(arena, "{s}/{s}", .{ path, entry.name });
+        if (entry.kind == .directory) {
+            try collectCases(arena, io, cases, sub, depth + 1);
+            continue;
+        }
+        if (entry.kind != .file) continue;
+        if (std.mem.endsWith(u8, entry.name, ".phi") == false) continue;
+        try cases.append(arena, sub);
+    }
+}
+
+fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.lessThan(u8, a, b);
 }
 
 fn runOne(
@@ -76,128 +136,150 @@ fn runOne(
 ) !bool {
     assert(path.len > ".phi".len);
     assert(std.mem.endsWith(u8, path, ".phi"));
-    const kind = kindOf(path) orelse {
-        try log.print("{s}: not under a directory the runner knows\n", .{path});
-        return false;
-    };
+    const stem = path[0 .. path.len - ".phi".len];
 
-    var actual: Writer.Allocating = .init(gpa);
-    defer actual.deinit();
-
-    const produced = switch (kind) {
-        .@"parse-pass", .@"parse-error" => try runParse(gpa, io, path, kind, &actual.writer, log),
-        else => try runCompile(gpa, io, path, kind, &actual.writer, log),
-    };
-    if (produced == false) return false;
-
-    const golden_path = try std.fmt.allocPrint(gpa, "{s}{s}", .{
-        path[0 .. path.len - ".phi".len],
-        kind.extension(),
-    });
-    defer gpa.free(golden_path);
-
-    if (update) {
-        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = golden_path, .data = actual.written() });
-        return true;
+    var goldens: GoldenSet = .initEmpty();
+    for (std.enums.values(Golden)) |golden| {
+        const golden_path = try std.fmt.allocPrint(gpa, "{s}{s}", .{
+            stem,
+            golden.extension(),
+        });
+        defer gpa.free(golden_path);
+        if (std.Io.Dir.cwd().access(io, golden_path, .{})) |_| {
+            goldens.insert(golden);
+        } else |_| {}
     }
 
-    const golden = std.Io.Dir.cwd().readFileAlloc(io, golden_path, gpa, .limited(1 << 22)) catch {
-        try log.print("{s}: no golden yet, run 'zig build test-update'\n", .{golden_path});
+    if (goldens.count() == 0) {
+        try log.print("{s}: no golden says what this case expects, touch one of " ++
+            ".tree .expected .ir .c .out .trap beside it\n", .{path});
         return false;
-    };
-    defer gpa.free(golden);
+    }
+    // a case fails or it does not, so diagnostics exclude every other product
+    const products = GoldenSet.initMany(&.{ .ir, .c, .out, .trap });
+    if (goldens.contains(.expected) and goldens.intersectWith(products).count() > 0) {
+        try log.print("{s}: '.expected' asserts failure, which no other golden survives\n", .{
+            path,
+        });
+        return false;
+    }
+    if (goldens.contains(.out) and goldens.contains(.trap)) {
+        try log.print("{s}: one run exits clean or traps, never both\n", .{path});
+        return false;
+    }
 
-    if (std.mem.eql(u8, golden, actual.written())) return true;
-
-    try log.print("{s}: does not match\n--- expected ---\n{s}--- actual ---\n{s}---\n", .{
-        golden_path, golden, actual.written(),
-    });
-    return false;
+    if (goldens.count() == 1 and goldens.contains(.tree)) {
+        return runParse(gpa, io, path, stem, update, log);
+    }
+    return runCompile(gpa, io, path, stem, goldens, update, log);
 }
 
+/// A grammar case. Parsed, never compiled, so its names need not resolve.
 fn runParse(
     gpa: Allocator,
     io: std.Io,
     path: []const u8,
-    kind: Kind,
-    actual: *Writer,
+    stem: []const u8,
+    update: bool,
     log: *Writer,
 ) !bool {
     var source: compiler.Source = try .load(gpa, io, .cwd(), path);
     defer source.deinit(gpa);
 
-    var tree = try compiler.AST.parse(gpa, source.bytes);
-    defer tree.deinit(gpa);
+    var ast = try compiler.AST.parse(gpa, source.bytes);
+    defer ast.deinit(gpa);
 
-    // the dump has to survive a tree made mostly of holes
-    var sink: Writer.Discarding = .init(&.{});
-    try compiler.Spell.writeTree(tree, &sink.writer);
-
-    switch (kind) {
-        .@"parse-pass" => {
-            if (tree.errors.len > 0) {
-                try log.print("{s}: expected to parse, but\n", .{path});
-                for (tree.errors) |diagnostic| {
-                    try diagnostic.render(gpa, &source, log, .off);
-                }
-                return false;
-            }
-            try compiler.Spell.writeTree(tree, actual);
-        },
-        .@"parse-error" => {
-            if (tree.errors.len == 0) {
-                try log.print("{s}: expected a diagnostic, got none\n", .{path});
-                return false;
-            }
-            for (tree.errors) |diagnostic| try diagnostic.render(gpa, &source, actual, .off);
-        },
-        else => unreachable,
+    if (ast.errors.len > 0) {
+        try log.print("{s}: expected to parse, but\n", .{path});
+        for (ast.errors) |diagnostic| try diagnostic.render(gpa, &source, log, .off);
+        return false;
     }
-    return true;
+
+    var actual: Writer.Allocating = .init(gpa);
+    defer actual.deinit();
+    try compiler.Spell.writeTree(ast, &actual.writer);
+    return settle(gpa, io, stem, .tree, actual.written(), update, log);
 }
 
-/// The whole pipeline, against the repository's own `lib/std`.
+/// The whole pipeline, each present golden checked against one compilation.
 fn runCompile(
     gpa: Allocator,
     io: std.Io,
     path: []const u8,
-    kind: Kind,
-    actual: *Writer,
+    stem: []const u8,
+    goldens: GoldenSet,
+    update: bool,
     log: *Writer,
 ) !bool {
     const source: compiler.Source = try .load(gpa, io, .cwd(), path);
 
+    const in_std = std.mem.startsWith(u8, path, std_root ++ "/");
     var comp: compiler.Compilation = undefined;
-    try comp.init(gpa, io, .{ .root_path = path, .std_dir = kind.stdDir() });
+    try comp.init(gpa, io, .{
+        .root_path = path,
+        .std_dir = if (in_std) std_root else "lib/std",
+    });
     defer comp.deinit();
     try comp.compile(source);
 
-    const failed = comp.hasErrors();
-    switch (kind) {
-        .@"parse-pass", .@"parse-error" => unreachable,
-        .multi, .std => if (failed) {
-            try comp.renderAll(actual, .off);
-        } else {
-            try comp.dumpIR(actual);
-        },
-        .fail => {
-            if (failed == false) {
-                try log.print("{s}: expected a diagnostic, got none\n", .{path});
-                return false;
-            }
-            try comp.renderAll(actual, .off);
-        },
-        .ir, .c, .exec => {
-            if (failed) {
-                try log.print("{s}: expected to compile, but\n", .{path});
-                try comp.renderAll(log, .off);
-                return false;
-            }
-            if (kind != .ir) return runBackend(gpa, io, &comp, path, kind, actual, log);
-            try comp.dumpIR(actual);
-        },
+    // the dump has to survive whatever tree recovery left behind
+    var sink: Writer.Discarding = .init(&.{});
+    try compiler.Spell.writeTree(comp.moduleAt(.root).tree, &sink.writer);
+
+    var ok = true;
+    if (goldens.contains(.tree)) {
+        const tree = comp.moduleAt(.root).tree;
+        if (tree.errors.len > 0) {
+            try log.print("{s}: expected to parse, but\n", .{path});
+            try comp.renderAll(log, .off);
+            return false;
+        }
+        var actual: Writer.Allocating = .init(gpa);
+        defer actual.deinit();
+        try compiler.Spell.writeTree(tree, &actual.writer);
+        if (try settle(gpa, io, stem, .tree, actual.written(), update, log) == false) {
+            ok = false;
+        }
     }
-    return true;
+
+    if (goldens.contains(.expected)) {
+        if (comp.hasErrors() == false) {
+            try log.print("{s}: expected a diagnostic, got none\n", .{path});
+            return false;
+        }
+        var actual: Writer.Allocating = .init(gpa);
+        defer actual.deinit();
+        try comp.renderAll(&actual.writer, .off);
+        if (try settle(gpa, io, stem, .expected, actual.written(), update, log) == false) {
+            ok = false;
+        }
+        return ok;
+    }
+
+    if (comp.hasErrors()) {
+        try log.print("{s}: expected to compile, but\n", .{path});
+        try comp.renderAll(log, .off);
+        return false;
+    }
+
+    if (goldens.contains(.ir)) {
+        var actual: Writer.Allocating = .init(gpa);
+        defer actual.deinit();
+        try comp.dumpIR(&actual.writer);
+        if (try settle(gpa, io, stem, .ir, actual.written(), update, log) == false) {
+            ok = false;
+        }
+    }
+
+    const wants_backend = goldens.intersectWith(GoldenSet.initMany(&.{
+        .c, .out, .trap,
+    })).count() > 0;
+    if (wants_backend) {
+        if (try runBackend(gpa, io, &comp, path, stem, goldens, update, log) == false) {
+            ok = false;
+        }
+    }
+    return ok;
 }
 
 fn runBackend(
@@ -205,12 +287,11 @@ fn runBackend(
     io: std.Io,
     comp: *compiler.Compilation,
     path: []const u8,
-    kind: Kind,
-    actual: *Writer,
+    stem: []const u8,
+    goldens: GoldenSet,
+    update: bool,
     log: *Writer,
 ) !bool {
-    assert(kind == .c or kind == .exec);
-
     const entry = switch (try compiler.backend.C.entryOf(comp)) {
         .instance => |instance| instance,
         .missing => {
@@ -233,20 +314,30 @@ fn runBackend(
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
 
-    if (kind == .c) {
-        try actual.writeAll(c_text.written());
-        return true;
+    var ok = true;
+    if (goldens.contains(.c)) {
+        if (try settle(gpa, io, stem, .c, c_text.written(), update, log) == false) {
+            ok = false;
+        }
     }
+
+    const runs = goldens.contains(.out) or goldens.contains(.trap);
+    if (runs == false) return ok;
 
     const work_dir = ".zig-cache/phi-exec";
     try std.Io.Dir.cwd().createDirPath(io, work_dir);
 
-    const stem = std.fs.path.stem(path);
-    const c_path = try std.fmt.allocPrint(gpa, "{s}/{s}.c", .{ work_dir, stem });
+    // the whole path, so cases in different directories never share a binary
+    const flat = try gpa.dupe(u8, stem);
+    defer gpa.free(flat);
+    std.mem.replaceScalar(u8, flat, '/', '_');
+    std.mem.replaceScalar(u8, flat, '.', '_');
+
+    const c_path = try std.fmt.allocPrint(gpa, "{s}/{s}.c", .{ work_dir, flat });
     defer gpa.free(c_path);
     const binary_suffix = if (builtin.os.tag == .windows) ".exe" else "";
     const binary_path = try std.fmt.allocPrint(gpa, "{s}/{s}{s}", .{
-        work_dir, stem, binary_suffix,
+        work_dir, flat, binary_suffix,
     });
     defer gpa.free(binary_path);
 
@@ -257,19 +348,68 @@ fn runBackend(
     }, path, "zig cc refused the generated C", log)) orelse return false;
     gpa.free(compiled);
 
+    if (goldens.contains(.trap)) {
+        const result = try std.process.run(gpa, io, .{ .argv = &.{binary_path} });
+        defer gpa.free(result.stdout);
+        defer gpa.free(result.stderr);
+        if (result.term == .exited and result.term.exited == 0) {
+            try log.print("{s}: expected the program to stop at a trap\n", .{path});
+            return false;
+        }
+        const shown = try programOutput(gpa, result.stdout);
+        defer gpa.free(shown);
+        if (try settle(gpa, io, stem, .trap, shown, update, log) == false) ok = false;
+        return ok;
+    }
+
     const output = (try runChecked(gpa, io, &.{binary_path}, path, "the program did not " ++
         "exit cleanly", log)) orelse return false;
     defer gpa.free(output);
 
+    const shown = try programOutput(gpa, output);
+    defer gpa.free(shown);
+    if (try settle(gpa, io, stem, .out, shown, update, log) == false) ok = false;
+    return ok;
+}
+
+/// Windows text mode writes \r\n, so the goldens read platform newlines alike.
+fn programOutput(gpa: Allocator, output: []const u8) ![]u8 {
     if (builtin.os.tag == .windows) {
-        const bare = try std.mem.replaceOwned(u8, gpa, output, "\r\n", "\n");
-        defer gpa.free(bare);
-        try actual.writeAll(bare);
+        return std.mem.replaceOwned(u8, gpa, output, "\r\n", "\n");
+    }
+    return gpa.dupe(u8, output);
+}
+
+/// One golden compared, or rewritten under `--update`.
+fn settle(
+    gpa: Allocator,
+    io: std.Io,
+    stem: []const u8,
+    golden: Golden,
+    actual: []const u8,
+    update: bool,
+    log: *Writer,
+) !bool {
+    const golden_path = try std.fmt.allocPrint(gpa, "{s}{s}", .{ stem, golden.extension() });
+    defer gpa.free(golden_path);
+
+    if (update) {
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = golden_path, .data = actual });
         return true;
     }
 
-    try actual.writeAll(output);
-    return true;
+    const golden_text = std.Io.Dir.cwd().readFileAlloc(io, golden_path, gpa, .limited(1 << 22)) catch {
+        try log.print("{s}: no golden yet, run 'zig build test-update'\n", .{golden_path});
+        return false;
+    };
+    defer gpa.free(golden_text);
+
+    if (std.mem.eql(u8, golden_text, actual)) return true;
+
+    try log.print("{s}: does not match\n--- expected ---\n{s}--- actual ---\n{s}---\n", .{
+        golden_path, golden_text, actual,
+    });
+    return false;
 }
 
 /// Runs the argv and hands back its stdout, or logs what refused and why.
@@ -288,15 +428,4 @@ fn runChecked(
     gpa.free(result.stdout);
     try log.print("{s}: {s}\n{s}", .{ path, complaint, result.stderr });
     return null;
-}
-
-fn kindOf(path: []const u8) ?Kind {
-    assert(path.len > 0);
-    if (std.mem.endsWith(u8, path, ".phi") == false) return null;
-
-    var components = std.mem.splitScalar(u8, path, '/');
-    const first = components.next() orelse return null;
-    if (std.mem.eql(u8, first, "test") == false) return null;
-    const second = components.next() orelse return null;
-    return std.meta.stringToEnum(Kind, second);
 }

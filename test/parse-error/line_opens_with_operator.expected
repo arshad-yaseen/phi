@@ -1,6 +1,0 @@
-error[E0103]: expected a statement, found '*'
- --> test/parse-error/line_opens_with_operator.phi:3:5
-  |
-3 |     * b
-  |     ^ expected a statement
-

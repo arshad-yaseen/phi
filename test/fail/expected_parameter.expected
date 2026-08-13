@@ -1,0 +1,12 @@
+error[E0105]: expected a parameter, found a number
+ --> test/fail/expected_parameter.phi:1:12
+  |
+1 | fn one_bad(1: i64) {
+  |            ^ expected a parameter
+
+error[E0105]: expected a parameter, found a number
+ --> test/fail/expected_parameter.phi:4:27
+  |
+4 | fn bad_among_good(a: i64, 2, b: i64) {
+  |                           ^ expected a parameter
+

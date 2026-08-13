@@ -1,6 +1,0 @@
-error[E0107]: expected a type, found '='
- --> test/parse-error/missing_type.phi:2:12
-  |
-2 |     let x: = a
-  |            ^ expected a type
-

@@ -1,8 +1,0 @@
-error[E0113]: 'else' has no 'if' to belong to
- --> test/parse-error/stray_else.phi:5:5
-  |
-5 |     else {
-  |     ^^^^ no 'if' here
-  |
-  = help: an 'else' sits on the same line as the '}' that closes its 'if'
-

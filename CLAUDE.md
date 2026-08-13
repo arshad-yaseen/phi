@@ -11,7 +11,7 @@ happens.
 compiler/    the compiler, importable as the `compiler` module
 tools/phi/   the binary: argv, dispatch, exit codes
 lib/std/     the standard library, shipped as source beside the binary
-test/        file tests, one directory per kind
+test/        file tests, the golden's extension naming each assertion
 ```
 
 ## Commands
@@ -29,6 +29,14 @@ zig fmt --check build.zig compiler tools test what CI checks
 `test-update` accepts whatever the compiler currently prints. After running it,
 read the diff. A golden that changed for a reason you cannot name is a
 regression you just recorded as expected.
+
+A file test is a `.phi` case beside its goldens, and each golden's extension is
+one assertion: `.tree` the parse tree, `.expected` the diagnostics, `.ir` the
+typed IR, `.c` the emitted C, `.out` what the program prints, `.trap` what it
+prints before it must stop. One case may carry several. A new case opts in by
+touching the golden it expects, and `test-update` fills it. The directories
+under `test/` are grouping the runner never reads, except `test/std`, whose
+cases compile as the standard library.
 
 ## After every change
 

@@ -1,8 +1,0 @@
-error[E0101]: expected '=>', found an identifier
- --> test/parse-error/match_else_labeled.phi:6:14
-  |
-6 |         else A => 1
-  |              ^ expected '=>'
-  |
-  = help: an arm is 'Member => expression', or 'else =>' for the rest
-

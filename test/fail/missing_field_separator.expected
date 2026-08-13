@@ -1,0 +1,8 @@
+error[E0101]: expected ',' or the end of the line, found an identifier
+ --> test/fail/missing_field_separator.phi:1:23
+  |
+1 | type Point = { x: i64 y: i64 }
+  |                       ^ unexpected here
+  |
+  = help: one per line, or a ',' between them
+

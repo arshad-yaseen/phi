@@ -1,0 +1,16 @@
+error[E0110]: this cannot be assigned to
+ --> test/fail/assign_to_call.phi:2:5
+  |
+2 |     g(a) = 1
+  |     ^^^^ not a place
+  |
+  = help: the left of '=' is a name, a field, an index, or a pointer written '.*'
+
+error[E0201]: nothing named 'g' is in scope here
+ --> test/fail/assign_to_call.phi:2:5
+  |
+2 |     g(a) = 1
+  |     ^ unknown name
+  |
+  = help: did you mean 'a'?
+
