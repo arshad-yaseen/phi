@@ -22,6 +22,8 @@
   a constant optional used to crash the compiler.
 - `std.io` opens with `print`, which writes text whole to standard output, and
   `print_uint`, which writes an unsigned integer as decimal digits.
+  `format_uint` fills a caller's buffer with those digits instead of writing
+  them, sized by `uint_digits_max`.
 
 ### Command line
 

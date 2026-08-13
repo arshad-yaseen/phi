@@ -33,7 +33,7 @@ b0:;
     return;
 }
 
-#line 4 "lib/std/io.phi"
+#line 6 "lib/std/io.phi"
 // fn print
 static void p1_print(pt15 v0 /* text */) {
     pt15 s1; // rest
@@ -55,17 +55,17 @@ static void p1_print(pt15 v0 /* text */) {
     pt15 v20;
 
 b0:;
-#line 5 "lib/std/io.phi"
+#line 7 "lib/std/io.phi"
     s1 = v0;
     goto b1;
 b1:;
     goto b2;
 b2:;
-#line 7 "lib/std/io.phi"
+#line 9 "lib/std/io.phi"
     v3 = s1;
-#line 7 "lib/std/io.phi"
+#line 9 "lib/std/io.phi"
     v4 = v3.len;
-#line 7 "lib/std/io.phi"
+#line 9 "lib/std/io.phi"
     v5 = !(v4 == ((uint64_t)0ULL));
     if (v5 == 0) goto b3; else goto b4;
 b3:;
@@ -73,17 +73,17 @@ b3:;
 b4:;
     goto b5;
 b5:;
-#line 10 "lib/std/io.phi"
+#line 12 "lib/std/io.phi"
     v6 = s1;
-#line 10 "lib/std/io.phi"
+#line 12 "lib/std/io.phi"
     v7 = v6.ptr;
-#line 10 "lib/std/io.phi"
+#line 12 "lib/std/io.phi"
     v8 = s1;
-#line 10 "lib/std/io.phi"
+#line 12 "lib/std/io.phi"
     v9 = v8.len;
-#line 10 "lib/std/io.phi"
+#line 12 "lib/std/io.phi"
     v10 = write(((int32_t)1LL), v7, v9);
-#line 11 "lib/std/io.phi"
+#line 13 "lib/std/io.phi"
     v11 = !(v10 <= ((int64_t)0LL));
     if (v11 == 0) goto b6; else goto b7;
 b6:;
@@ -91,27 +91,27 @@ b6:;
 b7:;
     goto b8;
 b8:;
-#line 14 "lib/std/io.phi"
+#line 16 "lib/std/io.phi"
     if (v10 >= 0 && (uint64_t)v10 <= ((uint64_t)18446744073709551615ULL)) v12 = (pt42){ .m0 = (uint64_t)v10, .tag = 0 }; else v12 = (pt42){ .tag = 1 };
-#line 14 "lib/std/io.phi"
+#line 16 "lib/std/io.phi"
     s13 = v12;
     if (v12.tag == 0) goto b10; else goto b9;
 b9:;
     return;
 b10:;
-#line 14 "lib/std/io.phi"
+#line 16 "lib/std/io.phi"
     v15 = s13;
-#line 14 "lib/std/io.phi"
+#line 16 "lib/std/io.phi"
     v16 = v15.m0;
-#line 15 "lib/std/io.phi"
+#line 17 "lib/std/io.phi"
     v17 = s1;
-#line 15 "lib/std/io.phi"
+#line 17 "lib/std/io.phi"
     v18 = v17.len;
-#line 15 "lib/std/io.phi"
+#line 17 "lib/std/io.phi"
     if ((uint64_t)v16 > (uint64_t)v18) __builtin_trap();
-#line 15 "lib/std/io.phi"
+#line 17 "lib/std/io.phi"
     v20 = (pt15){ v17.ptr + v16, (uint64_t)(v18 - v16) };
-#line 15 "lib/std/io.phi"
+#line 17 "lib/std/io.phi"
     s1 = v20;
     goto b1;
 }

@@ -1,3 +1,5 @@
+import std.debug
+
 extern fn write(fd: i32, buf: *u8, len: u64) i64
 
 /// Write text to standard output.
@@ -16,21 +18,30 @@ pub fn print(text: str) {
     }
 }
 
-/// Write an unsigned integer to standard output, as decimal digits.
-pub fn print_uint(value: u64) {
-    var buf: [20]u8 = @splat(0)
+pub let uint_digits_max: u64 = 20
 
-    var i: u64 = 20
+pub fn format_uint(buf: []var u8, value: u64) []u8 {
+    debug.assert(buf.len >= uint_digits_max)
+
+    var i = buf.len
     var n = value
 
     loop {
+        // a remainder of ten is under ten, so the cast never answers 'none'
+        let digit = @int_cast[u8](n % 10) or return buf[i..]
         i -= 1
-        buf[i] = '0' + (@int_cast[u8](n % 10) or return)
+        buf[i] = '0' + digit
         n /= 10
         if n == 0 {
             break
         }
     }
 
-    print(buf[i..])
+    return buf[i..]
+}
+
+/// Write an unsigned integer to standard output, as decimal digits.
+pub fn print_uint(value: u64) {
+    var buf: [uint_digits_max]u8 = @splat(0)
+    print(format_uint(buf[0..], value))
 }
