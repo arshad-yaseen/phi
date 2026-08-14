@@ -1,0 +1,15 @@
+# Phi, a systems language that proves memory safety at compile time
+
+> Phi is a systems programming language that proves memory safety at compile time, with no runtime and nothing to annotate.
+
+## Documentation
+
+- [Introduction](https://phi-lang.org/): Phi is a systems programming language that proves memory safety at compile time, with no runtime and nothing to annotate.
+- [Language Reference](https://phi-lang.org/language/): Phi from a file to a program: declarations, bindings, comments, operators and their precedence, statement rules, and the keywords.
+
+## Resources
+
+- [Full documentation text](https://phi-lang.org/llms-full.txt): every page, concatenated
+- [Source code](https://github.com/arshad-yaseen/phi)
+- [Releases](https://github.com/arshad-yaseen/phi/releases)
+- [Changelog](https://github.com/arshad-yaseen/phi/blob/main/CHANGELOG.md)

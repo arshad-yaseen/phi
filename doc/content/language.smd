@@ -1,0 +1,201 @@
+---
+.title = "Language Reference",
+.description = "Phi from a file to a program: declarations, bindings, comments, operators and their precedence, statement rules, and the keywords.",
+.author = "Arshad Yaseen",
+.date = @date("2026-08-14T00:00:00"),
+.layout = "page.shtml",
+---
+This page walks a whole program, then takes it apart: what a file holds, how a name is bound, how the operators bind, and where a statement ends.
+
+## [A program]($section.id('a-program'))
+
+A program starts at `fn main()` in its entry file, a plain function taking nothing and returning nothing. Everything the entry imports is part of the program, and everything it does not is not compiled.
+
+```zig
+import std.io
+
+type BadDigit = {
+    at: u64
+}
+
+fn parse(text: str) u64 | BadDigit {
+    var value: u64 = 0
+    loop i in 0..text.len {
+        let digit = text[i]
+        if digit < '0' or digit > '9' {
+            return BadDigit.{ at: i }
+        }
+        value = value * 10 + (digit - '0')
+    }
+    return value
+}
+
+fn check(text: str) {
+    let value = parse(text) or bad {
+        point(text, bad.at)
+        return
+    }
+    if value == 42 {
+        io.print("Hello, world!\n")
+    }
+}
+
+fn point(text: str, at: u64) {
+    io.print(text)
+    io.print("\n")
+    var margin: [64]u8 = @splat(' ')
+    margin[at] = '^'
+    io.print(margin[0..at + 1])
+    io.print("\n")
+}
+
+fn main() {
+    check("42")
+    check("4x2")
+}
+```
+
+```bash
+$ phi run main.phi
+Hello, world!
+4x2
+ ^
+```
+
+Six things worth naming in that program.
+
+`parse` returns `u64 | BadDigit`. Not an error type, not a wrapper. The function returns a number, or it returns the struct that says where it gave up, and the type says both.
+
+`or bad { ... }` names what went wrong and handles it. Inside the block, `bad` is a `BadDigit`, because the only way to reach the block is for the union to have settled on it. After the block, `value` is a `u64` for the same reason.
+
+`loop i in 0..text.len` counts a range. `i` is a `let` for the pass, so nothing in the body can move it, and both ends are read once before the first pass.
+
+`text[i]` is checked. The compiler refuses an index it can prove is past the end, and checks the ones it cannot before the memory is touched.
+
+`'0'` is a number and `"42"` is bytes. Comparing `digit > '9'` compares two `u8` values, because a character literal is a constant that fits wherever its value fits.
+
+`margin[0..at + 1]` is the one bridge from storage to a view. Slicing is written out as an expression, so a reader sees the moment an array becomes something that points at it.
+
+## [Files and declarations]($section.id('files-and-declarations'))
+
+One file is one module. A file holds declarations in any order, and a declaration may refer to one written later.
+
+| Written | Declares |
+| --- | --- |
+| `import a.b` | Binds `b`, a module or one public declaration from it |
+| `type Name` | A unit type, whose only value is its name |
+| `type Name = A \| B` | A union |
+| `type Name = T` | An alias, which is not a new type |
+| `type Name = { ... }` | A struct, with fields and methods |
+| `type Name[T] = ...` | Any of the above, generic |
+| `let name = value` | A constant, evaluated at compile time |
+| `fn name(...) T { ... }` | A function |
+| `extern fn name(...) T` | A function the linker finds elsewhere |
+
+`pub` in front of any of them exports it. Without `pub`, a declaration is private to its file, and so is a method. There is no `var` at the top level, because a program has no mutable global state to reason about.
+
+## [Bindings]($section.id('bindings'))
+
+`let` binds a name to a value that never changes. `var` binds one that can.
+
+```zig
+fn shapes(n: u64) u64 {
+    let fixed = n            // takes its type from the value
+    var total: u64 = 0       // a 'var' says its type
+    let sealed: u8 = 200     // the annotation seals it as a u8
+
+    total += fixed
+    return total + sealed
+}
+```
+
+A `var` needs a type, written or landed on, because there is no value to read it off yet. A bare number literal has no type until it lands somewhere, so it fits any type its value fits. An annotation seals it: `let n: u64 = 2` is a `u64` everywhere it goes, the way Zig, Rust, and Go read it.
+
+Assigning to a `let` is refused, and so is writing through a `*T`, calling a `*var self` method on one, or assigning to a temporary that has no home.
+
+`_` discards. It is not a name, so it cannot be read back, and it is how a value that a function returned but nobody wants gets thrown away on purpose.
+
+```zig
+fn quiet() u64 {
+    return 5
+}
+
+fn drive() {
+    _ = quiet()
+}
+```
+
+An unused value is an error, not a warning. Discarding it is the way to say you meant it.
+
+## [Comments]($section.id('comments'))
+
+```zig
+// An ordinary comment, attached to nothing.
+
+/// Documents the declaration below it.
+pub fn add(a: i64, b: i64) i64 {
+    return a + b
+}
+```
+
+`//!` at the top of a file documents the file itself. All three survive into the parse tree, which is lossless, so a formatter or an editor can recover every token, comment, and position from the tree plus its source.
+
+## [Operators]($section.id('operators'))
+
+Tightest first. Everything binds left except comparison, which does not chain.
+
+| Precedence | Operators | Associativity |
+| --- | --- | --- |
+| 9 | `*` `/` `%` | left |
+| 8 | `+` `-` | left |
+| 7 | `<<` `>>` | left |
+| 6 | `&` | left |
+| 5 | `^` | left |
+| 4 | `\|` | left |
+| 3 | `==` `!=` `<` `<=` `>` `>=` `is` | none |
+| 2 | `and` | left |
+| 1 | `or` | left |
+
+Prefix: `-` negates, `not` inverts a truth value, `~` flips bits, `&` takes an address.
+
+Postfix: `.field` reaches a member, `.*` reads through a pointer, `(...)` calls, `[i]` indexes, `[x..y]` slices, `[T]` supplies a type argument.
+
+Comparison does not chain. `a < b < c` is refused rather than parsed as something no reader expects.
+
+`&`, `^`, `|`, `<<`, `>>` are bitwise, and every one of them has a compound form: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`.
+
+>[]($block.attrs('note'))
+>`|` is bitwise or between two values and union membership between two types. The two never meet, because one sits in an expression and the other in a type.
+
+## [Statements end at the line]($section.id('statements-end-at-the-line'))
+
+There are no semicolons. A statement ends where its line does, and the parser refuses the two shapes where that could be read two ways: a line that opens with an operator, and a line that opens with a bracket. Both are told to join the line above or to parenthesize.
+
+A call chain still breaks across lines, because the line before it is unfinished.
+
+```zig
+type Box = {
+    item: i64
+
+    fn read(self: Box) i64 {
+        return self.item
+    }
+}
+
+fn chained(b: Box) i64 {
+    return b
+        .read()
+}
+```
+
+## [Keywords]($section.id('keywords'))
+
+```
+and     break    continue  defer   else    extern  fn
+if      import   in        is      let     loop    match
+not     or       pub       return  type    var
+```
+
+`true`, `false`, `bool`, `none`, and `str` are not keywords. They are declarations in `std.prelude`, visible in every file, and a file's own declaration of that name wins.
+
+An operation the compiler performs itself is written `@name`: `@size_of`, `@align_of`, `@min_int`, `@max_int`, `@int_cast`, `@splat`, `@trap`, and the standard library's own `@ptr_cast`. The sigil is what tells a reader the compiler is doing it, so no keyword is spent on any of them.

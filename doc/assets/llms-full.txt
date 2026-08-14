@@ -1,0 +1,322 @@
+# Phi, a systems language that proves memory safety at compile time
+
+> Phi is a systems programming language that proves memory safety at compile time, with no runtime and nothing to annotate.
+> Full documentation, every page concatenated for LLMs. Index: https://phi-lang.org/llms.txt
+
+# Introduction
+
+Source: https://phi-lang.org/
+
+Phi is a systems programming language that proves memory safety at compile time, with no runtime and nothing to annotate.
+
+It is a research project, built around one question.
+
+> How much of memory safety can be proven from the allocator you were already passing down, without a borrow checker to learn?
+
+```zig
+import std.io
+
+fn main() {
+    io.print("Hello, world!\n")
+}
+```
+
+```bash
+$ phi run main.phi
+Hello, world!
+```
+
+## The one idea
+
+A type may be several types, and a branch that settles which one narrows the value to it.
+
+That single rule replaces three features other languages ship separately. An optional is `T | none`. An error is `T | Timeout | NotFound`. A sum type is whatever members you write. There is no wrapper, no `Some`, no `Ok`, and nothing to unwrap, because a value enters a union by membership and comes back out only through a branch that proves which member it holds.
+
+```zig
+fn find(key: u32) u32 | none {
+    if key > 0 {
+        return key
+    }
+    return none
+}
+
+fn use_it(key: u32) u32 {
+    let found = find(key)
+    if found is u32 {
+        return found
+    }
+    return 0
+}
+```
+
+Inside the `if`, `found` is a `u32`, not an optional holding one. The branch did not unwrap anything. It narrowed the name.
+
+Everything built on that rule follows from it rather than beside it. `bool` is not a builtin, it is `type bool = true | false` declared in the prelude, so `if` and `and` and `or` all branch on the same question every other union answers. `or` is one operator with three uses: substitute a value, propagate to the caller, or handle what went wrong. `match` splits a union into one arm per member and counts them for exhaustiveness.
+
+[Read the language reference →](https://phi-lang.org/language/)
+
+## Nothing to annotate
+
+Phi has no garbage collector, no reference counting, and no lifetime syntax. The bet is that an allocator passed down a call graph already describes what a borrow checker asks you to write out, and that the compiler can read the one instead of asking for the other. That part is the research, and it is not finished.
+
+What the language does guarantee today, before anything runs:
+
+- **An index is in bounds**, refused at compile time when the compiler can see it, and checked before the memory is touched when it cannot.
+- **A slice stays inside its base**, on the same terms.
+- **Arithmetic does not wrap silently.** Overflow, division by zero, a shift past the width of what it shifts, and negating the smallest signed value all stop the program rather than producing a number nobody meant.
+- **A conversion that can lose a value is written.** `@int_cast(n)` answers `T | none`, so the narrowing you asked for has a branch attached to it.
+- **What may be written is part of the type.** `*T` reads, `*var T` writes, and a `let` cannot be assigned through.
+
+Every one of those is either settled at compile time or trapped at the exact instruction that would have been wrong. None of them costs a keyword at the call site.
+
+## Read like a person wrote it
+
+The compiler's diagnostics are written the way a colleague would explain the problem, not the way a parser would report it.
+
+```bash
+error[E0221]: 'bump' writes through its receiver, and 'c' was bound with 'let'
+  --> counter.phi:24:5
+   |
+24 |     c.bump()
+   |     ^ immutable receiver
+   |
+   = help: bind it with 'var' to let a method change it
+```
+
+Every diagnostic carries a stable code, a span, a label under the carets, and, where there is something to suggest, a suggestion. Codes are retired rather than reused, so an old build log stays readable.
+
+## Current status
+
+Phi is a research project. It compiles and runs real programs, and the language is still moving.
+
+The compiler checks a program, prints its typed IR, emits C, and hands that to the system C compiler to produce a native binary for 64-bit targets. Structs, unions, arrays, views, text, pointers, generics, methods, modules, and a small standard library all work today. `phi run` builds and runs in one step.
+
+Versions are `0.MINOR.PATCH`. Before 1.0, a minor release may change the language in ways that break programs that used to compile, and a patch release only fixes. The [changelog](https://github.com/arshad-yaseen/phi/blob/main/CHANGELOG.md) is written for someone deciding what an upgrade means.
+
+## Install
+
+Builds for macOS, Linux, and Windows are on the [releases page](https://github.com/arshad-yaseen/phi/releases). Unpack one and put `phi` on your `PATH`. The standard library ships as source beside the binary, so keep the tree together.
+
+```bash
+$ phi --version
+0.3.0
+```
+
+Building from source needs Zig 0.16.0 or newer and nothing else.
+
+```bash
+$ git clone https://github.com/arshad-yaseen/phi
+$ cd phi
+$ zig build
+$ ./zig-out/bin/phi run main.phi
+```
+
+`phi build` and `phi run` also need a C compiler on the `PATH`. The compiler looks for `cc`, then `clang`, then `gcc`, and `--cc <path>` names one directly.
+
+> **Note**
+>Every commit on `main` that passes CI is published as a dev build at the `dev` tag. Dev builds carry no promise, get no notes, and are overwritten by the next push. They exist so a bug report can name one commit. Numbered releases are the only supported builds.
+
+## Where to go next
+
+The [language reference](https://phi-lang.org/language/) walks a whole program and then takes it apart.
+
+The compiler's own tree is the rest of the documentation, and it is written to be read. [`lib/std`](https://github.com/arshad-yaseen/phi/tree/main/lib/std) is the standard library, in Phi, and the shortest way to see what idiomatic Phi looks like. [`test/pass`](https://github.com/arshad-yaseen/phi/tree/main/test/pass) is a few hundred small programs, each one a feature exercised on its own. [`test/fail`](https://github.com/arshad-yaseen/phi/tree/main/test/fail) is the same for every mistake the compiler has an opinion about, with the diagnostic it gives beside it.
+
+# Language Reference
+
+Source: https://phi-lang.org/language/
+
+This page walks a whole program, then takes it apart: what a file holds, how a name is bound, how the operators bind, and where a statement ends.
+
+## A program
+
+A program starts at `fn main()` in its entry file, a plain function taking nothing and returning nothing. Everything the entry imports is part of the program, and everything it does not is not compiled.
+
+```zig
+import std.io
+
+type BadDigit = {
+    at: u64
+}
+
+fn parse(text: str) u64 | BadDigit {
+    var value: u64 = 0
+    loop i in 0..text.len {
+        let digit = text[i]
+        if digit < '0' or digit > '9' {
+            return BadDigit.{ at: i }
+        }
+        value = value * 10 + (digit - '0')
+    }
+    return value
+}
+
+fn check(text: str) {
+    let value = parse(text) or bad {
+        point(text, bad.at)
+        return
+    }
+    if value == 42 {
+        io.print("Hello, world!\n")
+    }
+}
+
+fn point(text: str, at: u64) {
+    io.print(text)
+    io.print("\n")
+    var margin: [64]u8 = @splat(' ')
+    margin[at] = '^'
+    io.print(margin[0..at + 1])
+    io.print("\n")
+}
+
+fn main() {
+    check("42")
+    check("4x2")
+}
+```
+
+```bash
+$ phi run main.phi
+Hello, world!
+4x2
+ ^
+```
+
+Six things worth naming in that program.
+
+`parse` returns `u64 | BadDigit`. Not an error type, not a wrapper. The function returns a number, or it returns the struct that says where it gave up, and the type says both.
+
+`or bad { ... }` names what went wrong and handles it. Inside the block, `bad` is a `BadDigit`, because the only way to reach the block is for the union to have settled on it. After the block, `value` is a `u64` for the same reason.
+
+`loop i in 0..text.len` counts a range. `i` is a `let` for the pass, so nothing in the body can move it, and both ends are read once before the first pass.
+
+`text[i]` is checked. The compiler refuses an index it can prove is past the end, and checks the ones it cannot before the memory is touched.
+
+`'0'` is a number and `"42"` is bytes. Comparing `digit > '9'` compares two `u8` values, because a character literal is a constant that fits wherever its value fits.
+
+`margin[0..at + 1]` is the one bridge from storage to a view. Slicing is written out as an expression, so a reader sees the moment an array becomes something that points at it.
+
+## Files and declarations
+
+One file is one module. A file holds declarations in any order, and a declaration may refer to one written later.
+
+| Written | Declares |
+| --- | --- |
+| `import a.b` | Binds `b`, a module or one public declaration from it |
+| `type Name` | A unit type, whose only value is its name |
+| `type Name = A \| B` | A union |
+| `type Name = T` | An alias, which is not a new type |
+| `type Name = { ... }` | A struct, with fields and methods |
+| `type Name[T] = ...` | Any of the above, generic |
+| `let name = value` | A constant, evaluated at compile time |
+| `fn name(...) T { ... }` | A function |
+| `extern fn name(...) T` | A function the linker finds elsewhere |
+
+`pub` in front of any of them exports it. Without `pub`, a declaration is private to its file, and so is a method. There is no `var` at the top level, because a program has no mutable global state to reason about.
+
+## Bindings
+
+`let` binds a name to a value that never changes. `var` binds one that can.
+
+```zig
+fn shapes(n: u64) u64 {
+    let fixed = n            // takes its type from the value
+    var total: u64 = 0       // a 'var' says its type
+    let sealed: u8 = 200     // the annotation seals it as a u8
+
+    total += fixed
+    return total + sealed
+}
+```
+
+A `var` needs a type, written or landed on, because there is no value to read it off yet. A bare number literal has no type until it lands somewhere, so it fits any type its value fits. An annotation seals it: `let n: u64 = 2` is a `u64` everywhere it goes, the way Zig, Rust, and Go read it.
+
+Assigning to a `let` is refused, and so is writing through a `*T`, calling a `*var self` method on one, or assigning to a temporary that has no home.
+
+`_` discards. It is not a name, so it cannot be read back, and it is how a value that a function returned but nobody wants gets thrown away on purpose.
+
+```zig
+fn quiet() u64 {
+    return 5
+}
+
+fn drive() {
+    _ = quiet()
+}
+```
+
+An unused value is an error, not a warning. Discarding it is the way to say you meant it.
+
+## Comments
+
+```zig
+// An ordinary comment, attached to nothing.
+
+/// Documents the declaration below it.
+pub fn add(a: i64, b: i64) i64 {
+    return a + b
+}
+```
+
+`//!` at the top of a file documents the file itself. All three survive into the parse tree, which is lossless, so a formatter or an editor can recover every token, comment, and position from the tree plus its source.
+
+## Operators
+
+Tightest first. Everything binds left except comparison, which does not chain.
+
+| Precedence | Operators | Associativity |
+| --- | --- | --- |
+| 9 | `*` `/` `%` | left |
+| 8 | `+` `-` | left |
+| 7 | `<<` `>>` | left |
+| 6 | `&` | left |
+| 5 | `^` | left |
+| 4 | `\|` | left |
+| 3 | `==` `!=` `<` `<=` `>` `>=` `is` | none |
+| 2 | `and` | left |
+| 1 | `or` | left |
+
+Prefix: `-` negates, `not` inverts a truth value, `~` flips bits, `&` takes an address.
+
+Postfix: `.field` reaches a member, `.*` reads through a pointer, `(...)` calls, `[i]` indexes, `[x..y]` slices, `[T]` supplies a type argument.
+
+Comparison does not chain. `a < b < c` is refused rather than parsed as something no reader expects.
+
+`&`, `^`, `|`, `<<`, `>>` are bitwise, and every one of them has a compound form: `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`.
+
+> **Note**
+>`|` is bitwise or between two values and union membership between two types. The two never meet, because one sits in an expression and the other in a type.
+
+## Statements end at the line
+
+There are no semicolons. A statement ends where its line does, and the parser refuses the two shapes where that could be read two ways: a line that opens with an operator, and a line that opens with a bracket. Both are told to join the line above or to parenthesize.
+
+A call chain still breaks across lines, because the line before it is unfinished.
+
+```zig
+type Box = {
+    item: i64
+
+    fn read(self: Box) i64 {
+        return self.item
+    }
+}
+
+fn chained(b: Box) i64 {
+    return b
+        .read()
+}
+```
+
+## Keywords
+
+```
+and     break    continue  defer   else    extern  fn
+if      import   in        is      let     loop    match
+not     or       pub       return  type    var
+```
+
+`true`, `false`, `bool`, `none`, and `str` are not keywords. They are declarations in `std.prelude`, visible in every file, and a file's own declaration of that name wins.
+
+An operation the compiler performs itself is written `@name`: `@size_of`, `@align_of`, `@min_int`, `@max_int`, `@int_cast`, `@splat`, `@trap`, and the standard library's own `@ptr_cast`. The sigil is what tells a reader the compiler is doing it, so no keyword is spent on any of them.

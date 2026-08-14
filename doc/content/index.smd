@@ -1,0 +1,121 @@
+---
+.title = "Introduction",
+.description = "Phi is a systems programming language that proves memory safety at compile time, with no runtime and nothing to annotate.",
+.author = "Arshad Yaseen",
+.date = @date("2026-08-14T00:00:00"),
+.layout = "page.shtml",
+---
+Phi is a systems programming language that proves memory safety at compile time, with no runtime and nothing to annotate.
+
+It is a research project, built around one question.
+
+> How much of memory safety can be proven from the allocator you were already passing down, without a borrow checker to learn?
+
+```zig
+import std.io
+
+fn main() {
+    io.print("Hello, world!\n")
+}
+```
+
+```bash
+$ phi run main.phi
+Hello, world!
+```
+
+## [The one idea]($section.id('the-one-idea'))
+
+A type may be several types, and a branch that settles which one narrows the value to it.
+
+That single rule replaces three features other languages ship separately. An optional is `T | none`. An error is `T | Timeout | NotFound`. A sum type is whatever members you write. There is no wrapper, no `Some`, no `Ok`, and nothing to unwrap, because a value enters a union by membership and comes back out only through a branch that proves which member it holds.
+
+```zig
+fn find(key: u32) u32 | none {
+    if key > 0 {
+        return key
+    }
+    return none
+}
+
+fn use_it(key: u32) u32 {
+    let found = find(key)
+    if found is u32 {
+        return found
+    }
+    return 0
+}
+```
+
+Inside the `if`, `found` is a `u32`, not an optional holding one. The branch did not unwrap anything. It narrowed the name.
+
+Everything built on that rule follows from it rather than beside it. `bool` is not a builtin, it is `type bool = true | false` declared in the prelude, so `if` and `and` and `or` all branch on the same question every other union answers. `or` is one operator with three uses: substitute a value, propagate to the caller, or handle what went wrong. `match` splits a union into one arm per member and counts them for exhaustiveness.
+
+[Read the language reference →](/language/)
+
+## [Nothing to annotate]($section.id('nothing-to-annotate'))
+
+Phi has no garbage collector, no reference counting, and no lifetime syntax. The bet is that an allocator passed down a call graph already describes what a borrow checker asks you to write out, and that the compiler can read the one instead of asking for the other. That part is the research, and it is not finished.
+
+What the language does guarantee today, before anything runs:
+
+- **An index is in bounds**, refused at compile time when the compiler can see it, and checked before the memory is touched when it cannot.
+- **A slice stays inside its base**, on the same terms.
+- **Arithmetic does not wrap silently.** Overflow, division by zero, a shift past the width of what it shifts, and negating the smallest signed value all stop the program rather than producing a number nobody meant.
+- **A conversion that can lose a value is written.** `@int_cast(n)` answers `T | none`, so the narrowing you asked for has a branch attached to it.
+- **What may be written is part of the type.** `*T` reads, `*var T` writes, and a `let` cannot be assigned through.
+
+Every one of those is either settled at compile time or trapped at the exact instruction that would have been wrong. None of them costs a keyword at the call site.
+
+## [Read like a person wrote it]($section.id('read-like-a-person-wrote-it'))
+
+The compiler's diagnostics are written the way a colleague would explain the problem, not the way a parser would report it.
+
+```bash
+error[E0221]: 'bump' writes through its receiver, and 'c' was bound with 'let'
+  --> counter.phi:24:5
+   |
+24 |     c.bump()
+   |     ^ immutable receiver
+   |
+   = help: bind it with 'var' to let a method change it
+```
+
+Every diagnostic carries a stable code, a span, a label under the carets, and, where there is something to suggest, a suggestion. Codes are retired rather than reused, so an old build log stays readable.
+
+## [Current status]($section.id('current-status'))
+
+Phi is a research project. It compiles and runs real programs, and the language is still moving.
+
+The compiler checks a program, prints its typed IR, emits C, and hands that to the system C compiler to produce a native binary for 64-bit targets. Structs, unions, arrays, views, text, pointers, generics, methods, modules, and a small standard library all work today. `phi run` builds and runs in one step.
+
+Versions are `0.MINOR.PATCH`. Before 1.0, a minor release may change the language in ways that break programs that used to compile, and a patch release only fixes. The [changelog](https://github.com/arshad-yaseen/phi/blob/main/CHANGELOG.md) is written for someone deciding what an upgrade means.
+
+## [Install]($section.id('install'))
+
+Builds for macOS, Linux, and Windows are on the [releases page](https://github.com/arshad-yaseen/phi/releases). Unpack one and put `phi` on your `PATH`. The standard library ships as source beside the binary, so keep the tree together.
+
+```bash
+$ phi --version
+0.3.0
+```
+
+Building from source needs Zig 0.16.0 or newer and nothing else.
+
+```bash
+$ git clone https://github.com/arshad-yaseen/phi
+$ cd phi
+$ zig build
+$ ./zig-out/bin/phi run main.phi
+```
+
+`phi build` and `phi run` also need a C compiler on the `PATH`. The compiler looks for `cc`, then `clang`, then `gcc`, and `--cc <path>` names one directly.
+
+>[]($block.attrs('note'))
+>Every commit on `main` that passes CI is published as a dev build at the `dev` tag. Dev builds carry no promise, get no notes, and are overwritten by the next push. They exist so a bug report can name one commit. Numbered releases are the only supported builds.
+
+## [Where to go next]($section.id('where-to-go-next'))
+
+The [language reference](/language/) walks a whole program and then takes it apart.
+
+The compiler's own tree is the rest of the documentation, and it is written to be read. [`lib/std`](https://github.com/arshad-yaseen/phi/tree/main/lib/std) is the standard library, in Phi, and the shortest way to see what idiomatic Phi looks like. [`test/pass`](https://github.com/arshad-yaseen/phi/tree/main/test/pass) is a few hundred small programs, each one a feature exercised on its own. [`test/fail`](https://github.com/arshad-yaseen/phi/tree/main/test/fail) is the same for every mistake the compiler has an opinion about, with the diagnostic it gives beside it.
