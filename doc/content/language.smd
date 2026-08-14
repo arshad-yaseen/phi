@@ -1,0 +1,384 @@
+---
+.title = "Language",
+.description = "The Phi language reference: modules, bindings, unions, narrowing, loops, arrays and views, pointers, structs, generics, and builtins.",
+.author = "Arshad Yaseen",
+.date = @date("2026-08-13T00:00:00"),
+.layout = "page.shtml",
+---
+Everything the language is, one section per idea.
+
+## [Programs and modules]($section.id('programs'))
+
+A program starts at `fn main()` in its entry file, a plain function taking nothing and returning nothing. An entry is one file, and everything it imports is part of the program.
+
+A module is one file. `import helper` reaches `helper.phi` beside the entry, `import std.io` reaches the standard library, and the last name in the path is the name the file uses. A declaration crosses files only when it is marked `pub`.
+
+```
+import std.io
+
+fn main() {
+    io.print("Hello, world!\n")
+}
+```
+
+The prelude declares `none`, `true`, `false`, `bool`, and `str` once, visible in every file. None of them is built into the compiler: `bool` is `type bool = true | false`, a union like any other, and `str` is `[]u8`. A file's own declaration still wins over the prelude's.
+
+## [Lines and comments]($section.id('lines'))
+
+A statement ends at the end of its line. A `,` or `;` also ends one, so short statements may share a line. A line that opens with `.` or `..` continues the line above, which is how a long chain breaks cleanly.
+
+```
+// a comment runs to the end of the line
+/// a doc comment belongs to the declaration below it
+//! a file doc comment describes the whole file
+```
+
+A line that opens with `-`, `&`, `~`, `(`, or `[` after a bare line break could continue the line above or start a new statement, so the compiler refuses the ambiguity and asks for a `,` or a rewrite.
+
+## [Bindings]($section.id('bindings'))
+
+`let` binds a value that cannot change, `var` one that can. An annotation seals the type, so `let n: u64 = 2` is a `u64` everywhere it goes. A bare literal stays untyped until it lands somewhere, and takes any type its value fits.
+
+```
+let n: u64 = 2
+let small = 7        // untyped, fits wherever 7 fits
+var count: u32 = 0
+count += 1
+_ = small            // '_ =' drops a value on purpose
+```
+
+A `var` needs a type before it can vary, so `var x = 1` is refused and `var x: i64 = 1` is not. Names cannot shadow: a local may not reuse the name of another local, a parameter, a type parameter, or a declaration in its file. `_` is not a name, and stands only in `_ = expression`.
+
+Top-level bindings are `let`, and hold a value the compiler can work out before anything runs: literals, names of constants, operators, and parentheses.
+
+## [Numbers]($section.id('numbers'))
+
+The integer types are `i8` through `i64` and `u8` through `u64`, with `f32` and `f64` beside them. Literals are decimal, hex `0x`, octal `0o`, or binary `0b`, with `_` between digits and `.` and `e` for floats. Constants fold in 128 bits, exactly.
+
+A narrower number lands on a wider one with nothing written, because every value of the narrower type is already a value of the wider. Signedness may change where no value is lost, and an `f32` is exactly an `f64`. The two ends of an operator meet the same way, so a `u32` counter reaches a `u64` length with no conversion between them. Nothing lossy converts on its own.
+
+```
+let big: u64 = 10
+let small: u32 = 3
+let sum = big + small              // u64
+let back = @int_cast[u32](big) or 0
+```
+
+`@int_cast(n)` is the conversion that can lose a value, so it answers `T | none` and `or` says what happens when it does not fit. It converts to what it lands on, and takes `[T]` where nothing lands it.
+
+## [Unions]($section.id('unions'))
+
+One keyword declares every type.
+
+```
+type Timeout                       // a unit type, whose only value is its name
+type Reply = u32 | Timeout | none  // a union
+type Port = u16                    // an alias
+type Point = {                     // a struct
+    x: u32
+    y: u32
+}
+```
+
+`A | B` is a union type: members are distinct types, order is part of the type, and a member that is itself a union flattens in place, so aliases compose. `Reply` above is exactly `u32 | Timeout | none`, and writing `u32 | Reply` would be refused for repeating `u32`.
+
+A value enters a union by membership, unwrapped, and comes back out only through a branch that proves the member.
+
+```
+fn fetch(attempts: u32) Reply {
+    if attempts > 3 {
+        return Timeout
+    }
+    return 200
+}
+```
+
+A condition is a union asking whether it holds its first member, so `if`, `and`, and `or` all branch on that one question. `bool` is `true | false`, so a comparison already answers it.
+
+## [Narrowing]($section.id('narrowing'))
+
+`e is T` tests which member a union holds and narrows the tested name to it: in both branches, across `and`, and past a branch that leaves. `is not` swaps the two sides.
+
+```
+fn use_it(r: u32 | none) u32 {
+    if r is u32 {
+        return r        // r is a u32 here
+    }
+    return 0            // and here it is none
+}
+
+fn guarded(r: u32 | none) u32 {
+    r is u32 or return 0
+    return r            // the guard proved it
+}
+
+fn positive(r: u32 | none) u32 {
+    if r is u32 and r > 0 {
+        return r        // the 'and' carried the proof
+    }
+    return 0
+}
+```
+
+Narrowing follows `let` bindings and parameters, never a `var`, because a `var` can be rewritten between the proof and the use.
+
+## [or]($section.id('or'))
+
+`e or f` is the first member of `e`, or else `f`. On a `bool` it stays logical or.
+
+```
+fn substitute(flag: bool) u32 {
+    return lookup(flag) or 8080
+}
+
+fn propagate(flag: bool) u32 | Timeout {
+    let value = fetch_one(flag) or return
+    return value + 1
+}
+
+fn handle(flag: bool) u32 {
+    let value = fetch_one(flag) or e {
+        report(e)
+        return 0
+    }
+    return value
+}
+```
+
+`or 8080` substitutes a value. A bare `or return` sends the rest of the union up, unchanged, so a function that answers `u32 | Timeout` propagates a `Timeout` with two words. `or e { ... }` handles: the block runs with `e` bound to the rest of the union, and either produces the first member or leaves.
+
+## [match]($section.id('match'))
+
+`match` splits a union into one arm per member, exhaustive by counting. An arm may label several members with `A | B`, and `else` is the rest as a type rather than a blind default, so the arm's body knows exactly what it holds.
+
+```
+fn describe(r: u32 | Timeout | none) u32 {
+    return match r {
+        u32 => r
+        Timeout => 100
+        none => 0
+    }
+}
+
+fn grouped(r: u32 | Timeout | none) u32 {
+    return match r {
+        u32 => r
+        Timeout | none => 0
+    }
+}
+```
+
+The scrutinee narrows per arm, the way `is` narrows a branch, so fields and methods of the proven member are reachable inside the arm. An arm that leaves narrows what follows the match.
+
+```
+fn after(flag: bool) u32 {
+    let r = lookup(flag)
+    match r {
+        none => return 0
+        u32 => {}
+    }
+    return r + 1        // r is a u32 past the match
+}
+```
+
+## [Loops]($section.id('loops'))
+
+`loop { }` runs until a `break`, `loop cond { }` while the condition holds, and `loop i in 0..n { }` counts a range: the name is a `let` for the pass, both ends are read once before the first, and the counter takes the type of the ends, `u64` where neither says.
+
+```
+fn sum(xs: []u32) u32 {
+    var total: u32 = 0
+    loop i in 0..xs.len {
+        total += xs[i]
+    }
+    return total
+}
+```
+
+A label reaches an outer loop, and `break v` with `else` makes a loop an expression: the `else` says what the loop is worth when it ends on its own.
+
+```
+fn press(tries: u32) bool {
+    var attempt: u32 = 0
+    let found: bool = loop attempt < tries {
+        if probe() is u32 {
+            break true
+        }
+        attempt += 1
+    } else {
+        false
+    }
+    return found
+}
+
+fn scan() u32 {
+    var hits: u32 = 0
+    outer: loop i in 0..10 {
+        loop j in 0..10 {
+            if i * j > 20 {
+                break :outer
+            }
+            hits += 1
+        }
+    }
+    return hits
+}
+```
+
+## [Arrays and views]($section.id('arrays-and-views'))
+
+`[N]T` is an array, N values of one type laid out end to end, written `[1, 2, 3]`. The length lives in the type, so it costs no memory and answers as `a.len`. An index past the end is refused before anything runs, or checked before the memory is touched.
+
+`[]T` is a view of elements it does not own, two words wide: the address as `.ptr` and the count as `.len`. `[]var T` also writes through, and fits wherever a `[]T` is asked. A view holds no elements, so a type may hold a view of itself, and `[]T | none` costs no more than the view alone.
+
+`a[x..y]` is the single bridge from storage to a view, and `a..` runs to the base's own length. What the view may write is what the place it came from allowed.
+
+```
+fn views() {
+    var buffer: [64]u8 = @splat(0)
+    let view: []u8 = buffer[0..16]
+    let rest = view[4..]
+    _ = rest
+}
+```
+
+A string is bytes and a character is a number, both written as constants that fit where their values fit: `"text/plain"` returned as `[]u8` is bytes the program owns, `let magic: [2]u8 = "hi"` is storage with its length checked, and `s[i] == 'a'` compares two numbers. Escapes decode at compile time, and a literal never crosses a line.
+
+A constant that lands on a view gets bytes the program owns, so `[2, 3, 5, 7]` fits a `[]u32`. It never fits a `[]var T`, because the program's own bytes are read-only.
+
+## [Pointers]($section.id('pointers'))
+
+`*T` reads through, `*var T` also writes through and fits where a `*T` is asked. `&x` takes an address, and `p.*` reads what a pointer points at.
+
+```
+fn bump(n: *var i64) {
+    n.* += 1
+}
+
+fn same(a: *u32, b: *u32) bool {
+    return a == b
+}
+```
+
+`==` and `!=` compare two pointers by the address each one is, and what may be written through a pointer is not part of that. `*T | none` is one word, with `none` as the zero no valid pointer holds, so an optional pointer costs nothing over the pointer.
+
+## [Structs and methods]($section.id('structs'))
+
+A struct holds fields and functions. A struct literal names the type it builds, `Point.{ x: 1, y: 2 }`, or leaves the name out where what it lands on says it. Every field must be present, and there are no defaults.
+
+A function whose first parameter takes the struct is called through a value, and the receiver arrives as `T`, `*T`, or `*var T`, whichever the declaration asked for. A function without one is called through the type.
+
+```
+type Counter = {
+    hits: i64
+
+    fn total(self: Counter) i64 {
+        return self.hits
+    }
+
+    fn bump(self: *var Counter, by: i64) {
+        self.hits += by
+    }
+
+    fn zero() Counter {
+        return .{ hits: 0 }
+    }
+}
+
+fn drive() i64 {
+    var counter = Counter.zero()
+    counter.bump(2)
+    return counter.total()
+}
+```
+
+A method that writes through its receiver needs the receiver to be a `var`. A method without `pub` is private to its file, the way every other declaration is.
+
+## [Generics]($section.id('generics'))
+
+Generics are written `[T]` and instantiate wherever a type is written. Identity is the instantiation, so `Box[i64]` twice, or once through an alias, is one type.
+
+```
+type Pair[K, V] = {
+    key: K
+    value: V
+
+    pub fn swap_value(self: *var Pair[K, V], value: V) V {
+        let old = self.value
+        self.value = value
+        return old
+    }
+}
+
+type Maybe[T] = T | none
+```
+
+A call usually needs no type arguments: what it feeds pins them, through `T`, `*T`, `[]T`, and `[N]T` alike, and the annotation on what the call feeds reaches a type argument no parameter mentions.
+
+```
+fn pairs() i64 {
+    var pair = Pair[bool, i64].{ key: true, value: 41 }
+    let old = pair.swap_value(42)
+    let missing: Maybe[u32] = none
+    _ = missing
+    return old + pair.value
+}
+
+fn aligned() u64 {
+    let a: u64 = mem.align_up(11, 8)   // the annotation decides T
+    return a
+}
+```
+
+## [defer]($section.id('defer'))
+
+`defer` runs a statement on the way out of its scope, innermost first, on every path out. A `defer` cannot leave again, so no `return` or `break` is written inside one.
+
+```
+fn greet() {
+    defer io.print("second\n")
+    io.print("first\n")
+}
+```
+
+## [Operators]($section.id('operators'))
+
+Tightest first. Suffixes bind tighter than any operator: a call `f(x)`, an index or type argument `a[i]`, a field `p.x`, and a read through a pointer `p.*`.
+
+|Level|Operators|
+|-----|---------|
+|prefix|`-`, `not`, `~`, `&`|
+|9|`*`, `/`, `%`|
+|8|`+`, `-`|
+|7|`<<`, `>>`|
+|6|`&`|
+|5|`^`|
+|4|`\|`|
+|3|`==`, `!=`, `<`, `<=`, `>`, `>=`, `is`|
+|2|`and`|
+|1|`or`|
+
+Comparisons do not chain: `a < b < c` is refused, and is written as two comparisons joined with `and`. Compound assignment exists for every arithmetic and bitwise operator, `+=` through `>>=`.
+
+`==` and `!=` compare numbers, and pointers by address. Everything they refuse says what answers instead: `is` for a union, `std.mem.eql` for a view, a written comparison for a struct.
+
+## [Builtins]($section.id('builtins'))
+
+An operation the compiler performs itself is written `@name`, and stands only in a call.
+
+|Builtin|Answers|
+|-------|-------|
+|`@size_of[T]()`|The bytes a value of `T` occupies, a constant.|
+|`@align_of[T]()`|The alignment `T` requires, a constant.|
+|`@min_int[T]()`, `@max_int[T]()`|The edges of an integer type, exact.|
+|`@int_cast(n)`|The number where the type holds it, `none` where it does not.|
+|`@splat(v)`|An array whose every element is `v`, sized by where it lands.|
+|`@trap()`|Stops the program where it stands.|
+
+The answers that are constants arrive untyped, so `let n: u32 = @size_of[Point]()` needs no conversion.
+
+## [What stops a program]($section.id('traps'))
+
+There is no unwinding and nothing to catch. Overflow, division by zero, a shift past the width, an index past the end, a range that leaves its base, and a violated `std.debug.assert` stop the program at the instruction that failed.
+
+Everything the compiler can settle before anything runs is refused at compile time instead, with the same rules: a constant index past the end, a constant that overflows, a range whose ends cross.

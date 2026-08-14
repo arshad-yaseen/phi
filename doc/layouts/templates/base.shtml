@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head id="head">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="$page.description">
+    <link rel="canonical" href="$site.host_url.addPath($page.link())">
+    <link rel="icon" type="image/svg+xml" href="$site.asset('favicon.svg').link()">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="$page.title">
+    <meta property="og:description" content="$page.description">
+    <meta property="og:url" content="$site.host_url.addPath($page.link())">
+    <title id="title">
+      <super>
+    </title>
+    <link rel="stylesheet" type="text/css" href="$site.asset('style.css').link()">
+    <script defer src="$site.asset('index.js').link()"></script>
+    <super>
+  </head>
+  <body>
+    <nav id="menu">
+      <ctx :if="$page.link().eql('/')">
+        <a class="active" href="$site.page('').link()">Phi</a>
+      </ctx>
+      <ctx :if="$page.link().eql('/').not()">
+        <a href="$site.page('').link()">Phi</a>
+      </ctx>
+      <ctx :if="$page.link().eql('/language/')">
+        <a class="active" href="$site.page('language').link()">Language</a>
+      </ctx>
+      <ctx :if="$page.link().eql('/language/').not()">
+        <a href="$site.page('language').link()">Language</a>
+      </ctx>
+      <a href="https://github.com/arshad-yaseen/phi" target="_blank">GitHub</a>
+    </nav>
+    <div id="content">
+      <super>
+    </div>
+  </body>
+</html>

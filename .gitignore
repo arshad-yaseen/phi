@@ -13,4 +13,7 @@ zig-out/
 /main.c
 *.dSYM/
 
+# what 'zine release' leaves in doc/
+/doc/public/
+
 .DS_Store

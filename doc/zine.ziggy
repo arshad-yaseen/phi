@@ -1,0 +1,13 @@
+Site {
+    .title = "Phi, a systems programming language that proves memory safety at compile time",
+    .host_url = "https://arshad-yaseen.github.io",
+    .content_dir_path = "content",
+    .layouts_dir_path = "layouts",
+    .assets_dir_path = "assets",
+    .static_assets = [
+        "fonts/inter/InterVariable.woff2",
+        "fonts/inter/InterVariable-Italic.woff2",
+        "fonts/berkeley/BerkeleyMono-Regular.otf",
+        "fonts/berkeley/BerkeleyMono-Bold.otf",
+    ],
+}
