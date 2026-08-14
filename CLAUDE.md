@@ -12,6 +12,7 @@ compiler/    the compiler, importable as the `compiler` module
 tools/phi/   the binary: argv, dispatch, exit codes
 lib/std/     the standard library, shipped as source beside the binary
 test/        file tests, the golden's extension naming each assertion
+doc/         the documentation site, a Zine site published to phi-lang.org
 ```
 
 ## Commands
@@ -19,11 +20,11 @@ test/        file tests, the golden's extension naming each assertion
 Zig 0.16.0 or newer, as `build.zig.zon` states.
 
 ```
-zig build                                     build ./zig-out/bin/phi
-zig build test                                unit tests and file tests
-zig build test-update                         rewrite what the file tests expect
-zig build release                             cross-compile a tree per target
-zig fmt --check build.zig compiler tools test what CI checks
+zig build                                         build ./zig-out/bin/phi
+zig build test                                    unit tests and file tests
+zig build test-update                             rewrite what the file tests expect
+zig build release                                 cross-compile a tree per target
+zig fmt --check build.zig compiler tools test doc what CI checks
 ```
 
 `test-update` accepts whatever the compiler currently prints. After running it,

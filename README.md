@@ -19,8 +19,17 @@ $ phi run main.phi
 Hello, world!
 ```
 
+## Documentation
+
+[phi-lang.org][docs] is the language reference, from a tour to the diagnostic
+catalogue. [llms.txt][llms] indexes it for a model, and [llms-full.txt][full] is
+every page concatenated.
+
 ## Builds
 
 Builds for macOS, Linux, and Windows are on the [releases page][releases].
 
+[docs]: https://phi-lang.org
+[llms]: https://phi-lang.org/llms.txt
+[full]: https://phi-lang.org/llms-full.txt
 [releases]: https://github.com/arshad-yaseen/phi/releases
