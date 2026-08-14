@@ -3,12 +3,11 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
-const fence = "```zig\n";
-const fence_close = "\n```";
+const fence = "```";
 
 const work_dir = ".snippets";
 
-const refused = [_][]const u8{};
+const skipped = [_][]const u8{};
 
 const walk_depth_max = 8;
 const page_bytes_max = 1 << 20;
@@ -83,21 +82,18 @@ fn checkPage(
     var project: ?[]const u8 = null;
     var first: u32 = 0;
 
-    var rest = text;
+    var rest: []const u8 = text;
     var number: u32 = 0;
-    while (std.mem.indexOf(u8, rest, fence)) |open| {
-        const body_start = open + fence.len;
-        const close = std.mem.indexOf(u8, rest[body_start..], fence_close) orelse break;
-        const block = rest[body_start..][0..close];
-        rest = rest[body_start + close + fence_close.len ..];
+    while (nextBlock(&rest)) |block| {
+        if (block.language.len > 0) continue;
         number += 1;
 
-        const name = headerOf(block);
+        const name = headerOf(block.body);
         if (project != null and name == null) {
             try run(arena, io, project.?, phi_path, std_dir, key, first, log, &result);
             project = null;
         }
-        if (isRefused(key, number)) continue;
+        if (isSkipped(key, number)) continue;
 
         if (name) |file| {
             if (project == null) {
@@ -106,20 +102,47 @@ fn checkPage(
                 project = try std.fmt.allocPrint(arena, "{s}/{s}", .{ work_dir, file });
             }
             const path = try std.fmt.allocPrint(arena, "{s}/{s}", .{ work_dir, file });
-            try writeUnder(io, path, block);
+            try writeUnder(io, path, block.body);
             if (std.mem.endsWith(u8, file, "main.phi")) project = path;
             continue;
         }
 
         try reset(io);
         const path = work_dir ++ "/snippet.phi";
-        try writeUnder(io, path, block);
+        try writeUnder(io, path, block.body);
         try run(arena, io, path, phi_path, std_dir, key, number, log, &result);
     }
     if (project) |entry| {
         try run(arena, io, entry, phi_path, std_dir, key, first, log, &result);
     }
     return result;
+}
+
+const Block = struct { language: []const u8, body: []const u8 };
+
+fn nextBlock(rest: *[]const u8) ?Block {
+    while (rest.len > 0) {
+        const line = nextLine(rest);
+        if (std.mem.startsWith(u8, line, fence) == false) continue;
+
+        const language = std.mem.trim(u8, line[fence.len..], " \t\r");
+        const body = rest.*;
+        var len: usize = 0;
+        while (rest.len > 0) {
+            const before = rest.len;
+            if (std.mem.startsWith(u8, nextLine(rest), fence)) break;
+            len += before - rest.len;
+        }
+        return .{ .language = language, .body = body[0..len] };
+    }
+    return null;
+}
+
+fn nextLine(rest: *[]const u8) []const u8 {
+    const end = std.mem.indexOfScalar(u8, rest.*, '\n') orelse rest.len;
+    const line = rest.*[0..end];
+    rest.* = rest.*[@min(end + 1, rest.len)..];
+    return line;
 }
 
 fn headerOf(block: []const u8) ?[]const u8 {
@@ -131,10 +154,10 @@ fn headerOf(block: []const u8) ?[]const u8 {
     return name;
 }
 
-fn isRefused(key: []const u8, number: u32) bool {
+fn isSkipped(key: []const u8, number: u32) bool {
     var buffer: [128]u8 = undefined;
     const written = std.fmt.bufPrint(&buffer, "{s}:{d}", .{ key, number }) catch return false;
-    for (refused) |known| {
+    for (skipped) |known| {
         if (std.mem.eql(u8, known, written)) return true;
     }
     return false;

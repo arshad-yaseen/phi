@@ -190,6 +190,11 @@ h1.title {
   padding: 0.4rem 1.75rem 1rem 0;
 }
 
+/* a page with no headings has nothing to list, so it shows no contents */
+#toc:not(:has(li)) {
+  display: none;
+}
+
 .page-toc {
   font-weight: normal;
   font-size: 0.82rem;

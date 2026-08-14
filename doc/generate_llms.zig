@@ -5,6 +5,9 @@ const Writer = std.Io.Writer;
 
 const repo_url = "https://github.com/arshad-yaseen/phi";
 
+const fence = "```";
+const phi_language = "phi";
+
 const order = [_][]const u8{
     "",
     "language",
@@ -179,9 +182,30 @@ fn field(text: []const u8, name: []const u8) ?[]const u8 {
 fn clean(arena: Allocator, body: []const u8, host: []const u8) ![]const u8 {
     var out: Writer.Allocating = .init(arena);
     var blank: u32 = 0;
+    var code = false;
 
     var lines = std.mem.splitScalar(u8, body, '\n');
     while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, fence)) {
+            if (code) {
+                try out.writer.print("{s}\n", .{fence});
+            } else {
+                const language = std.mem.trim(u8, line[fence.len..], " \t\r");
+                try out.writer.print("{s}{s}\n", .{
+                    fence,
+                    if (language.len == 0) phi_language else language,
+                });
+            }
+            code = code == false;
+            blank = 0;
+            continue;
+        }
+        if (code) {
+            try out.writer.print("{s}\n", .{line});
+            blank = 0;
+            continue;
+        }
+
         const rewritten = try cleanLine(arena, line, host);
         if (std.mem.trim(u8, rewritten, " \t").len == 0) {
             blank += 1;

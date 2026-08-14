@@ -17,6 +17,7 @@
       | Phi
     </title>
     <link rel="stylesheet" type="text/css" href="$site.asset('style.css').link()">
+    <script defer src="$site.asset('phi.js').link()"></script>
     <super>
   </head>
   <body>
