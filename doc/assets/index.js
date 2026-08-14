@@ -147,4 +147,44 @@
   }
 
   spy();
+
+  function stored() {
+    try {
+      return localStorage.getItem('theme');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function theme() {
+    const root = document.documentElement;
+    const button = document.getElementById('theme');
+    if (button === null) return;
+
+    const system = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function apply(name) {
+      root.dataset.theme = name;
+      button.setAttribute(
+        'aria-label',
+        name === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'
+      );
+    }
+
+    apply(stored() || (system.matches ? 'dark' : 'light'));
+
+    button.addEventListener('click', function () {
+      const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('theme', next);
+      } catch (e) {}
+      apply(next);
+    });
+
+    system.addEventListener('change', function () {
+      if (stored() === null) apply(system.matches ? 'dark' : 'light');
+    });
+  }
+
+  theme();
 })();
