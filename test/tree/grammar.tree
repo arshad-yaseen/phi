@@ -1,7 +1,5 @@
 root
-  import_decl
-    path: field_access mem
-      lhs: ident std
+  import_decl std/mem
   alias_decl Alias pub
     type: ident i64
   alias_decl Pointer

@@ -1,0 +1,6 @@
+error[E0104]: an import is never 'pub'
+ --> test/fail/import_pub.phi:1:1
+  |
+1 | pub import std/io
+  | ^^^ not allowed here
+

@@ -89,9 +89,6 @@ pub const Decl = struct {
     };
     pub const State = enum(u8) { unanalyzed, in_progress, done, poisoned };
 
-    /// Stored in `aux` beside the payload.
-    pub const ImportTarget = enum(u8) { module, decl };
-
     pub const Index = Handle.Index("decl");
     pub const OptionalIndex = Decl.Index.Optional;
 
@@ -172,7 +169,7 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
             .import_decl => |use| .{
                 .kind = .import,
                 .node = node,
-                .name_token = lastPathComponent(tree, use.path) orelse continue,
+                .name_token = use.binding_token,
             },
             // a struct also registers its members, so it goes its own way
             .struct_decl => |decl| {
@@ -286,6 +283,10 @@ fn addDecl(
                 .code = .redeclared,
                 .message = try comp.fmt("'{s}' is declared twice in this file", .{text}),
                 .label = "declared again here",
+                .help = if (new.kind == .import)
+                    try comp.fmt("bind it under another name, as in 'as {s}_module'", .{text})
+                else
+                    null,
                 .notes = try comp.noteOne(index, first.node, "first declared here"),
             };
         }
@@ -367,223 +368,172 @@ fn appendDecl(
     return index;
 }
 
-/// What an import binds, which is the last name in its path.
-pub fn lastPathComponent(tree: *const AST, path: AST.Node.Index) ?Token.Index {
-    return switch (tree.nodeTag(path)) {
-        .ident => tree.nodeMainToken(path),
-        .field_access => tree.viewOf(path).field_access.name_token,
-        else => null,
-    };
-}
-
 // modules on disk
 
-const import_chain_max = 32;
-const path_components_max = 32;
-
-pub const Loaded = union(enum) { module: Module.Index, not_found, no_std };
-
-/// Once per path. `sub` is joined from identifiers, so it stays in its space.
-pub fn loadModule(comp: *Compilation, space: Space, sub: []const u8) Allocator.Error!Loaded {
+/// Once per path, null where nothing is there. `sub` is joined from identifiers.
+pub fn loadModule(comp: *Compilation, space: Space, sub: []const u8) Allocator.Error!?Module.Index {
     assert(sub.len > 0);
 
     const key = try comp.fmt("{t}:{s}", .{ space, sub });
-    if (comp.module_map.get(key)) |index| {
-        return .{ .module = index };
-    }
+    if (comp.module_map.get(key)) |index| return index;
 
     const base = switch (space) {
         .root => comp.root_dir,
-        .std => comp.std_dir orelse return .no_std,
+        .std => comp.std_dir orelse return null,
     };
 
     const path = try comp.fmt("{s}/{s}.phi", .{ std.mem.trimEnd(u8, base, "/\\"), sub });
 
     const source = comp.loader.load(comp.loader.context, comp.gpa, comp.io, path) catch |err|
         switch (err) {
-            error.ReadFailed, error.SourceTooLarge => return .not_found,
+            error.ReadFailed, error.SourceTooLarge => return null,
             error.OutOfMemory => return error.OutOfMemory,
         };
 
-    return .{ .module = try register(comp, key, space, source) };
+    const index = try register(comp, key, space, source);
+    assert(comp.module_map.get(key).? == index);
+    return index;
 }
 
-/// A module, or a module plus one public declaration.
+/// One module, which the path names the same way from every file that writes it.
 pub fn resolveImport(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     const decl = comp.declAt(decl_index);
-    const module = comp.moduleAt(decl.module);
-    const tree = &module.tree;
-    const path = tree.viewOf(decl.node).import_decl.path;
+    assert(decl.kind == .import);
 
-    var names: [path_components_max][]const u8 = undefined;
-    var nodes: [path_components_max]AST.Node.Index = undefined;
-    const count = pathComponents(tree, path, &names, &nodes) orelse {
-        try comp.reportNode(decl.module, path, .{
-            .code = .module_not_found,
-            .message = try comp.fmt("an import path nests more than {d} names deep", .{
-                path_components_max,
-            }),
-        });
-        return false;
-    };
-    assert(count > 0);
+    const tree = comp.treeOf(decl.module);
+    const view = tree.viewOf(decl.node).import_decl;
+    const in_std = std.mem.eql(u8, tree.tokenSlice(view.first_token), std_name);
 
-    var space = module.space;
-    var first: u32 = 0;
-    if (std.mem.eql(u8, names[0], std_name)) {
-        space = .std;
-        first = 1;
-        if (count == 1) {
-            try comp.reportNode(decl.module, path, .{
-                .code = .module_not_found,
-                .message = "'std' is a directory of modules, not a module",
-                .label = "name one",
-                .help = "'use std.mem' imports the memory module",
-            });
-            return false;
-        }
+    // 'std' names a root, so it needs a directory to be and a module to name inside it
+    if (in_std and (comp.std_dir == null or view.first_token == view.last_token)) {
+        return reportStd(comp, decl.module, view.first_token);
     }
 
-    // the whole path as a module wins, else the last name is a declaration in it
-    const whole = try std.mem.join(comp.arena.allocator(), "/", names[first..count]);
-    switch (try loadModule(comp, space, whole)) {
-        .module => |target| {
-            setImportTarget(comp, decl_index, .module, target.int());
-            return true;
-        },
-        .no_std => return reportNoStd(comp, decl.module, path),
-        .not_found => {},
+    const space: Space = if (in_std) .std else .root;
+    const first = if (in_std) view.first_token.after(2) else view.first_token;
+
+    const sub = try pathText(comp, tree, first, view.last_token);
+    const target = try loadModule(comp, space, sub) orelse
+        return reportUnresolved(comp, decl.module, decl.node, sub, space);
+
+    comp.declPtr(decl_index).result = target.int();
+    return true;
+}
+
+pub fn importedModule(comp: *const Compilation, decl_index: Decl.Index) Module.Index {
+    const decl = comp.declAt(decl_index);
+    assert(decl.kind == .import);
+    assert(decl.state == .done);
+    return @enumFromInt(decl.result);
+}
+
+fn pathText(
+    comp: *Compilation,
+    tree: *const AST,
+    first: Token.Index,
+    last: Token.Index,
+) Allocator.Error![]const u8 {
+    const arena = comp.arena.allocator();
+
+    var out: std.ArrayList(u8) = .empty;
+    try out.ensureTotalCapacity(arena, 64);
+    try out.appendSlice(arena, tree.tokenSlice(first));
+
+    var token = first;
+    while (token != last) {
+        token = token.after(2);
+        try out.append(arena, '/');
+        try out.appendSlice(arena, tree.tokenSlice(token));
     }
 
-    if (count - first >= 2) {
-        const parent = try std.mem.join(comp.arena.allocator(), "/", names[first .. count - 1]);
-        switch (try loadModule(comp, space, parent)) {
-            .module => |target| {
-                const last = nodes[count - 1];
-                const name_token = switch (tree.nodeTag(last)) {
-                    .field_access => tree.viewOf(last).field_access.name_token,
-                    else => tree.nodeMainToken(last),
-                };
-                const found = try findExported(
-                    comp,
-                    target,
-                    names[count - 1],
-                    .{ .module = decl.module, .node = last },
-                    name_token,
-                ) orelse return false;
-                setImportTarget(comp, decl_index, .decl, found.int());
-                return true;
-            },
-            .no_std => return reportNoStd(comp, decl.module, path),
-            .not_found => {},
-        }
-    }
+    assert(std.mem.indexOfScalar(u8, out.items, '.') == null);
+    return out.items;
+}
 
-    const spelled = try std.mem.join(comp.arena.allocator(), ".", names[first..count]);
-    try comp.reportNode(decl.module, path, .{
+fn reportStd(comp: *Compilation, module: Module.Index, token: Token.Index) Allocator.Error!bool {
+    @branchHint(.cold);
+    const report: Compilation.Report = if (comp.std_dir == null) .{
         .code = .module_not_found,
-        .message = try comp.fmt("no module named '{s}'", .{spelled}),
+        .message = "the standard library was not found",
+        .label = "'std' has nowhere to point",
+        .help = "pass --std <dir>, or run beside a 'lib/std' directory",
+    } else .{
+        .code = .module_not_found,
+        .message = "'std' is the standard library, not a module in it",
+        .label = "name one",
+        .help = "'import std/io' imports the input and output module",
+    };
+    try comp.reportToken(module, token, report);
+    return false;
+}
+
+fn reportUnresolved(
+    comp: *Compilation,
+    module: Module.Index,
+    node: AST.Node.Index,
+    sub: []const u8,
+    space: Space,
+) Allocator.Error!bool {
+    @branchHint(.cold);
+    const dir = switch (space) {
+        .root => comp.root_dir,
+        .std => comp.std_dir.?,
+    };
+    try comp.reportNode(module, node, .{
+        .code = .module_not_found,
+        .message = try comp.fmt("no module named '{s}' in '{s}'", .{ sub, dir }),
         .label = "nothing on disk answers to this",
-        .help = switch (space) {
-            .root => try comp.fmt("modules live beside the root file, in '{s}'", .{
-                comp.root_dir,
-            }),
-            .std => try comp.fmt("standard modules live in '{s}'", .{
-                comp.std_dir orelse "<none>",
-            }),
-        },
     });
     return false;
 }
 
-fn setImportTarget(
-    comp: *Compilation,
-    decl_index: Decl.Index,
-    target: Decl.ImportTarget,
-    payload: u32,
-) void {
-    comp.declPtr(decl_index).aux = @intFromEnum(target);
-    comp.declPtr(decl_index).result = payload;
-}
-
-pub const ImportResolved = union(enum) { module: Module.Index, decl: Decl.Index };
-
-pub fn importTarget(comp: *const Compilation, decl_index: Decl.Index) ImportResolved {
-    const decl = comp.declAt(decl_index);
-    assert(decl.kind == .import);
-    assert(decl.state == .done);
-    return switch (@as(Decl.ImportTarget, @enumFromInt(decl.aux))) {
-        .module => .{ .module = @enumFromInt(decl.result) },
-        .decl => .{ .decl = @enumFromInt(decl.result) },
-    };
-}
-
-/// Follows re-exports to the end. Null once reported, keyed on the origin's token.
+/// A public declaration of `in`. Null once reported, keyed on the origin's token.
 pub fn findExported(
     comp: *Compilation,
     in: Module.Index,
-    name_text: []const u8,
     origin: Compilation.Origin,
     name_token: Token.Index,
 ) Allocator.Error!?Decl.Index {
-    var target = in;
-    var remaining: u32 = import_chain_max;
-    while (remaining > 0) : (remaining -= 1) {
-        const module = comp.moduleAt(target);
-        const found = module.findDecl(name_text) orelse {
-            try comp.reportToken(origin.module, name_token, .{
-                .code = .no_such_member,
-                .message = try comp.fmt("'{s}' has no declaration named '{s}'", .{
-                    module.displayName(), name_text,
-                }),
-                .label = "not found",
-                .help = try suggestIn(comp, module, name_text),
-            });
-            return null;
-        };
+    const module = comp.moduleAt(in);
+    const name_text = comp.treeOf(origin.module).tokenSlice(name_token);
 
-        const decl = comp.declAt(found);
-        if (origin.module != target and declIsPub(comp, found) == false) {
-            try comp.reportToken(origin.module, name_token, .{
-                .code = .private,
-                .message = try comp.fmt("'{s}' is private to its file", .{name_text}),
-                .label = "not public",
-                .help = "mark the declaration 'pub' to reach it from another file",
-                .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
-            });
-            return null;
-        }
+    const found = memberOf(comp, module, name_text) orelse {
+        try comp.reportToken(origin.module, name_token, .{
+            .code = .no_such_member,
+            .message = try comp.fmt("'{s}' has no declaration named '{s}'", .{
+                module.displayName(), name_text,
+            }),
+            .label = "not found",
+            .help = try suggestIn(comp, module, name_text),
+        });
+        return null;
+    };
 
-        if (decl.kind != .import) return found;
-
-        // a re-export. resolve it and keep walking
-        try comp.ensure(.forDecl(found), origin);
-        if (comp.declAt(found).state != .done) return null;
-        switch (importTarget(comp, found)) {
-            .decl => |next| {
-                const next_decl = comp.declAt(next);
-                if (next_decl.kind != .import) return next;
-                target = next_decl.module;
-                continue;
-            },
-            // a module name, where a declaration was asked for
-            .module => return found,
-        }
+    const decl = comp.declAt(found);
+    if (origin.module != in and declIsPub(comp, found) == false) {
+        try comp.reportToken(origin.module, name_token, .{
+            .code = .private,
+            .message = try comp.fmt("'{s}' is private to its file", .{name_text}),
+            .label = "not public",
+            .help = "mark the declaration 'pub' to reach it from another file",
+            .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
+        });
+        return null;
     }
-    try comp.reportToken(origin.module, name_token, .{
-        .code = .value_cycle,
-        .message = try comp.fmt("following '{s}' crossed {d} re-exports without arriving", .{
-            name_text, import_chain_max,
-        }),
-    });
-    return null;
+    return found;
+}
+
+/// An import binds a name in its own file, so it is no part of what the file offers.
+fn memberOf(comp: *const Compilation, module: *const Module, name_text: []const u8) ?Decl.Index {
+    const found = module.findDecl(name_text) orelse return null;
+    if (comp.declAt(found).kind == .import) return null;
+    return found;
 }
 
 pub fn declIsPub(comp: *const Compilation, decl_index: Decl.Index) bool {
     const decl = comp.declAt(decl_index);
     const tree = comp.treeOf(decl.module);
     return switch (tree.viewOf(decl.node)) {
-        .import_decl => |view| view.is_pub,
         .struct_decl => |view| view.is_pub,
         .alias_decl => |view| view.is_pub,
         .unit_decl => |view| view.is_pub,
@@ -593,56 +543,20 @@ pub fn declIsPub(comp: *const Compilation, decl_index: Decl.Index) bool {
     };
 }
 
-fn reportNoStd(
-    comp: *Compilation,
-    module: Module.Index,
-    node: AST.Node.Index,
-) Allocator.Error!bool {
-    try comp.reportNode(module, node, .{
-        .code = .module_not_found,
-        .message = "the standard library was not found",
-        .label = "'std' has nowhere to point",
-        .help = "pass --std <dir>, or run beside a 'lib/std' directory",
-    });
-    return false;
-}
-
-fn pathComponents(
-    tree: *const AST,
-    path: AST.Node.Index,
-    names: *[path_components_max][]const u8,
-    nodes: *[path_components_max]AST.Node.Index,
-) ?u32 {
-    var node = path;
-    var count: u32 = 0;
-    // to the leftmost ident, collecting names right to left
-    while (count < path_components_max) : (count += 1) {
-        switch (tree.viewOf(node)) {
-            .ident => |token| {
-                names[count] = tree.tokenSlice(token);
-                nodes[count] = node;
-                std.mem.reverse([]const u8, names[0 .. count + 1]);
-                std.mem.reverse(AST.Node.Index, nodes[0 .. count + 1]);
-                return count + 1;
-            },
-            .field_access => |view| {
-                names[count] = tree.tokenSlice(view.name_token);
-                nodes[count] = node;
-                node = view.lhs;
-            },
-            // a parse hole never reaches analysis
-            else => unreachable,
-        }
-    }
-    return null;
-}
-
+/// Only what another file could have reached, so no suggestion is a dead end.
 fn suggestIn(
     comp: *Compilation,
     module: *const Module,
     name: []const u8,
 ) Allocator.Error!?[]const u8 {
     var closest: Closest = .{ .target = name };
-    comp.considerDecls(&closest, module.decls);
+    for (module.decls.start..module.decls.end()) |raw| {
+        const index: Decl.Index = .from(raw);
+        const decl = comp.declAt(index);
+        if (decl.owner != .none) continue;
+        if (decl.kind == .import) continue;
+        if (declIsPub(comp, index) == false) continue;
+        closest.consider(comp.pool.stringText(decl.name));
+    }
     return comp.didYouMean(closest);
 }

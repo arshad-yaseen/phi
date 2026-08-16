@@ -1,4 +1,4 @@
-import std.io
+import std/io
 
 fn shout(n: u8) {
     if n == 42 {

@@ -1,5 +1,5 @@
-import helper.twice
+import helper
 
 fn drive(seed: i64) i64 {
-    return twice(seed)
+    return helper.twice(seed)
 }

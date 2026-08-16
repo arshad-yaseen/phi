@@ -1,5 +1,5 @@
-import helper.twise
+import helper
 
 fn drive() i64 {
-    return 0
+    return helper.twise(1)
 }

@@ -1,0 +1,16 @@
+error[E0235]: 'std' is the standard library, not a module in it
+ --> test/fail/import_dot.phi:1:8
+  |
+1 | import std.math
+  |        ^^^ name one
+  |
+  = help: 'import std/io' imports the input and output module
+
+error[E0101]: expected ',' or the end of the line, found '.'
+ --> test/fail/import_dot.phi:1:11
+  |
+1 | import std.math
+  |           ^ unexpected here
+  |
+  = help: one per line, or a ',' between them
+

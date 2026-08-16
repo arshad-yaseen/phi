@@ -1,5 +1,5 @@
-import std.text.Buffer
-pub import helper.twice
+import std/text
+import helper/twice as twice_module
 
 let internal = 1
 pub let limit = 90 + 10

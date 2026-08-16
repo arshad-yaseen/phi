@@ -280,10 +280,7 @@ pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
     assert(index == .root);
     const module = comp.moduleAt(index);
 
-    comp.prelude = switch (try Module.loadModule(comp, .std, Module.prelude_name)) {
-        .module => |found| found,
-        .not_found, .no_std => null,
-    };
+    comp.prelude = try Module.loadModule(comp, .std, Module.prelude_name);
 
     for (module.decls.start..module.decls.end()) |raw| {
         const decl_index: Decl.Index = .from(raw);
@@ -467,7 +464,8 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
         .decl => switch (comp.declAt(@enumFromInt(unit.index)).kind) {
             .let => try comp.fmt("'{s}' takes its value from itself", .{name}),
             .type_alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
-            .import => "this import goes in a circle",
+            // resolving an import demands no other unit, so it can never be re-entered
+            .import => unreachable,
             .struct_decl, .unit_decl, .fn_decl, .extern_fn => "this definition goes in a circle",
         },
         .alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),

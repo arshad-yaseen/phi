@@ -1,8 +1,8 @@
-error[E0235]: 'std' is a directory of modules, not a module
+error[E0235]: 'std' is the standard library, not a module in it
  --> test/fail/import_std.phi:1:8
   |
 1 | import std
   |        ^^^ name one
   |
-  = help: 'use std.mem' imports the memory module
+  = help: 'import std/io' imports the input and output module
 

@@ -1,7 +1,5 @@
 root
-  import_decl
-    path: field_access text
-      lhs: ident std
+  import_decl std/text
   struct_decl Node
     field plain
       type: ident i64

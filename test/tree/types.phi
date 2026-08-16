@@ -1,4 +1,4 @@
-import std.text
+import std/text
 
 type Node = {
     plain: i64

@@ -1,4 +1,4 @@
-import std.mem
+import std/mem
 
 pub type Alias = i64
 type Pointer = *var i64

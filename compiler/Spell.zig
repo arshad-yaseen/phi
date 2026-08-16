@@ -257,10 +257,9 @@ fn node(
             for (children) |child| try node(ast, writer, child, below, "");
         },
         .import_decl => |it| {
-            try flag(writer, it.is_pub, "pub");
-            try writer.writeByte('\n');
+            const from = ast.tokenStart(it.first_token);
+            try writer.print(" {s}\n", .{ast.source[from..ast.tokenEnd(it.binding_token)]});
             try docs(ast, writer, index, below);
-            try node(ast, writer, it.path, below, "path");
         },
         .struct_decl => |it| {
             try declHead(ast, writer, index, below, it.name_token, it.is_pub);

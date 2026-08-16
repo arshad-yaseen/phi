@@ -1,11 +1,6 @@
 root
-  import_decl
-    path: field_access Buffer
-      lhs: field_access text
-        lhs: ident std
-  import_decl pub
-    path: field_access twice
-      lhs: ident helper
+  import_decl std/text
+  import_decl helper/twice as twice_module
   var_decl internal let
     init: number_literal 1
   var_decl limit let pub

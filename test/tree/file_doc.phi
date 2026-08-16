@@ -1,7 +1,7 @@
 //! A file documents itself with `//!`, which attaches to no declaration.
 //! A second line continues the same comment.
 
-import std.text.Buffer
+import std/text
 
 /// This one documents the declaration below it.
 pub fn named() i64 {

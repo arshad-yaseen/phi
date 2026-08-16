@@ -1,5 +1,0 @@
-import middle.answer
-
-fn drive() i64 {
-    return answer()
-}

@@ -1,8 +1,5 @@
 root
-  import_decl
-    path: field_access Buffer
-      lhs: field_access text
-        lhs: ident std
+  import_decl std/text
   fn_decl named pub
     doc /// This one documents the declaration below it.
     ret: ident i64

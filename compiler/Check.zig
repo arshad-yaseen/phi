@@ -440,8 +440,12 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
             const base = try check.checkExpr(access.lhs, null);
             switch (base) {
                 .named_module => |target| {
-                    const member = try check.moduleMember(target, node, access.name_token) orelse
-                        return .poison;
+                    const member = try Module.findExported(
+                        check.comp,
+                        target,
+                        check.origin(node),
+                        access.name_token,
+                    ) orelse return .poison;
                     return check.declAsType(member, node);
                 },
                 .poison => return .poison,
@@ -710,18 +714,13 @@ fn declAsType(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocator
         },
         .import => {
             if (try check.ensured(decl_index, node) == null) return .poison;
-            switch (Module.importTarget(comp, decl_index)) {
-                .decl => |target| return check.declAsType(target, node),
-                .module => {
-                    try check.fail(node, .{
-                        .code = .not_a_type,
-                        .message = try comp.fmt("'{s}' is a module, not a type", .{name}),
-                        .label = "a module",
-                        .help = "name a type inside it",
-                    });
-                    return .poison;
-                },
-            }
+            try check.fail(node, .{
+                .code = .not_a_type,
+                .message = try comp.fmt("'{s}' is a module, not a type", .{name}),
+                .label = "a module",
+                .help = "name a type inside it",
+            });
+            return .poison;
         },
         .let, .fn_decl, .extern_fn => {
             const what: []const u8 = if (decl.kind == .let) "a value" else "a function";
@@ -2882,10 +2881,7 @@ fn declAsValue(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocato
         },
         .import => {
             if (try check.ensured(decl_index, node) == null) return .poison;
-            switch (Module.importTarget(comp, decl_index)) {
-                .module => |target| return .{ .named_module = target },
-                .decl => |target| return check.declAsValue(target, node),
-            }
+            return .{ .named_module = Module.importedModule(comp, decl_index) };
         },
     }
 }
@@ -3473,8 +3469,12 @@ fn checkFieldAccess(
         .poison => return .poison,
         .diverged => return .diverged,
         .named_module => |target| {
-            const member = try check.moduleMember(target, node, view.name_token) orelse
-                return .poison;
+            const member = try Module.findExported(
+                comp,
+                target,
+                check.origin(node),
+                view.name_token,
+            ) orelse return .poison;
             return check.declAsValue(member, node);
         },
         .named_type, .named_generic => {
@@ -4778,8 +4778,12 @@ fn resolveCalleeMember(
         switch (base) {
             .poison, .diverged => return null,
             .named_module => |target| {
-                const member = try check.moduleMember(target, callee_node, access.name_token) orelse
-                    return null;
+                const member = try Module.findExported(
+                    comp,
+                    target,
+                    check.origin(callee_node),
+                    access.name_token,
+                ) orelse return null;
                 const value = try check.declAsValue(member, callee_node);
                 return check.calleeOfValue(callee_node, value);
             },
@@ -5879,22 +5883,6 @@ fn reportImmutable(check: *Check, node: Node.Index, place: Place) Allocator.Erro
         },
     };
     try check.fail(node, report);
-}
-
-fn moduleMember(
-    check: *Check,
-    target: Module.Index,
-    node: Node.Index,
-    name_token: Token.Index,
-) Allocator.Error!?Decl.Index {
-    const name_text = check.tree.tokenSlice(name_token);
-    return Module.findExported(
-        check.comp,
-        target,
-        name_text,
-        .{ .module = check.module_index, .node = node },
-        name_token,
-    );
 }
 
 // coercion and small shared answers

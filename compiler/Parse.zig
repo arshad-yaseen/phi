@@ -595,9 +595,18 @@ fn parseRoot(self: *Parse) Allocator.Error!void {
 
 fn parseDecl(self: *Parse) Allocator.Error!Node.Index {
     assert(self.eof() == false);
-    _ = self.eatToken(.kw_pub);
+    const pub_token = self.eatToken(.kw_pub);
     switch (self.current()) {
-        .kw_import => return self.parseImportDecl(),
+        .kw_import => {
+            // an import binds a name in one file, so there is nothing for 'pub' to open up
+            if (pub_token) |token| try self.err(.{
+                .code = .expected_declaration,
+                .span = self.spanOf(token),
+                .message = "an import is never 'pub'",
+                .label = "not allowed here",
+            });
+            return self.parseImportDecl();
+        },
         .kw_type => return self.parseTypeDecl(),
         .kw_fn => return self.parseFnDecl(.written),
         .kw_extern => {
@@ -631,12 +640,28 @@ fn parseDecl(self: *Parse) Allocator.Error!Node.Index {
 
 fn parseImportDecl(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_import));
-    const import_token = self.nextToken();
-    const path = try self.parsePath();
-    return self.addUnary(.import_decl, import_token, path);
+    const keyword = self.nextToken();
+
+    if (try self.expectImportName() == false) return self.skipItem(.eof);
+    while (self.eatToken(.slash) != null) {
+        if (try self.expectImportName() == false) return self.skipItem(.eof);
+    }
+    if (self.eatToken(.kw_as) != null) {
+        if (try self.expectImportName() == false) return self.skipItem(.eof);
+    }
+
+    // the view reads the path off these tokens, so the run has to be whole
+    assert(self.tags[keyword.after(1).int()] == .ident);
+    return self.addNode(.{ .tag = .import_decl, .main_token = keyword, .data = .{ .none = {} } });
 }
 
-/// An import path, or the head of a type. Only names, never `.*`.
+fn expectImportName(self: *Parse) Allocator.Error!bool {
+    if (self.eatToken(.ident) != null) return true;
+    try self.errExpected(.expected_token, Token.Tag.ident.symbol(), null);
+    return false;
+}
+
+/// The head of a type. Only names, never `.*`.
 fn parsePath(self: *Parse) Allocator.Error!Node.Index {
     if (self.at(.ident) == false) {
         try self.errExpected(.expected_token, Token.Tag.ident.symbol(), null);

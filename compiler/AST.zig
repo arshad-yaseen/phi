@@ -378,7 +378,13 @@ pub const View = union(enum) {
 
     err,
 
-    pub const Import = struct { is_pub: bool, path: Node.Index };
+    /// `import a/b/c as d`, whose names sit two tokens apart over the '/' between them.
+    pub const Import = struct {
+        first_token: Token.Index,
+        last_token: Token.Index,
+        /// The last name, or what `as` renamed it to.
+        binding_token: Token.Index,
+    };
     pub const StructDecl = struct {
         name_token: Token.Index,
         is_pub: bool,
@@ -492,7 +498,7 @@ pub inline fn viewOf(tree: AST, node: Node.Index) View {
 inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Data) View {
     return switch (node_tag) {
         .root => .{ .root = tree.listAt(data.extra) },
-        .import_decl => .{ .import_decl = .{ .is_pub = tree.isPub(main), .path = data.node } },
+        .import_decl => .{ .import_decl = tree.importOf(main) },
         .struct_decl => blk: {
             var payload = tree.fields(data.extra);
             break :blk .{ .struct_decl = .{
@@ -670,6 +676,20 @@ fn fields(tree: AST, start: ExtraIndex) Fields {
 fn listAt(tree: AST, start: ExtraIndex) []const Node.Index {
     var payload = tree.fields(start);
     return payload.list();
+}
+
+/// The path is the tokens themselves, which `Parse` only ever leaves in this shape.
+fn importOf(tree: AST, main: Token.Index) View.Import {
+    const first = main.after(1);
+    assert(tree.tokenTag(first) == .ident);
+
+    var last = first;
+    while (tree.tokenTag(last.after(1)) == .slash) last = last.after(2);
+
+    const after = last.after(1);
+    const binding = if (tree.tokenTag(after) == .kw_as) after.after(1) else last;
+    assert(tree.tokenTag(binding) == .ident);
+    return .{ .first_token = first, .last_token = last, .binding_token = binding };
 }
 
 /// `pub` sits before the keyword a declaration is named by, or before `extern`.
@@ -887,7 +907,7 @@ fn rightStep(tree: AST, node: Node.Index) Step {
         // `a..` ends at the `..` itself
         .range_expr => |it| unwrapOr(it.end, main),
         .return_expr => |operand| unwrapOr(operand, main),
-        .import_decl => |it| .{ .down = it.path },
+        .import_decl => |it| .{ .at = it.binding_token },
         .alias_decl => |it| .{ .down = it.aliased },
         .fn_decl => |it| step: {
             if (it.body.unwrap()) |body| break :step .{ .down = body };

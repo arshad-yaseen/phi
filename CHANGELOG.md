@@ -4,6 +4,10 @@
 
 ### Language
 
+- An import names a module and nothing else, `import std/math`, where `/`
+  separates the names of a path and `.` only ever reaches inside a module. The
+  last name binds and `as` renames it, so there are no item imports, no
+  aliases for items, and no `pub import`.
 - A program starts at `fn main()` in its entry file, a plain function taking
   nothing and returning nothing.
 - `extern fn` declares a function the linker finds elsewhere, so a program can
@@ -20,7 +24,7 @@
   picks its `if` edge before anything runs, so the arm that cannot run is
   never entered, the way a settled `and` never enters its dead side. Testing
   a constant optional used to crash the compiler.
-- `std.io` opens with `print`, which writes text whole to standard output, and
+- `std/io` opens with `print`, which writes text whole to standard output, and
   `print_uint`, which writes an unsigned integer as decimal digits.
   `format_uint` fills a caller's buffer with those digits instead of writing
   them, sized by `uint_digits_max`.

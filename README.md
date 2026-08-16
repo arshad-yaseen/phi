@@ -7,7 +7,7 @@
 A research project.
 
 ```zig
-import std.io
+import std/io
 
 fn main() {
     io.print("Hello, world!\n")

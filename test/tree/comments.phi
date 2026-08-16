@@ -1,7 +1,7 @@
 //! A file doc comment.
 
 // a comment before anything
-import std.text // after an import
+import std/text // after an import
 
 /// A documented struct.
 pub // between 'pub' and what it introduces

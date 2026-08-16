@@ -1,4 +1,4 @@
-import std.mem
+import std/mem
 
 type Box[T] = {
     item: T

@@ -1,0 +1,13 @@
+error[E0204]: 'io' is declared twice in this file
+ --> test/fail/import_duplicate.phi:2:12
+  |
+2 | import std/io
+  |            ^^ declared again here
+  |
+  = help: bind it under another name, as in 'as io_module'
+note: first declared here
+ --> test/fail/import_duplicate.phi:1:1
+  |
+1 | import std/io
+  | ^^^^^^^^^^^^^
+

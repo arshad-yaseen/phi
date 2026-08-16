@@ -12,7 +12,7 @@ It is a research project, built around one question.
 > How much of memory safety can be proven from the allocator you were already passing down, without a borrow checker to learn?
 
 ```
-import std.io
+import std/io
 
 fn main() {
     io.print("Hello, world!\n")

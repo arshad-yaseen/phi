@@ -23,6 +23,7 @@ pub const Tag = enum(u8) {
     file_doc_comment,
 
     kw_and,
+    kw_as,
     kw_break,
     kw_continue,
     kw_defer,
@@ -99,6 +100,7 @@ pub const Tag = enum(u8) {
             .comment, .doc_comment, .file_doc_comment => null,
 
             .kw_and => "and",
+            .kw_as => "as",
             .kw_break => "break",
             .kw_continue => "continue",
             .kw_defer => "defer",

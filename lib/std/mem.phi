@@ -1,5 +1,5 @@
-import std.debug
-import std.math
+import std/debug
+import std/math
 
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of two.

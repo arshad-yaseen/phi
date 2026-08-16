@@ -1,9 +1,6 @@
 root
-  import_decl
+  import_decl std/text
     doc /// Where the standard allocator lives.
-    path: field_access Buffer
-      lhs: field_access text
-        lhs: ident std
   var_decl limit let pub
     doc /// The largest thing anyone should ask for.
     doc /// Two lines, both kept.

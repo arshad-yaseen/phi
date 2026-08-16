@@ -1,0 +1,6 @@
+// the last name binds, so a nested path binds 'inner' rather than 'deep'
+import deep/inner
+
+fn drive(seed: i64) i64 {
+    return inner.twice(seed) + inner.answer
+}

@@ -1,8 +1,8 @@
 error[E0219]: 'helper' has no declaration named 'twise'
- --> test/fail/missing_decl/main.phi:1:15
+ --> test/fail/missing_decl/main.phi:4:19
   |
-1 | import helper.twise
-  |               ^^^^^ not found
+4 |     return helper.twise(1)
+  |                   ^^^^^ not found
   |
   = help: did you mean 'twice'?
 

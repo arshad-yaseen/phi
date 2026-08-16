@@ -1,4 +1,4 @@
-import std.debug
+import std/debug
 
 extern fn write(fd: i32, buf: *u8, len: u64) i64
 

@@ -1,8 +1,0 @@
-fn drive() i64
-b0:
-  %0 = call answer() : i64
-  return %0
-
-fn answer() i64
-b0:
-  return 42:i64
