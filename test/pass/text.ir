@@ -18,6 +18,26 @@ fn crab() []u8
 b0:
   return [240:u8, 159:u8, 166:u8, 128:u8]:[]u8
 
+fn usage() []u8
+b0:
+  return [112:u8, 104:u8, 105:u8, 32:u8, 98:u8, 117:u8, 105:u8, 108:u8, +42 more]:[]u8
+
+fn tiny() [2]u8
+b0:
+  return [104:u8, 105:u8]
+
+fn pattern() []u8
+b0:
+  return [94:u8, 92:u8, 100:u8, 43:u8, 92:u8, 46:u8, 92:u8, 100:u8, +2 more]:[]u8
+
+fn twice() [3]u8
+b0:
+  return [97:u8, 10:u8, 98:u8]
+
+fn twice_again() [3]u8
+b0:
+  return [97:u8, 10:u8, 98:u8]
+
 fn greet(who: []u8) u64
 b0:
   %0 = param who : []u8

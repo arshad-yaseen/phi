@@ -359,6 +359,16 @@ fn node(
             try writer.print(" {s}\n", .{ast.tokenSlice(token)});
         },
 
+        .multiline_string => |it| {
+            try writer.writeByte('\n');
+            var line = it.first;
+            while (true) : (line = line.after(1)) {
+                try writer.splatByteAll(' ', below * 2);
+                try writer.print("{s}\n", .{ast.tokenSlice(line)});
+                if (line == it.last) break;
+            }
+        },
+
         .field_access => |it| {
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
             try node(ast, writer, it.lhs, below, "lhs");

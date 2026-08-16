@@ -1,0 +1,5 @@
+fn drive() i64 {
+    let count = 1
+        \\a line that continues nothing
+    return count
+}

@@ -77,8 +77,8 @@ pub fn next(tokenizer: *Tokenizer) Token {
     const token = tokenizer.scan();
     switch (token.tag) {
         .comment, .doc_comment, .file_doc_comment => return token,
-        // a line that opens with a selector or a range continues the one above
-        .dot, .dot_star, .dot_dot => {},
+        // a line opening with a selector, a range, or another `\\` continues the one above
+        .dot, .dot_star, .dot_dot, .string_line => {},
         else => if (tokenizer.insertedSemi(token)) |semi| return semi,
     }
 
@@ -135,6 +135,8 @@ fn scan(tokenizer: *Tokenizer) Token {
             '/' => continue :state .slash,
             '"' => continue :state .string,
             '\'' => continue :state .char,
+            // `\\` opens a line of a multi-line string, and one `\` is stray bytes
+            '\\' => continue :state if (source[cursor + 1] == '\\') .string_line else .invalid,
             // `@` opens a builtin only when a name follows, and is stray bytes otherwise
             '@' => continue :state if (is_ident[source[cursor + 1]]) .builtin else .invalid,
             else => {
@@ -171,6 +173,15 @@ fn scan(tokenizer: *Tokenizer) Token {
             cursor = quotedEnd(source, cursor, '\'');
             assert(cursor > start);
             break :state .char;
+        },
+
+        // the line is raw, so nothing inside it opens a comment or an escape
+        .string_line => {
+            assert(source[cursor] == '\\');
+            assert(source[cursor + 1] == '\\');
+            cursor = endOfLine(source, cursor);
+            assert(cursor >= start + 2);
+            break :state .string_line;
         },
 
         .builtin => {
@@ -235,6 +246,7 @@ pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
         .builtin => return identEnd(source, start + 1),
         .number => return numberEnd(source, start),
         .string => return quotedEnd(source, start, '"'),
+        .string_line => return endOfLine(source, start),
         .char => return quotedEnd(source, start, '\''),
         .comment, .doc_comment, .file_doc_comment => return endOfLine(source, start),
         .invalid => {
@@ -313,6 +325,7 @@ const State = enum {
     ident,
     number,
     string,
+    string_line,
     char,
     builtin,
     slash,
@@ -333,9 +346,10 @@ const is_ident = classOf("_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ
 /// Where a run of invalid bytes stops. Derived, so a new operator joins it.
 const is_token_start = build: {
     var table = classOf(" \t\r\n_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
-    // a quote opens a literal and `@` opens a builtin, which no lexeme names
+    // a quote or a `\` opens a literal and `@` opens a builtin, which no lexeme names
     table['"'] = true;
     table['\''] = true;
+    table['\\'] = true;
     table['@'] = true;
     for (Token.punctuation, 0..) |group, byte| {
         if (group.count > 0) table[byte] = true;

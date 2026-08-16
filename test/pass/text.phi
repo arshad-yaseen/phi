@@ -23,6 +23,36 @@ fn crab() []u8 {
     return "\u{1F980}"
 }
 
+// a run of lines is one string, joined by the break the source wrote between them
+fn usage() []u8 {
+    return
+        \\phi build <root.phi>
+        \\
+        \\  --run   build, then run it
+}
+
+// the last line ends the string, so nothing trails the text it spells
+fn tiny() [2]u8 {
+    return \\hi
+}
+
+// the lines are raw, so a backslash inside one is a backslash
+fn pattern() []u8 {
+    return
+        \\^\d+\.\d+$
+}
+
+// the same bytes are the same constant, however the two were written
+fn twice() [3]u8 {
+    return "a\nb"
+}
+
+fn twice_again() [3]u8 {
+    return
+        \\a
+        \\b
+}
+
 // the prelude names the convention, and an alias is not a new type
 fn greet(who: str) u64 {
     return who.len

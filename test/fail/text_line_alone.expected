@@ -1,0 +1,8 @@
+error[E0101]: expected ',' or the end of the line, found a multi-line string
+ --> test/fail/text_line_alone.phi:3:9
+  |
+3 |         \\a line that continues nothing
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unexpected here
+  |
+  = help: one per line, or a ',' between them
+

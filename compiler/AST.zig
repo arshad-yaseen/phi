@@ -123,6 +123,8 @@ pub const Node = struct {
         ident,
         number_literal,
         string_literal,
+        /// A run of `\\` lines.
+        multiline_string,
         char_literal,
 
         field_access,
@@ -161,6 +163,8 @@ pub const Node = struct {
     /// Reinterpreted by `tag`. Only `viewOf` reads it.
     const Data = union {
         none: void,
+        /// A second token, where `main_token` alone does not bound the node.
+        token: Token.Index,
         node: Index,
         opt_node: OptionalIndex,
         node_and_node: struct { Index, Index },
@@ -355,6 +359,7 @@ pub const View = union(enum) {
     ident: Token.Index,
     number_literal: Token.Index,
     string_literal: Token.Index,
+    multiline_string: MultilineString,
     char_literal: Token.Index,
 
     field_access: FieldAccess,
@@ -464,6 +469,8 @@ pub const View = union(enum) {
         type_expr: Node.OptionalIndex,
         fields: []const Node.Index,
     };
+    /// Every token from `first` to `last` is a `\\` line of the same string.
+    pub const MultilineString = struct { first: Token.Index, last: Token.Index };
     pub const Bracket = struct { base: Node.Index, args: []const Node.Index };
     /// `.none` leaves the end to the base, which is asked for its length.
     pub const Range = struct { start: Node.Index, end: Node.OptionalIndex };
@@ -595,6 +602,7 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         .ident => .{ .ident = main },
         .number_literal => .{ .number_literal = main },
         .string_literal => .{ .string_literal = main },
+        .multiline_string => .{ .multiline_string = .{ .first = main, .last = data.token } },
         .char_literal => .{ .char_literal = main },
         .field_access => .{ .field_access = .{ .lhs = data.node, .name_token = main.after(1) } },
         .deref => .{ .deref = data.node },
@@ -872,8 +880,8 @@ fn leftStep(tree: AST, node: Node.Index) Step {
         .loop_expr => |it| .{ .at = it.label orelse main },
         // everything the parser names by the token it opens with
         .err, .type_param, .builtin, .ident, .number_literal => .{ .at = main },
-        .string_literal, .char_literal, .import_decl, .struct_decl => .{ .at = main },
-        .alias_decl, .unit_decl, .fn_decl, .var_decl, .block => .{ .at = main },
+        .string_literal, .multiline_string, .char_literal, .import_decl => .{ .at = main },
+        .struct_decl, .alias_decl, .unit_decl, .fn_decl, .var_decl, .block => .{ .at = main },
         .defer_stmt, .if_expr, .return_expr, .match_expr => .{ .at = main },
         .break_expr, .continue_expr, .array_literal => .{ .at = main },
         .struct_field_init, .array_type, .slice_type, .pointer_type => .{ .at = main },
@@ -901,6 +909,7 @@ fn rightStep(tree: AST, node: Node.Index) Step {
         .root, .err, .type_param, .builtin, .ident => .{ .at = main },
         .number_literal, .string_literal, .char_literal, .deref => .{ .at = main },
         .unit_decl => .{ .at = main.after(1) },
+        .multiline_string => |it| .{ .at = it.last },
         .field_access => |it| .{ .at = it.name_token },
         .continue_expr => |label| .{ .at = label orelse main },
         .break_expr => |it| unwrapOr(it.value, it.label orelse main),

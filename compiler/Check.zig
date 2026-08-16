@@ -2784,6 +2784,7 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
         .ident => return check.checkIdent(node),
         .number_literal => return check.checkNumber(node),
         .string_literal => return check.checkString(node),
+        .multiline_string => |view| return check.checkMultilineString(view),
         .char_literal => return check.checkChar(node),
         // a block reaches here as an arm
         .block => return check.checkBlockValue(node, hint),
@@ -2910,19 +2911,51 @@ fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
 
     var reading = Literal.bytesOf(check.mainTokenText(node));
     while (reading.next()) |piece| switch (piece) {
-        // bytes, so a string never lands on a wider element than it spells
-        .bytes => |run| {
-            try comp.pool.scratch.ensureUnusedCapacity(comp.gpa, run.len);
-            for (run) |byte| try comp.pool.scratch.append(comp.gpa, try comp.pool.intern(
-                comp.gpa,
-                .{ .value_int = .{ .type = .u8_type, .value = byte } },
-            ));
-        },
+        .bytes => |run| try check.appendText(run),
         .refused => |refusal| {
             try check.fail(node, refusal);
             return .poison;
         },
     };
+
+    return check.textValue(mark);
+}
+
+fn checkMultilineString(check: *Check, view: AST.View.MultilineString) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(view.last.int() >= view.first.int());
+
+    const mark = comp.pool.scratch.items.len;
+    defer comp.pool.scratch.shrinkRetainingCapacity(mark);
+
+    var line = view.first;
+    while (true) : (line = line.after(1)) {
+        assert(check.tree.tokenTag(line) == .string_line);
+        if (line != view.first) try check.appendText("\n");
+        try check.appendText(Literal.textLine(check.tree.tokenSlice(line)));
+        if (line == view.last) break;
+    }
+
+    return check.textValue(mark);
+}
+
+/// Bytes, so a string never lands on a wider element than it spells.
+fn appendText(check: *Check, run: []const u8) Allocator.Error!void {
+    const comp = check.comp;
+    const before = comp.pool.scratch.items.len;
+
+    try comp.pool.scratch.ensureUnusedCapacity(comp.gpa, run.len);
+    for (run) |byte| try comp.pool.scratch.append(comp.gpa, try comp.pool.intern(
+        comp.gpa,
+        .{ .value_int = .{ .type = .u8_type, .value = byte } },
+    ));
+
+    assert(comp.pool.scratch.items.len == before + run.len);
+}
+
+fn textValue(check: *Check, mark: usize) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(comp.pool.scratch.items.len >= mark);
 
     return .{ .constant = try comp.pool.intern(comp.gpa, .{ .value_aggregate = .{
         .type = .untyped_aggregate_type,

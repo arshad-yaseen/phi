@@ -4,7 +4,7 @@ error[E0263]: this string reaches the end of the line with no closing '"'
 2 |     return "hi
   |            ^^^ never closes
   |
-  = help: a string sits on one line, and '\n' writes a line break inside it
+  = help: a string sits on one line, and '\n' writes a break, or a run of '\\' lines spans several
 
 error[E0263]: a character literal holds one character, and this one holds none
  --> test/fail/text.phi:6:12

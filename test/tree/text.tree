@@ -47,6 +47,30 @@ root
             value: number_literal 1
       return_expr
         value: number_literal 0
+  fn_decl multiline
+    param who
+      type: slice_type
+        child: ident u8
+    ret: slice_type
+      child: ident u8
+    body: block
+      var_decl usage let
+        init: multiline_string
+          \\phi build [options] <root.phi>
+          \\
+          \\  --emit c   write C beside the root
+      var_decl raw let
+        init: multiline_string
+          \\"quotes", \n, and // are the bytes they spell
+      var_decl alone let
+        init: multiline_string
+          \\one line, opened where it starts
+      call
+        callee: ident strings
+        arg: multiline_string
+          \\an argument
+      return_expr
+        value: ident who
   fn_decl positions
     body: block
       call

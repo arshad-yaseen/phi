@@ -458,16 +458,16 @@ fn extraList(self: *Parse, items: []const Node.Index) Allocator.Error!void {
 const TokenSet = std.EnumSet(Token.Tag);
 
 const starts_expr = TokenSet.initMany(&.{
-    .ident,     .number,
-    .string,    .char,
-    .l_paren,   .dot,
-    .l_bracket, .minus,
-    .kw_not,    .tilde,
-    .ampersand, .invalid,
-    .kw_if,     .kw_loop,
-    .kw_match,  .kw_return,
-    .kw_break,  .kw_continue,
-    .builtin,
+    .ident,       .number,
+    .string,      .string_line,
+    .char,        .l_paren,
+    .dot,         .l_bracket,
+    .minus,       .kw_not,
+    .tilde,       .ampersand,
+    .invalid,     .kw_if,
+    .kw_loop,     .kw_match,
+    .kw_return,   .kw_break,
+    .kw_continue, .builtin,
 });
 
 const starts_stmt = starts_expr.unionWith(TokenSet.initMany(&.{
@@ -1352,6 +1352,7 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
         .ident => return self.addLeaf(.ident),
         .number => return self.addLeaf(.number_literal),
         .string => return self.addLeaf(.string_literal),
+        .string_line => return self.parseMultilineString(),
         .char => return self.addLeaf(.char_literal),
         .l_bracket => return self.parseArrayLiteral(),
         // `.{ ... }` takes the struct from wherever it lands
@@ -1398,6 +1399,22 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
             return self.hole();
         },
     }
+}
+
+/// The run of `\\` lines the tokenizer held together, which is one string.
+fn parseMultilineString(self: *Parse) Allocator.Error!Node.Index {
+    assert(self.at(.string_line));
+    const first = self.nextToken();
+
+    var last = first;
+    while (self.at(.string_line)) last = self.nextToken();
+
+    assert(last.int() >= first.int());
+    return self.addNode(.{
+        .tag = .multiline_string,
+        .main_token = first,
+        .data = .{ .token = last },
+    });
 }
 
 /// `[a, b, c]`, which states its own length.

@@ -256,6 +256,18 @@ pub fn bytesOf(literal: []const u8) Bytes {
     return .{ .text = literal, .cursor = 1, .encoded = @splat(0), .stopped = false };
 }
 
+/// The bytes one `\\` line spells. Raw, so nothing inside it is an escape.
+pub fn textLine(line: []const u8) []const u8 {
+    assert(line.len >= 2);
+    assert(line[0] == '\\');
+    assert(line[1] == '\\');
+
+    const written = line[2..];
+
+    if (std.mem.endsWith(u8, written, "\r")) return written[0 .. written.len - 1];
+    return written;
+}
+
 pub fn decodeChar(literal: []const u8) Char {
     assert(literal.len > 0);
     assert(literal[0] == '\'');
@@ -388,7 +400,8 @@ const string_cut: Refusal = .{
     .code = .bad_text,
     .message = "this string reaches the end of the line with no closing '\"'",
     .label = "never closes",
-    .help = "a string sits on one line, and '\\n' writes a line break inside it",
+    .help = "a string sits on one line, and '\\n' writes a break, " ++
+        "or a run of '\\\\' lines spans several",
 };
 
 const char_cut: Refusal = .{
@@ -522,6 +535,19 @@ test "every malformed string is refused, the edges included" {
     try expectRefused("\"\\u{}\"");
     try expectRefused("\"\\u{110000}\"");
     try expectRefused("\"\\u{D800}\"");
+}
+
+test "a '\\\\' line is its bytes, the marker and the line ending dropped" {
+    try testing.expectEqualStrings("hi", textLine("\\\\hi"));
+    try testing.expectEqualStrings("", textLine("\\\\"));
+    try testing.expectEqualStrings("  indented", textLine("\\\\  indented"));
+    // raw, so what would be an escape between quotes is the two bytes it spells
+    try testing.expectEqualStrings("a\\nb", textLine("\\\\a\\nb"));
+    try testing.expectEqualStrings("\"quoted\"", textLine("\\\\\"quoted\""));
+    try testing.expectEqualStrings("not // a comment", textLine("\\\\not // a comment"));
+    try testing.expectEqualStrings("crlf", textLine("\\\\crlf\r"));
+    // one '\r' ends the line, and a second one is text the author wrote
+    try testing.expectEqualStrings("kept\r", textLine("\\\\kept\r\r"));
 }
 
 test "a character is a number, however it is written" {
