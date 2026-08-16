@@ -24,6 +24,7 @@
     "(\\/\\/[^\\n]*)",                              // comment
     "(\"(?:\\\\.|[^\"\\\\])*\")",                   // string
     "('(?:\\\\.|[^'\\\\])*')",                      // character
+    "(\\\\\\\\[^\\n]*)",                            // a multi-line string's line
     "(@[A-Za-z_]\\w*)",                             // builtin
     "(0[xX][0-9a-fA-F_]+|\\d[\\d_]*(?:\\.\\d[\\d_]*)?)", // number
     "([A-Za-z_]\\w*)",                              // name
@@ -46,12 +47,13 @@
   function tokenClass(match, source) {
     if (match[1] !== undefined) return "comment";
     if (match[2] !== undefined || match[3] !== undefined) return "string";
-    if (match[4] !== undefined) return "function";
-    if (match[5] !== undefined) return "number";
-    if (match[6] !== undefined) {
-      return nameClass(match[6], source, match.index, match.index + match[6].length);
+    if (match[4] !== undefined) return "string";
+    if (match[5] !== undefined) return "function";
+    if (match[6] !== undefined) return "number";
+    if (match[7] !== undefined) {
+      return nameClass(match[7], source, match.index, match.index + match[7].length);
     }
-    if (match[7] !== undefined) return "operator";
+    if (match[8] !== undefined) return "operator";
     return "punctuation";
   }
 

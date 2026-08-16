@@ -13,6 +13,8 @@ pub const Tag = enum(u8) {
     ident,
     number,
     string,
+    /// One line of a multi-line string.
+    string_line,
     char,
     /// `@name`, an operation the compiler performs itself.
     builtin,
@@ -96,7 +98,7 @@ pub const Tag = enum(u8) {
     pub fn lexeme(tag: Tag) ?[]const u8 {
         return switch (tag) {
             .invalid, .eof => null,
-            .ident, .number, .string, .char, .builtin => null,
+            .ident, .number, .string, .string_line, .char, .builtin => null,
             .comment, .doc_comment, .file_doc_comment => null,
 
             .kw_and => "and",
@@ -175,6 +177,7 @@ pub const Tag = enum(u8) {
             .ident => "an identifier",
             .number => "a number",
             .string => "a string",
+            .string_line => "a multi-line string",
             .char => "a character",
             .builtin => "a builtin",
             .comment => "a comment",
@@ -244,7 +247,7 @@ comptime {
 /// Whether a line break after this tag ends a statement.
 pub fn endsStatement(tag: Tag) bool {
     return switch (tag) {
-        .ident, .number, .string, .char, .builtin, .invalid => true,
+        .ident, .number, .string, .string_line, .char, .builtin, .invalid => true,
         .r_paren, .r_brace, .r_bracket => true,
         .dot_star => true,
         .kw_return, .kw_break, .kw_continue => true,

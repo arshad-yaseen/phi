@@ -18,6 +18,9 @@
   where it lands, so `var buffer: [4096]u8 = @splat(0)` is written once. An
   array of one repeated value is held once however it was written, so its
   length costs nothing to compile.
+- A run of lines opening with `\\` is one string, the lines joined by the break
+  between them. Each line is raw from the marker to its end, so the indentation
+  before it is not part of the text and nothing inside it is an escape.
 - A view answers `.ptr` beside `.len`, which is the address it already holds
   and may be written through exactly where the view may.
 - `is` folds where its operand is already settled, and a settled condition

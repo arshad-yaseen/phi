@@ -1,0 +1,20 @@
+import std/io
+
+// the source lays the text out, and the program prints back what it laid out
+fn usage() str {
+    return
+        \\phi build [options] <root.phi>
+        \\
+        \\  --run   build, then run it
+}
+
+fn main() {
+    io.print(usage())
+    io.print("\n")
+
+    // raw, so every byte between the '\\' and the line's end is its own
+    io.print(
+        \\"quotes", \n, // and \\ are the bytes they spell
+        \\
+    )
+}

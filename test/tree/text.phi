@@ -21,6 +21,20 @@ fn characters(s: []u8) u32 {
     return 0
 }
 
+fn multiline(who: []u8) []u8 {
+    let usage =
+        \\phi build [options] <root.phi>
+        \\
+        \\  --emit c   write C beside the root
+    let raw =
+        \\"quotes", \n, and // are the bytes they spell
+    let alone = \\one line, opened where it starts
+    strings(
+        \\an argument
+    )
+    return who
+}
+
 fn positions() {
     strings("literal")
     let table = ["one", "two"]

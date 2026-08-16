@@ -1,0 +1,4 @@
+phi build [options] <root.phi>
+
+  --run   build, then run it
+"quotes", \n, // and \\ are the bytes they spell
