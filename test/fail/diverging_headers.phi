@@ -2,8 +2,7 @@ type true
 type false
 type bool = true | false
 
-/// A header that leaves lets nothing through, so what follows the construct
-/// cannot be reached, the way it cannot after a bare `return`.
+/// A header that leaves lets nothing through, so what follows cannot be reached.
 fn if_cond_leaves() u32 {
     if return 1 { }
     return 2

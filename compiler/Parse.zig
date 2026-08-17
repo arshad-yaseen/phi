@@ -853,7 +853,11 @@ fn parseTypeParam(self: *Parse) Allocator.Error!Node.Index {
         (try self.parseType()).toOptional()
     else
         .none;
-    return self.addNode(.{ .tag = .type_param, .main_token = name, .data = .{ .opt_node = bound } });
+    return self.addNode(.{
+        .tag = .type_param,
+        .main_token = name,
+        .data = .{ .opt_node = bound },
+    });
 }
 
 fn parseParam(self: *Parse) Allocator.Error!Node.Index {
@@ -1181,7 +1185,7 @@ fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
 
             const is_token = self.nextToken();
             _ = self.eatToken(.kw_not);
-            // a whole type, so `is A | B` asks for either, the way an arm label does
+            // a whole type, so `is A | B` asks for either
             node = try self.addPair(.is_expr, is_token, node, try self.parseType());
             banned_prec = is_prec;
             continue;

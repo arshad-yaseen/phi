@@ -58,9 +58,9 @@ error[E0259]: this match leaves out 'f64', 'f32'
    |
    = help: add an arm per member, or 'else =>' for the rest
 note: while checking 'incomplete[u32]', needed here
-  --> test/fail/bounded_params.phi:78:9
+  --> test/fail/bounded_params.phi:77:9
    |
-78 |     _ = incomplete(n)
+77 |     _ = incomplete(n)
    |         ^^^^^^^^^^^^
 
 error[E0257]: 'Point' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32'
@@ -69,9 +69,9 @@ error[E0257]: 'Point' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16
 51 |         Point => 2
    |         ^^^^^ not a member
 note: while checking 'stray_label[u32]', needed here
-  --> test/fail/bounded_params.phi:79:9
+  --> test/fail/bounded_params.phi:78:9
    |
-79 |     _ = stray_label(n)
+78 |     _ = stray_label(n)
    |         ^^^^^^^^^^^^^
 
 error[E0257]: 'f64' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8'
@@ -80,20 +80,20 @@ error[E0257]: 'f64' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 |
 58 |     return T is f64
    |                 ^^^ not a member
 note: while checking 'stray_is[u32]', needed here
-  --> test/fail/bounded_params.phi:80:9
+  --> test/fail/bounded_params.phi:79:9
    |
-80 |     _ = stray_is(n)
+79 |     _ = stray_is(n)
    |         ^^^^^^^^^^
 
 error[E0201]: nothing named 'Nonexistent' is in scope here
-  --> test/fail/bounded_params.phi:63:20
+  --> test/fail/bounded_params.phi:62:20
    |
-63 | fn broken_bound[T: Nonexistent](value: T) T {
+62 | fn broken_bound[T: Nonexistent](value: T) T {
    |                    ^^^^^^^^^^^ unknown name
 
 error[E0202]: a bound names concrete types, and 'T' is a type parameter
-  --> test/fail/bounded_params.phi:67:29
+  --> test/fail/bounded_params.phi:66:29
    |
-67 | fn parameter_as_bound[T, U: T](a: T, b: U) T {
+66 | fn parameter_as_bound[T, U: T](a: T, b: U) T {
    |                             ^ not concrete
 

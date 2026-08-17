@@ -13,9 +13,9 @@ error[E0206]: expected u32, found u32 | Timeout | NotFound
    = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'
 
 error[E0206]: expected u32, found u32 | Timeout | NotFound
-  --> test/fail/is_sets.phi:26:16
+  --> test/fail/is_sets.phi:25:16
    |
-26 |         return r
+25 |         return r
    |                ^ the wrong type
    |
    = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'

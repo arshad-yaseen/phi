@@ -18,8 +18,7 @@ fn stray_in_the_label(flag: bool) u32 {
     return r
 }
 
-/// A label naming every member proves nothing, so the rest is empty and
-/// what follows is not narrowed.
+/// A label naming every member proves nothing, so nothing is narrowed.
 fn names_them_all(flag: bool) u32 {
     let r = fetch(flag)
     if r is u32 | Timeout | NotFound {

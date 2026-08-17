@@ -541,15 +541,13 @@ pub fn unionMemberPosition(pool: *const Pool, union_index: Index, member: Index)
     return null;
 }
 
-/// Whether `member` is `set` itself, or one of its members where `set` is a
-/// union. A member is never a union, so the two never both hold.
+/// Whether `member` is `set` itself, or one of `set`'s members where it is a union.
 pub fn covers(pool: *const Pool, set: Index, member: Index) bool {
     if (set == member) return true;
     return pool.isUnion(set) and pool.unionHas(set, member);
 }
 
-/// The union without `removed`, one member or a union of them. The rest as a
-/// union, the one member left, or null where nothing is left.
+/// The union without `removed`, one member or a union of them. Null where nothing is left.
 pub fn unionWithout(
     pool: *Pool,
     gpa: Allocator,
@@ -747,7 +745,7 @@ pub fn widens(from: Index, into: Index) bool {
     if (from == .f32_type) return into == .f64_type;
     if (isSizedInt(from) == false) return false;
     if (isSizedFloat(into)) {
-        // a float holds every integer up to its mantissa exactly, and nothing wider
+        // a float holds every integer up to its mantissa exactly
         return minInt(from) >= -exactIntMax(into) and maxInt(from) <= exactIntMax(into);
     }
     if (isSizedInt(into) == false) return false;
@@ -772,7 +770,7 @@ fn exactIntMax(float_type: Index) i128 {
 fn exactFloat(value: i128, type_index: Index) ?f64 {
     assert(isFloat(type_index));
     const wide = narrowFloat(@floatFromInt(value), type_index);
-    // past the fold's own width nothing is exact, and reading back would overflow
+    // reading back past the fold's width would overflow
     if (wide < -0x1p127 or wide >= 0x1p127) return null;
     if (@as(i128, @intFromFloat(wide)) != value) return null;
     return wide;
@@ -853,7 +851,7 @@ pub fn fold(
         return .{ .mismatch = .{ .left = left.type, .right = right.type } };
     };
 
-    // both meet the shared type first, so a constant that would round is refused as at run time
+    // through fit, so a constant that would round is refused as at run time
     const a = try pool.fitNumber(gpa, lhs, result_type) orelse {
         return .{ .does_not_fit = .{ .value = lhs, .type = result_type } };
     };
@@ -1220,7 +1218,7 @@ fn internInt(
 ) Allocator.Error!Fold {
     assert(isInteger(type_index));
     if (fitsInt(value, type_index) == false) {
-        // interned untyped, so the report can spell the number the type would not hold
+        // interned untyped, so the report can spell it
         return .{ .does_not_fit = .{
             .value = try pool.internWith(gpa, value, .untyped_int_type),
             .type = type_index,

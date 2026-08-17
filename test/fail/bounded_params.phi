@@ -58,8 +58,7 @@ fn stray_is[T: Integer](value: T) bool {
     return T is f64
 }
 
-/// A bound that names nothing, and one that names a parameter, which is not
-/// concrete.
+/// A bound that names nothing, and one that names a parameter, which is not concrete.
 fn broken_bound[T: Nonexistent](value: T) T {
     return value
 }

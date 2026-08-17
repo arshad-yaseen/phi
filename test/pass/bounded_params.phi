@@ -4,9 +4,7 @@ type Point = {
     x: u32
 }
 
-/// The bound is a closed set, so the arms are counted against it and no `else`
-/// is needed. A label may group several members, and only the arm for the type
-/// it is gets checked.
+/// The bound is a closed set, so the arms are counted and no `else` is needed.
 fn describe[T: Number](value: T) u32 {
     return match T {
         Integer => 1
@@ -29,14 +27,12 @@ fn signed[T: Integer](value: T) bool {
     return T is i64 | i32 | i16 | i8
 }
 
-/// A bare number pins the first member of the bound it fits, so `-7` is an `i64`
-/// and `1.5` an `f64`, the way a constant enters a union.
+/// A bare number pins the first member of the bound it fits, so `-7` is an `i64`.
 fn literals() u64 {
     return describe(-7) + describe(1.5) + describe(300)
 }
 
-/// A hint the bound admits still pins, and one it refuses is set aside for the
-/// literal, so `abs(7)` lands where it is fed and not on the whole union.
+/// A hint pins the member the bound admits, so `parity(7)` lands where it is fed.
 fn hinted(maybe: u32 | none) u32 {
     let wide: u64 = parity(7)
     _ = wide
@@ -47,8 +43,7 @@ fn hinted(maybe: u32 | none) u32 {
     return picked
 }
 
-/// A struct and a member function may be bounded, and the owner's arguments
-/// were checked where the owner was named.
+/// A struct and a member function may be bounded.
 type Box[T: Number] = {
     item: T
 

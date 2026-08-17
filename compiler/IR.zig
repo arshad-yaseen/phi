@@ -180,8 +180,7 @@ pub const Inst = struct {
 
         /// A value entering a union, with the member the checker admitted it as.
         union_init,
-        /// Whether the union holds the member, or any of a union of them. Void
-        /// where only a branch reads it.
+        /// Whether the union holds the member, or any of a union of them. Void for a branch.
         union_is,
         /// A union retyped to what a passed test proved.
         union_narrow,

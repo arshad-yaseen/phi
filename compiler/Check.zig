@@ -47,7 +47,6 @@ const bindings_max = type_params_max * 2;
 const call_args_max = 255;
 const type_depth_max = AST.nest_max;
 
-/// A type parameter as one instantiation sees it, and the bound it was written under.
 const Binding = struct { name: Pool.String, type: Pool.Index, bound: ?Pool.Index };
 
 /// One part of a literal or one call argument. `initializer` is `.none` outside a literal.
@@ -382,7 +381,7 @@ fn typeParamNodes(comp: *const Compilation, decl_index: Decl.Index) struct {
     };
 }
 
-/// Arguments to type parameters, each with the bound it was written under.
+/// Arguments to type parameters, the owner's first for a member.
 fn bindTypeParams(
     check: *Check,
     instance: Pool.Instance,
@@ -412,9 +411,7 @@ fn bindTypeParams(
     check.bindings = buffer[0..count];
 }
 
-/// The bound a type parameter was written with, resolved before any binding is
-/// in scope, since a bound names concrete types. Null where there is none, or
-/// once a broken one is reported.
+/// A parameter's bound, resolved with nothing bound since it names concrete types.
 fn boundOf(check: *Check, decl_index: Decl.Index, param: Node.Index) Allocator.Error!?Pool.Index {
     assert(check.bindings.len == 0);
     // recovery can leave a hole where a parameter was, already reported
@@ -444,7 +441,7 @@ fn boundOf(check: *Check, decl_index: Decl.Index, param: Node.Index) Allocator.E
     return if (bound == .poison) null else bound;
 }
 
-/// The bound a bare name is bound under, where it names a type parameter with one.
+/// The bound of the type parameter a bare name is, where it has one.
 fn boundOfName(check: *const Check, node: Node.Index) ?Pool.Index {
     if (check.tree.nodeTag(node) != .ident) return null;
     const text = check.mainTokenText(node);
@@ -454,23 +451,19 @@ fn boundOfName(check: *const Check, node: Node.Index) ?Pool.Index {
     return null;
 }
 
-/// The bound of a bare name where it is a union, which is the closed set a
-/// `match` or an `is` on the parameter counts against. One type bounds nothing worth counting.
+/// A bare name's bound where it is a union, the closed set a `match` or `is` counts against.
 fn unionBoundOfName(check: *const Check, node: Node.Index) ?Pool.Index {
     const bound = check.boundOfName(node) orelse return null;
     return if (check.comp.pool.isUnion(bound)) bound else null;
 }
 
-/// Whether the type is one the bound admits, which a union bound answers by
-/// membership. A union is never a member, so a bounded parameter is never one.
+/// Whether the bound admits the type. A union bound admits its members, never a union.
 fn withinBound(pool: *const Pool, bound: Pool.Index, type_index: Pool.Index) bool {
     if (pool.isUnion(bound)) return pool.unionHas(bound, type_index);
     return bound == type_index;
 }
 
-/// What a hint pins under a bound: the hint where the bound admits it, else the
-/// first member of a union hint the bound admits, since the result enters the
-/// union the way any value does. Null where nothing is admitted.
+/// The hint, or the first member of a union hint, that the bound admits. Null where none.
 fn admittedBy(pool: *const Pool, bound: Pool.Index, hinted: Pool.Index) ?Pool.Index {
     if (withinBound(pool, bound, hinted)) return hinted;
     if (pool.isUnion(hinted) == false) return null;
@@ -480,8 +473,7 @@ fn admittedBy(pool: *const Pool, bound: Pool.Index, hinted: Pool.Index) ?Pool.In
     return null;
 }
 
-/// Whether each argument is one its parameter's bound admits. Reported at the
-/// call or the bracket, with the bound noted where it was written.
+/// Whether each argument is one its parameter's bound admits. Reported at the node.
 fn boundsHold(
     check: *Check,
     decl_index: Decl.Index,
@@ -493,7 +485,6 @@ fn boundsHold(
     const params = typeParamNodes(comp, decl_index).own;
     assert(params.len == args.len);
 
-    // resolved in the declaration's own file, which is where the bound is written
     var callee = context(comp, decl_index);
     for (params, args) |param, arg| {
         const bound = try callee.boundOf(decl_index, param) orelse continue;
@@ -1689,7 +1680,7 @@ fn checkIf(
 
     const facts = try check.gatherFacts(view.cond);
 
-    // a header that left lets nothing through, so the arms are read after it
+    // read after the header, which may have left
     try check.reopenDead();
     const entry_reachable = builder.reachable;
     if (decided) |truth| {
@@ -1784,8 +1775,7 @@ const Join = struct {
         return if (join.settled) join.result_type else null;
     }
 
-    /// An arm's value into the slot. The first arm with a type names it, and an
-    /// untyped constant waits in the slot for one, so the arms may come in any order.
+    /// An arm's value into the slot. An untyped constant waits there for the first arm with a type.
     fn take(join: *Join, check: *Check, value: Value, at: Node.Index) Allocator.Error!void {
         if (join.carries == false) return;
         if (value == .diverged) return;
@@ -1816,8 +1806,7 @@ const Join = struct {
         return runtimeValue(loaded, join.result_type);
     }
 
-    /// The untyped constants left waiting in the slot meet the type the arms
-    /// settled, or say that nothing did. Found by the stores into the slot.
+    /// The constants waiting in the slot meet the settled type, or say that nothing settled one.
     fn settleWaiting(join: Join, check: *Check) Allocator.Error!void {
         const builder = check.body();
         const pool = &check.comp.pool;
@@ -1934,7 +1923,7 @@ fn checkLoop(
         .forever, .cond => null,
     };
     const counter: ?Counter = if (counting) |it| try check.startCounter(it.name, it.over) else null;
-    // an end of the range may have left, the way any header may
+    // a range end may have left
     try check.reopenDead();
 
     const header = try check.newBlock();
@@ -1959,7 +1948,7 @@ fn checkLoop(
         },
         .range => try check.counterBelowEnd(counter),
     };
-    // what the header lets through, which a header that left is none of
+    // nothing runs past a header that left
     const runs = builder.reachable;
     if (holds) |cond| {
         check.endBlock(.{ .branch = .{
@@ -2124,11 +2113,11 @@ fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error
 
 // match, the n-way `is`
 
-/// What a match runs on. `set` is the union its arms must cover, or null where
-/// they name types from an open set. `held` is the member or type the scrutinee
-/// is known to be, or null where only running can tell.
+/// What a match runs on.
 const Subject = struct {
+    /// The union the arms must cover, or null for an open set of types.
     set: ?Pool.Index,
+    /// The member or type the scrutinee is settled as, or null where only running tells.
     held: ?Pool.Index,
     ref: Ref,
     /// The name the arms narrow, where the scrutinee is one.
@@ -2140,8 +2129,12 @@ fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Er
     const comp = check.comp;
     if (try check.namedType(scrutinee, value)) |named| {
         if (named == .poison) return null;
-        // a bounded parameter is one of the bound's members, so the arms cover them
-        return .{ .set = check.unionBoundOfName(scrutinee), .held = named, .ref = .fromConstant(.poison), .name = null };
+        return .{
+            .set = check.unionBoundOfName(scrutinee),
+            .held = named,
+            .ref = .fromConstant(.poison),
+            .name = null,
+        };
     }
 
     if (try check.valueOnly(scrutinee, value) == false) return null;
@@ -2156,11 +2149,15 @@ fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Er
         .constant => |constant| comp.pool.typeOfValue(comp.pool.keyOf(constant).value_union.value),
         else => null,
     };
-    return .{ .set = found, .held = held, .ref = refOf(value), .name = check.narrowedName(scrutinee) };
+    return .{
+        .set = found,
+        .held = held,
+        .ref = refOf(value),
+        .name = check.narrowedName(scrutinee),
+    };
 }
 
-/// What a bare name reaches that a branch may narrow, a local or a top-level
-/// constant. A `var` may change under the fact, so it is neither.
+/// The local or top-level constant a bare name is, which a branch may narrow. Never a `var`.
 fn narrowedName(check: *const Check, node: Node.Index) ?Name {
     if (check.tree.nodeTag(node) != .ident) return null;
     const text = check.mainTokenText(node);
@@ -2173,7 +2170,6 @@ fn narrowedName(check: *const Check, node: Node.Index) ?Name {
     return .{ .decl = decl_index };
 }
 
-/// The type a name holds before any branch narrows it.
 fn nameType(check: *const Check, name: Name) Pool.Index {
     return switch (name) {
         .local => |index| check.localAt(index).type,
@@ -2189,8 +2185,7 @@ fn nameRef(check: *const Check, name: Name) Ref {
     };
 }
 
-/// The constant a top-level binding holds. Poison where it never settled, which
-/// was reported when the name was checked, before any fact about it was gathered.
+/// The constant a top-level binding holds, poison where it never settled.
 fn declConstant(check: *const Check, decl_index: Decl.Index) Pool.Index {
     const decl = check.comp.declAt(decl_index);
     assert(decl.kind == .let);
@@ -2198,8 +2193,7 @@ fn declConstant(check: *const Check, decl_index: Decl.Index) Pool.Index {
     return @enumFromInt(decl.result);
 }
 
-/// Arms name sets of members. Coverage is counted before any body runs, a
-/// settled scrutinee enters one arm, and a running one tests each in turn.
+/// Labels first, then one arm for a settled scrutinee, or a test per arm for a running one.
 fn checkMatch(
     check: *Check,
     node: Node.Index,
@@ -2211,7 +2205,7 @@ fn checkMatch(
     assert(check.tree.nodeTag(node) == .match_expr);
 
     const scrutinee = try check.checkExpr(view.scrutinee, null);
-    // a header that left lets nothing through, so the arms are read after it
+    // read after the header, which may have left
     try check.reopenDead();
     const entry_reachable = builder.reachable;
 
@@ -2224,7 +2218,6 @@ fn checkMatch(
         return .poison;
     };
 
-    // one type per arm, what its label covers, held below anything a body stages
     const mark = comp.pool.scratch.items.len;
     defer comp.pool.scratch.shrinkRetainingCapacity(mark);
     const labels = try check.matchLabels(node, view, subject);
@@ -2308,7 +2301,7 @@ fn checkMatch(
             if (join.carries == false) try check.expectNothing(arm.body, arm_value);
         }
 
-        // what reaches the join is what the code after the match may still hold
+        // survivors, for what the code after may still hold
         if (check.jumpTo(join_block)) {
             join_reachable = true;
             if (arm_type != .poison) try comp.pool.scratch.append(comp.gpa, arm_type);
@@ -2347,12 +2340,10 @@ fn checkMatch(
     return join.close(check, all_diverged);
 }
 
-/// What the label pass settled: which arm is `else`, and whether the count is clean.
+/// Which arm is `else`, and whether the count came out clean.
 const Labels = struct { otherwise: ?usize, clean: bool };
 
-/// Resolves every label into `pool.scratch`, one type per arm and poison where
-/// nothing is known, and counts what they cover. Repeats, strays, and what a
-/// closed set leaves out are reported here, before any body runs.
+/// One type per arm into `pool.scratch`, and every repeat, stray, or gap reported.
 fn matchLabels(
     check: *Check,
     node: Node.Index,
@@ -2418,7 +2409,6 @@ fn matchLabels(
     return .{ .otherwise = otherwise, .clean = clean };
 }
 
-/// Whether one of the sets covers the member.
 fn coveredByAny(pool: *const Pool, sets: []const Pool.Index, member: Pool.Index) bool {
     for (sets) |set| {
         if (pool.covers(set, member)) return true;
@@ -2426,8 +2416,7 @@ fn coveredByAny(pool: *const Pool, sets: []const Pool.Index, member: Pool.Index)
     return false;
 }
 
-/// A member of the label an earlier arm already handles, reported. The arm's
-/// types are read from `pool.scratch` past `mark`, one per arm before this one.
+/// A member of the label an earlier arm already handles, reported.
 fn matchRepeat(
     check: *Check,
     arms: []const Node.Index,
@@ -2461,8 +2450,7 @@ fn matchRepeat(
     return false;
 }
 
-/// The members of the set no earlier arm covers, which the `else` arm takes.
-/// Poison once reported, where nothing is left for it.
+/// What the earlier arms left of the set, which `else` takes. Poison once reported.
 fn matchRest(
     check: *Check,
     arm_node: Node.Index,
@@ -2500,7 +2488,7 @@ fn uniteRest(check: *Check, members: []const Pool.Index) Allocator.Error!Pool.In
     return check.comp.pool.intern(check.comp.gpa, .{ .type_union = members });
 }
 
-/// The last arm that is one, where recovery left any.
+/// The last arm past any hole recovery left.
 fn lastArm(tree: *const AST, arms: []const Node.Index) ?usize {
     var index = arms.len;
     while (index > 0) {
@@ -2678,7 +2666,6 @@ fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
     else
         check.nameRef(fact.name);
     const narrowed: Ref = switch (source.unwrap()) {
-        // a settled union narrows to the member it holds, with nothing to run
         .constant => |constant| .fromConstant(try check.narrowConstant(constant, fact.type)),
         .inst => try check.emitOne(fact.node, .union_narrow, fact.type, source),
     };
@@ -2689,9 +2676,12 @@ fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
     });
 }
 
-/// The member a settled union holds, as the type a branch proved. Poison where
-/// the branch cannot run, which is never reported since nothing in it is checked.
-fn narrowConstant(check: *Check, constant: Pool.Index, proved: Pool.Index) Allocator.Error!Pool.Index {
+/// The member a settled union holds as the type a branch proved, poison where it cannot run.
+fn narrowConstant(
+    check: *Check,
+    constant: Pool.Index,
+    proved: Pool.Index,
+) Allocator.Error!Pool.Index {
     const comp = check.comp;
     if (constant == .poison) return .poison;
     const held = comp.pool.keyOf(constant).value_union.value;
@@ -2701,7 +2691,6 @@ fn narrowConstant(check: *Check, constant: Pool.Index, proved: Pool.Index) Alloc
     };
 }
 
-/// What a local stands for before any branch narrows it, a `var` by its address.
 fn localRef(local: Builder.Local) Ref {
     return switch (local.kind) {
         .let_constant => .fromConstant(local.payload.constant),
@@ -2709,7 +2698,6 @@ fn localRef(local: Builder.Local) Ref {
     };
 }
 
-/// A constant or a running value, told apart by the ref.
 fn valueOfRef(ref: Ref, type_index: Pool.Index) Value {
     return switch (ref.unwrap()) {
         .constant => |constant| .{ .constant = constant },
@@ -5387,7 +5375,7 @@ fn checkCallResolved(
     }
     const start: u32 = if (inferred) mark + @as(u32, @intCast(args.len)) else mark;
 
-    // the owner's arguments held when the owner was named, so only the own are asked
+    // the owner's arguments held when the owner was named
     if (try check.boundsHold(decl_index, full_args[owner_count..][0..own_count], node) == false) {
         return .poison;
     }
@@ -5513,7 +5501,6 @@ fn inferTypeArguments(
         try comp.operands.append(comp.gpa, .{ .value = value, .initializer = .none });
     }
 
-    // bounds are read in the declaration's own file
     var callee = context(comp, decl_index);
 
     const receiver_rows: u32 = if (has_receiver) 1 else 0;
@@ -5577,8 +5564,7 @@ fn inferTypeArguments(
         const value = comp.operands.items[early + pin.argument].value;
         const found = check.typeOf(value);
         if (Pool.isUntyped(found)) {
-            // a constant lands on the first member of the bound it fits, the way it
-            // enters a union, so the bound's order says what a bare number is
+            // a constant enters a bound as it enters a union, first member it fits
             if (bound != null and wrapperOf(owner_tree, pin.written) == null) {
                 const met = try check.fitValue(value.constant, bound.?, args[pin.argument]);
                 if (met != .constant) return false;
@@ -6648,7 +6634,7 @@ fn reportNotValue(check: *Check, node: Node.Index, value: Value) Allocator.Error
             .code = .type_as_value,
             .message = "types are not values",
             .label = "a type, where a value belongs",
-            .help = "a type stands where a type is written, before a '.', and after 'is' or 'match'",
+            .help = "a type stands where a type is written, before '.', and after 'is' or 'match'",
         },
         .named_fn => .{
             .code = .not_a_function,
@@ -6690,7 +6676,7 @@ fn operandHelp(check: *const Check, found: Pool.Index, equality: bool) ?[]const 
     const pool = &check.comp.pool;
     if (pool.isUnion(found)) {
         if (equality) return "'is' tests which member a union holds and narrows the name to it";
-        // narrowing helps only where a member could take the operator, which a bool has none
+        // narrowing helps only where a member could take the operator
         for (pool.unionMembers(found)) |member| {
             if (Pool.isNumeric(member) or pool.keyOf(member) == .type_pointer) {
                 return "narrow it first, with 'match' or a guard 'is T or return', " ++

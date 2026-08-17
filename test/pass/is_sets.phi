@@ -65,8 +65,7 @@ fn typed[T](value: T) bool {
     return T is u32 | u64
 }
 
-/// A union type is the label itself, never one of its members, and the two
-/// never both hold.
+/// A union type is the label itself, never one of its members.
 fn a_union_is_itself() bool {
     return LoadError is Timeout | NotFound
 }

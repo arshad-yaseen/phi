@@ -143,8 +143,7 @@ pub const Node = struct {
 
         binary,
         unary,
-        /// `e is T` and `e is not T`, negation read off the token after `is`. `T` may
-        /// be a union, asking for any of its members.
+        /// `e is T` and `e is not T`, negation read off the token after `is`.
         is_expr,
         /// `e or name { ... }`, the handler form of `or`.
         or_bind,
