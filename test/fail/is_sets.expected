@@ -1,0 +1,22 @@
+error[E0257]: 'Elsewhere' is not a member of 'u32 | Timeout | NotFound'
+  --> test/fail/is_sets.phi:15:13
+   |
+15 |     if r is Timeout | Elsewhere {
+   |             ^^^^^^^^^^^^^^^^^^^ not a member
+
+error[E0206]: expected u32, found u32 | Timeout | NotFound
+  --> test/fail/is_sets.phi:18:12
+   |
+18 |     return r
+   |            ^ the wrong type
+   |
+   = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'
+
+error[E0206]: expected u32, found u32 | Timeout | NotFound
+  --> test/fail/is_sets.phi:26:16
+   |
+26 |         return r
+   |                ^ the wrong type
+   |
+   = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'
+

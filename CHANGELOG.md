@@ -31,6 +31,9 @@
   labeled with the type it is, so a generic specializes on its own type
   argument. Only the chosen arm is checked, and a type no arm names is refused
   where the generic was instantiated.
+- `is` takes a union on its right, `r is Timeout | NotFound`, and asks for
+  any of its members, the way a match arm labeled with several already did.
+  The branch narrows to exactly those, and the other to what is left.
 - An integer reaches a float the way it reaches a wider integer, with nothing
   written, wherever every value of it is exact: a `u32` is an `f64`, an `i16`
   is an `f32`, and a `u64` is neither. An integer constant that a float would

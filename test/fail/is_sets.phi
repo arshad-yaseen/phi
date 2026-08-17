@@ -1,0 +1,34 @@
+type Timeout
+type NotFound
+type Elsewhere
+
+fn fetch(flag: bool) u32 | Timeout | NotFound {
+    if flag {
+        return 1
+    }
+    return Timeout
+}
+
+/// One type in the label is not a member, and it is the one named.
+fn stray_in_the_label(flag: bool) u32 {
+    let r = fetch(flag)
+    if r is Timeout | Elsewhere {
+        return 0
+    }
+    return r
+}
+
+/// A label naming every member proves nothing, so the rest is empty and
+/// what follows is not narrowed.
+fn names_them_all(flag: bool) u32 {
+    let r = fetch(flag)
+    if r is u32 | Timeout | NotFound {
+        return r
+    }
+    return 0
+}
+
+fn drive(flag: bool) u32 {
+    _ = stray_in_the_label(flag)
+    return names_them_all(flag)
+}

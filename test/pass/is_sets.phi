@@ -1,0 +1,93 @@
+type Timeout
+type NotFound
+type LoadError = Timeout | NotFound
+
+fn fetch(flag: bool) u32 | Timeout | NotFound {
+    if flag {
+        return 1
+    }
+    return Timeout
+}
+
+fn sink_error(e: LoadError) u32 {
+    _ = e
+    return 9
+}
+
+/// The label names two members, and the branch narrows to exactly those.
+fn written_pair(flag: bool) u32 {
+    let r = fetch(flag)
+    if r is Timeout | NotFound {
+        return sink_error(r)
+    }
+    return r
+}
+
+/// An alias of a union is the union, so it labels the same members.
+fn through_an_alias(flag: bool) u32 {
+    let r = fetch(flag)
+    if r is LoadError {
+        return sink_error(r)
+    }
+    return r + 1
+}
+
+/// Negated, the branch that fails the test holds the pair.
+fn negated_pair(flag: bool) u32 {
+    let r = fetch(flag)
+    if r is not Timeout | NotFound {
+        return r
+    }
+    return sink_error(r)
+}
+
+/// A guard leaves the rest for what follows.
+fn guarded(flag: bool) u32 {
+    let r = fetch(flag)
+    r is not LoadError or return 0
+    return r
+}
+
+/// A settled union folds the test whether the label is one member or several.
+let settled: u32 | Timeout | NotFound = Timeout
+
+fn folded() bool {
+    return settled is Timeout | NotFound
+}
+
+fn folded_negated() bool {
+    return settled is not LoadError
+}
+
+/// A type is a member of the set or it is not.
+fn typed[T](value: T) bool {
+    _ = value
+    return T is u32 | u64
+}
+
+/// A union type is the label itself, never one of its members, and the two
+/// never both hold.
+fn a_union_is_itself() bool {
+    return LoadError is Timeout | NotFound
+}
+
+fn a_union_is_not_a_member() bool {
+    return LoadError is Timeout | NotFound | Elsewhere
+}
+
+type Elsewhere
+
+fn drive(flag: bool) bool {
+    _ = written_pair(flag)
+    _ = through_an_alias(flag)
+    _ = negated_pair(flag)
+    _ = guarded(flag)
+    _ = folded()
+    _ = folded_negated()
+    _ = a_union_is_itself()
+    _ = a_union_is_not_a_member()
+    var wide: u64 = 1
+    var narrow: u8 = 1
+    _ = typed(wide)
+    return typed(narrow)
+}

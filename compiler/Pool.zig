@@ -541,31 +541,39 @@ pub fn unionMemberPosition(pool: *const Pool, union_index: Index, member: Index)
     return null;
 }
 
-/// The union without one member. The rest as a union, or the one member left.
+/// Whether `member` is `set` itself, or one of its members where `set` is a
+/// union. A member is never a union, so the two never both hold.
+pub fn covers(pool: *const Pool, set: Index, member: Index) bool {
+    if (set == member) return true;
+    return pool.isUnion(set) and pool.unionHas(set, member);
+}
+
+/// The union without `removed`, one member or a union of them. The rest as a
+/// union, the one member left, or null where nothing is left.
 pub fn unionWithout(
     pool: *Pool,
     gpa: Allocator,
     union_index: Index,
-    member: Index,
-) Allocator.Error!Index {
-    assert(pool.unionHas(union_index, member));
-
+    removed: Index,
+) Allocator.Error!?Index {
     var flat: [union_members_max]Index = undefined;
     var count: u32 = 0;
     for (pool.unionMembers(union_index)) |candidate| {
-        if (candidate == member) continue;
+        if (pool.covers(removed, candidate)) continue;
         flat[count] = candidate;
         count += 1;
     }
-    assert(count == pool.unionMemberCount(union_index) - 1);
+    assert(count < pool.unionMemberCount(union_index));
 
+    if (count == 0) return null;
     if (count == 1) return flat[0];
-    return pool.intern(gpa, .{ .type_union = flat[0..count] });
+    return try pool.intern(gpa, .{ .type_union = flat[0..count] });
 }
 
-/// Whether `wide` lists every member of `narrow`. Membership, not order.
+/// Whether `wide` lists every member of `narrow`, one type or a union. Membership, not order.
 pub fn unionCovers(pool: *const Pool, wide: Index, narrow: Index) bool {
     assert(pool.isUnion(wide));
+    if (pool.isUnion(narrow) == false) return pool.unionHas(wide, narrow);
     for (pool.unionMembers(narrow)) |member| {
         if (pool.unionHas(wide, member) == false) return false;
     }

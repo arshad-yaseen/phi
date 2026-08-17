@@ -1157,7 +1157,8 @@ fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
 
             const is_token = self.nextToken();
             _ = self.eatToken(.kw_not);
-            node = try self.addPair(.is_expr, is_token, node, try self.parseTypeMember());
+            // a whole type, so `is A | B` asks for either, the way an arm label does
+            node = try self.addPair(.is_expr, is_token, node, try self.parseType());
             banned_prec = is_prec;
             continue;
         }

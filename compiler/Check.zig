@@ -2466,18 +2466,20 @@ fn factsOfIs(
     const found = if (check.activeNarrow(index)) |narrow| narrow.type else local.type;
     if (comp.pool.isUnion(found) == false) return null;
 
-    const member = try check.resolveType(view.type_expr);
-    if (comp.pool.unionHas(found, member) == false) return null;
-    const rest = try comp.pool.unionWithout(comp.gpa, found, member);
+    const label = try check.resolveType(view.type_expr);
+    if (label == .poison) return null;
+    if (comp.pool.unionCovers(found, label) == false) return null;
+    // a label naming every member proves nothing on either edge
+    const rest = try comp.pool.unionWithout(comp.gpa, found, label) orelse return null;
 
     if (view.negated) {
         return .{
             .when_true = .{ .local = index, .type = rest, .node = node },
-            .when_false = .{ .local = index, .type = member, .node = node },
+            .when_false = .{ .local = index, .type = label, .node = node },
         };
     }
     return .{
-        .when_true = .{ .local = index, .type = member, .node = node },
+        .when_true = .{ .local = index, .type = label, .node = node },
         .when_false = .{ .local = index, .type = rest, .node = node },
     };
 }
@@ -2515,20 +2517,20 @@ fn namedType(check: *Check, node: Node.Index, value: Value) Allocator.Error!?Poo
     }
 }
 
+/// `e is T`, where `T` may be a union asking for any of its members.
 fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!Value {
     const comp = check.comp;
     const operand = try check.checkExpr(view.operand, null);
-    const member = try check.resolveType(view.type_expr);
+    const label = try check.resolveType(view.type_expr);
 
     if (operand == .diverged) return .diverged;
     if (operand == .poison) return .poison;
-    if (member == .poison) return .poison;
+    if (label == .poison) return .poison;
 
-    // two types, both settled by the checker, so the answer is a constant
+    // a type is settled by the checker, so the answer is a constant
     if (try check.namedType(view.operand, operand)) |named| {
         if (named == .poison) return .poison;
-        const bools = try check.boolType(node);
-        return .{ .constant = try check.truthValue(bools, (named == member) != view.negated) };
+        return check.settledTruth(node, comp.pool.covers(label, named) != view.negated);
     }
 
     if (try check.valueOnly(view.operand, operand) == false) return .poison;
@@ -2539,17 +2541,13 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
         try check.failNotUnion(node, found, "'is' asks which member a union holds");
         return .poison;
     }
-    if (comp.pool.unionHas(found, member) == false) {
-        try check.failNotMember(view.type_expr, member, found);
-        return .poison;
-    }
+    if (try check.labelWithin(view.type_expr, label, found) == false) return .poison;
 
     // a settled union knows its member, so the test folds like any operator
     if (operand == .constant) {
         const held = comp.pool.keyOf(operand.constant).value_union.value;
-        const holds = comp.pool.typeOfValue(held) == member;
-        const bools = try check.boolType(node);
-        return .{ .constant = try check.truthValue(bools, holds != view.negated) };
+        const holds = comp.pool.covers(label, comp.pool.typeOfValue(held));
+        return check.settledTruth(node, holds != view.negated);
     }
 
     // only a union settled at run time is left, which needs a body to test in
@@ -2558,13 +2556,39 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
     assert(operand == .runtime);
     const bools = try check.boolType(node);
     const tested = try check.emit(node, .union_is, bools, .{
-        .probe = .{ .operand = refOf(operand), .member = member },
+        .probe = .{ .operand = refOf(operand), .member = label },
     });
-    if (view.negated) {
-        const flipped = try check.emitOne(node, .not, bools, tested);
-        return runtimeValue(flipped, bools);
-    }
+    if (view.negated) return runtimeValue(try check.emitOne(node, .not, bools, tested), bools);
     return runtimeValue(tested, bools);
+}
+
+/// A settled answer, as the file's `bool`.
+fn settledTruth(check: *Check, node: Node.Index, holds: bool) Allocator.Error!Value {
+    const bools = try check.boolType(node);
+    return .{ .constant = try check.truthValue(bools, holds) };
+}
+
+/// Whether every type the label names is a member of the union. Reported.
+fn labelWithin(
+    check: *Check,
+    label_node: Node.Index,
+    label: Pool.Index,
+    union_type: Pool.Index,
+) Allocator.Error!bool {
+    const pool = &check.comp.pool;
+    if (pool.unionCovers(union_type, label)) return true;
+
+    // name the first stray, which a one-type label is itself
+    var stray = label;
+    if (pool.isUnion(label)) {
+        for (pool.unionMembers(label)) |member| {
+            if (pool.unionHas(union_type, member)) continue;
+            stray = member;
+            break;
+        }
+    }
+    try check.failNotMember(label_node, stray, union_type);
+    return false;
 }
 
 /// Two unit members, the first meaning yes. `bool` is declared, never built in.
@@ -3139,10 +3163,7 @@ fn settleFold(
     const comp = check.comp;
     const report: Compilation.Report = switch (folded) {
         .value => |value| return .{ .constant = value },
-        .truth => |truth| {
-            const bools = try check.boolType(node);
-            return .{ .constant = try check.truthValue(bools, truth) };
-        },
+        .truth => |holds| return check.settledTruth(node, holds),
         .overflow => .{
             .code = .overflow,
             .message = "this overflows the 128 bits constants fold in",
@@ -3402,7 +3423,8 @@ fn checkOrSplit(
     const comp = check.comp;
     const builder = check.body();
     const first = comp.pool.firstMember(lhs_type);
-    const rest = try comp.pool.unionWithout(comp.gpa, lhs_type, first);
+    // a union has two members at least, so one taken leaves some
+    const rest = (try comp.pool.unionWithout(comp.gpa, lhs_type, first)).?;
 
     const slot = try check.emitSlot(lhs_node, .empty, lhs_type);
     try check.emitStore(lhs_node, slot, lhs);

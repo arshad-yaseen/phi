@@ -106,6 +106,7 @@ pub const Inst = struct {
         un: Ref,
         bin: struct { lhs: Ref, rhs: Ref },
         field: struct { base: Ref, row: Compilation.Row.Index },
+        /// The member asked about, or for `union_is` possibly a union of them.
         probe: struct { operand: Ref, member: Pool.Index },
         name: Pool.String,
         payload: ExtraIndex,
@@ -179,7 +180,8 @@ pub const Inst = struct {
 
         /// A value entering a union, with the member the checker admitted it as.
         union_init,
-        /// Void where only a branch reads it.
+        /// Whether the union holds the member, or any of a union of them. Void
+        /// where only a branch reads it.
         union_is,
         /// A union retyped to what a passed test proved.
         union_narrow,

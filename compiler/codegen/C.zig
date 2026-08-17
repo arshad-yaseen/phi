@@ -1280,9 +1280,21 @@ fn writeUnionNarrow(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     try backend.put(.{";\n"});
 }
 
-/// C truth for whether the union ref holds the member.
+/// C truth for whether the union ref holds the member, or any of a union of them.
 fn writeMemberTest(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     const pool = &backend.comp.pool;
+    if (pool.isUnion(member)) {
+        // by position, because spelling a ref can intern and move the members
+        const count = pool.unionMemberCount(member);
+        try backend.put(.{"("});
+        var at: u32 = 0;
+        while (at < count) : (at += 1) {
+            if (at > 0) try backend.put(.{" || "});
+            try backend.writeMemberTest(ref, pool.unionMemberAt(member, at));
+        }
+        return backend.put(.{")"});
+    }
+
     const source = backend.typeOfRef(ref);
     assert(pool.isUnion(source));
     const position = pool.unionMemberPosition(source, member).?;
