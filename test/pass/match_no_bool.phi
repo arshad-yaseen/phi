@@ -11,9 +11,7 @@ fn pick(e: A | B | C) u32 {
     return 0
 }
 
-pub fn main() u32 {
-    let a: u32 | u8 = 10
-
+fn choose(a: u32 | u8) u32 {
     match a {
         u32 => return a,
         u8 => {}

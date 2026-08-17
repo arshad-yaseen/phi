@@ -1,11 +1,6 @@
-error[E0260]: 'Timeout' is already handled by an earlier arm
+error[E0260]: 'else' already takes every type the arms do not name
   --> test/fail/match_arm_after_else.phi:12:9
    |
 12 |         Timeout => {}
-   |         ^^^^^^^ handled again here
-note: handled here
-  --> test/fail/match_arm_after_else.phi:11:9
-   |
-11 |         else => {}
-   |         ^^^^^^^^^^
+   |         ^^^^^^^ never runs
 

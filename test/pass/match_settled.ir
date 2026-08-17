@@ -1,0 +1,29 @@
+fn chosen() u32
+b0:
+  return 2:u32
+
+fn narrowed() u32
+b0:
+  return 11:u32
+
+fn unchosen_is_not_checked() u32
+b0:
+  return 11:u32
+
+fn through_else() u32
+b0:
+  return 9:u32
+
+fn through_a_pair() u32
+b0:
+  return 2:u32
+
+fn as_a_statement() u32
+b0:
+  return 6:u32
+
+fn narrowed_by_is() u32
+b0:
+  jump b1
+b1:
+  return 11:u32

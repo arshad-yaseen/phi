@@ -23,10 +23,11 @@
   before it is not part of the text and nothing inside it is an escape.
 - A view answers `.ptr` beside `.len`, which is the address it already holds
   and may be written through exactly where the view may.
-- `is` folds where its operand is already settled, and a settled condition
-  picks its `if` edge before anything runs, so the arm that cannot run is
-  never entered, the way a settled `and` never enters its dead side. Testing
-  a constant optional used to crash the compiler.
+- `is` and `match` fold where the union is already settled, and a settled
+  condition picks its `if` edge before anything runs, so the arm that cannot
+  run is never entered, the way a settled `and` never enters its dead side. A
+  settled name narrows inside the branch as a running one does. Testing a
+  constant optional used to crash the compiler.
 - `T is u32` asks whether two types are the same, and `match T` picks the arm
   labeled with the type it is, so a generic specializes on its own type
   argument. Only the chosen arm is checked, and a type no arm names is refused

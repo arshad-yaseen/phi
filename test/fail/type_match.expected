@@ -28,7 +28,12 @@ error[E0260]: 'u32' is already handled by an earlier arm
   --> test/fail/type_match.phi:24:9
    |
 24 |         u32 => 2
-   |         ^^^ never runs
+   |         ^^^ handled again here
+note: handled here
+  --> test/fail/type_match.phi:23:9
+   |
+23 |         u32 => 1
+   |         ^^^
 note: while checking 'repeated[u32]', needed here
   --> test/fail/type_match.phi:85:9
    |
@@ -39,7 +44,12 @@ error[E0260]: 'u8' is already handled by an earlier arm
   --> test/fail/type_match.phi:33:9
    |
 33 |         Byte => 2
-   |         ^^^^ never runs
+   |         ^^^^ handled again here
+note: handled here
+  --> test/fail/type_match.phi:32:9
+   |
+32 |         u8 => 1
+   |         ^^
 note: while checking 'aliased_repeat[u32]', needed here
   --> test/fail/type_match.phi:86:9
    |

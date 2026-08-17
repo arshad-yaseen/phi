@@ -1961,12 +1961,50 @@ fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error
 
 // match, the n-way `is`
 
-const Arm = Handle.Index("match arm");
+/// What a match runs on. `set` is the union its arms must cover, or null where
+/// they name types from an open set. `held` is the member or type the scrutinee
+/// is known to be, or null where only running can tell.
+const Subject = struct {
+    set: ?Pool.Index,
+    held: ?Pool.Index,
+    ref: Ref,
+    /// The local the arms narrow, where the scrutinee names one.
+    local: ?Builder.Local.Index,
+};
 
-/// Which arm covered a member, `.none` until one does.
-const ArmIndex = Arm.Optional;
+/// Null once reported. A type is always settled, a value only where constant.
+fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Error!?Subject {
+    const comp = check.comp;
+    if (try check.namedType(scrutinee, value)) |named| {
+        if (named == .poison) return null;
+        return .{ .set = null, .held = named, .ref = .fromConstant(.poison), .local = null };
+    }
 
-/// Arms label members, the scrutinee narrows per arm, and coverage is counted.
+    if (try check.valueOnly(scrutinee, value) == false) return null;
+    const found = check.typeOf(value);
+    if (found == .poison) return null;
+    if (comp.pool.isUnion(found) == false) {
+        try check.failNotUnion(scrutinee, found, "'match' asks which member a union holds");
+        return null;
+    }
+
+    const held: ?Pool.Index = switch (value) {
+        .constant => |constant| comp.pool.typeOfValue(comp.pool.keyOf(constant).value_union.value),
+        else => null,
+    };
+    return .{ .set = found, .held = held, .ref = refOf(value), .local = check.narrowedLocal(scrutinee) };
+}
+
+/// The local a name reaches, where a branch may narrow it. A `var` may change under the fact.
+fn narrowedLocal(check: *const Check, node: Node.Index) ?Builder.Local.Index {
+    if (check.tree.nodeTag(node) != .ident) return null;
+    const index = check.findLocalIndex(check.mainTokenText(node)) orelse return null;
+    if (check.localAt(index).kind == .var_slot) return null;
+    return index;
+}
+
+/// Arms name sets of members. Coverage is counted before any body runs, a
+/// settled scrutinee enters one arm, and a running one tests each in turn.
 fn checkMatch(
     check: *Check,
     node: Node.Index,
@@ -1981,113 +2019,87 @@ fn checkMatch(
     const scrutinee = try check.checkExpr(view.scrutinee, null);
     try check.reopenDead();
 
-    // a type is settled, so the match chooses its arm rather than branching
-    if (try check.namedType(view.scrutinee, scrutinee)) |named| {
-        if (named == .poison) return .poison;
-        return check.checkMatchType(node, view, named, hint);
-    }
-
-    // broken scrutinee poisons quietly, the arms still get checked
-    var scrutinee_type: Pool.Index = .poison;
-    if (try check.valueOnly(view.scrutinee, scrutinee)) {
-        const found = check.typeOf(scrutinee);
-        if (comp.pool.isUnion(found)) {
-            scrutinee_type = found;
-        } else if (found != .poison) {
-            const asks = "'match' asks which member a union holds";
-            try check.failNotUnion(view.scrutinee, found, asks);
-        }
-    }
-    const broken = scrutinee_type == .poison;
-
-    // read members by position, resolving a label can intern and move the table
-    const member_count: u32 = if (broken) 0 else comp.pool.unionMemberCount(scrutinee_type);
-    assert(member_count <= Pool.union_members_max);
-    var covered_by: [Pool.union_members_max]ArmIndex = @splat(.none);
-    const covered = covered_by[0..member_count];
-
-    // a let or parameter narrows per arm, same way `is` does it
-    const narrow_local: ?Builder.Local.Index = local: {
-        if (broken) break :local null;
-        if (check.tree.nodeTag(view.scrutinee) != .ident) break :local null;
-        const text = check.mainTokenText(view.scrutinee);
-        const index = check.findLocalIndex(text) orelse break :local null;
-        switch (check.localAt(index).kind) {
-            .let_value, .param => break :local index,
-            .let_constant, .var_slot => break :local null,
-        }
-    };
-
-    // the last arm skips its test, exhaustiveness makes it the fall-through
-    const fallthrough: usize = last: {
-        var index = view.arms.len;
-        while (index > 0) {
-            index -= 1;
-            if (check.tree.nodeTag(view.arms[index]) == .match_arm) break :last index;
-        }
-        // recovery already reported whatever left holes behind
-        if (view.arms.len == 0 and broken == false) {
-            _ = try check.checkMatchMissing(node, scrutinee_type, covered);
+    const subject = try check.matchSubject(view.scrutinee, scrutinee) orelse {
+        // the arms are still walked, so a mistake inside one is reported, and a
+        // header that left counts as flowing, the way an `if` header does
+        builder.reachable = entry_reachable;
+        for (view.arms) |arm_node| {
+            if (check.tree.nodeTag(arm_node) != .match_arm) continue;
+            _ = try check.checkExpr(check.tree.viewOf(arm_node).match_arm.body, hint);
         }
         return .poison;
     };
 
-    var join = try Join.open(check, "match", node, wantsValue(hint), hint, .none);
-    const join_block = try check.newBlock();
-
-    var join_reachable = false;
-    var all_diverged = true;
-    // no narrowing past the match unless coverage resolved clean
-    var coverage_clean = broken == false;
-    var survivors: [Pool.union_members_max]bool = @splat(false);
+    // one type per arm, what its label covers, held below anything a body stages
+    const mark = comp.pool.scratch.items.len;
+    defer comp.pool.scratch.shrinkRetainingCapacity(mark);
+    const labels = try check.matchLabels(node, view, subject);
     const narrows_mark = builder.narrows.items.len;
 
-    for (view.arms, 0..) |arm_node, arm_raw| {
-        if (check.tree.nodeTag(arm_node) != .match_arm) {
-            // a hole from recovery could have covered anything
-            coverage_clean = false;
-            continue;
-        }
-        const arm_index = Arm.from(arm_raw).toOptional();
-        const arm = check.tree.viewOf(arm_node).match_arm;
+    if (subject.held) |held| {
+        // settled, so one arm is entered and the others are never checked
+        const chosen = for (view.arms, 0..) |_, position| {
+            if (comp.pool.covers(comp.pool.scratch.items[mark + position], held)) break position;
+        } else labels.otherwise orelse {
+            // a closed set already said what it leaves out
+            if (subject.set == null) try check.failNoArm(node, held);
+            return .poison;
+        };
+        const arm = check.tree.viewOf(view.arms[chosen]).match_arm;
 
-        var arm_type: Pool.Index = .poison;
-        if (arm.label.unwrap()) |label_node| {
-            arm_type = try check.resolveType(label_node);
-            if (arm_type != .poison and broken == false) {
-                arm_type = try check.checkMatchCover(
-                    label_node,
-                    arm_type,
-                    scrutinee_type,
-                    covered,
-                    arm_index,
-                    view.arms,
-                );
+        if (subject.local) |local| {
+            const arm_type = comp.pool.scratch.items[mark + chosen];
+            if (arm_type != .poison) {
+                try check.applyFact(.{ .local = local, .type = arm_type, .node = view.arms[chosen] });
             }
-        } else if (broken == false) {
-            arm_type = try check.checkMatchRest(arm_node, scrutinee_type, covered, arm_index);
         }
-        if (arm_type == .poison) coverage_clean = false;
+        const value = try check.checkExpr(arm.body, hint);
+        builder.narrows.shrinkRetainingCapacity(narrows_mark);
+
+        if (wantsValue(hint)) return value;
+        try check.expectNothing(arm.body, value);
+        return if (value == .diverged) .diverged else .void_value;
+    }
+
+    // the last arm skips its test, exhaustiveness makes it the fall-through
+    const last = lastArm(check.tree, view.arms) orelse return .poison;
+
+    var join = try Join.open(check, "match", node, wantsValue(hint), hint, .none);
+    const join_block = try check.newBlock();
+    var join_reachable = false;
+    var all_diverged = true;
+
+    for (view.arms, 0..) |arm_node, position| {
+        if (check.tree.nodeTag(arm_node) != .match_arm) continue;
+        const arm = check.tree.viewOf(arm_node).match_arm;
+        const arm_type = comp.pool.scratch.items[mark + position];
 
         const arm_block = try check.newBlock();
         var resume_chain: ?IR.Block.Index = null;
-        if (arm_raw == fallthrough) {
+        if (position == last) {
             check.endBlock(.{ .jump = arm_block });
         } else {
-            try check.checkMatchTests(
-                arm_node,
-                scrutinee_type,
-                refOf(scrutinee),
-                covered,
-                arm_index,
-                arm_block,
-            );
-            resume_chain = builder.current;
+            const chain = try check.newBlock();
+            if (arm_type == .poison) {
+                // nothing known to test for, so the arm is walked but never entered
+                check.endBlock(.{ .jump = chain });
+            } else {
+                // the compiler's own test, typed void, so no 'bool' is asked of the file
+                const holds = try check.emit(arm_node, .union_is, .void_type, .{
+                    .probe = .{ .operand = subject.ref, .member = arm_type },
+                });
+                check.endBlock(.{ .branch = .{
+                    .cond = holds,
+                    .then_block = arm_block,
+                    .else_block = chain,
+                } });
+            }
+            resume_chain = chain;
         }
 
         check.startBlock(arm_block);
         builder.reachable = entry_reachable;
-        if (narrow_local) |local| {
+        if (subject.local) |local| {
             if (arm_type != .poison) {
                 try check.applyFact(.{ .local = local, .type = arm_type, .node = arm_node });
             }
@@ -2102,156 +2114,144 @@ fn checkMatch(
             if (join.carries == false) try check.expectNothing(arm.body, arm_value);
         }
 
+        // what reaches the join is what the code after the match may still hold
         if (check.jumpTo(join_block)) {
             join_reachable = true;
-            for (covered, 0..) |cover, position| {
-                if (cover == arm_index) survivors[position] = true;
-            }
+            if (arm_type != .poison) try comp.pool.scratch.append(comp.gpa, arm_type);
         }
 
         // pick the test chain back up past the arm's instructions
         if (resume_chain) |chain| check.startBlock(chain);
     }
 
-    // only a clean count can prove something was left out
-    if (coverage_clean) {
-        const left_out = try check.checkMatchMissing(node, scrutinee_type, covered);
-        if (left_out) coverage_clean = false;
-    }
-
     check.startBlock(join_block);
     builder.reachable = join_reachable;
 
     // an arm that leaves narrows the code after the match, like a diverging branch
-    if (narrow_local) |local| {
-        if (coverage_clean and join_reachable) {
+    if (subject.local) |local| {
+        if (labels.clean and join_reachable) {
+            const set = subject.set.?;
+            const survivors = comp.pool.scratch.items[mark + view.arms.len ..];
             var rest: [Pool.union_members_max]Pool.Index = undefined;
             var count: u32 = 0;
-            for (survivors[0..member_count], 0..) |survived, position| {
-                if (survived == false) continue;
-                rest[count] = comp.pool.unionMemberAt(scrutinee_type, @intCast(position));
+            const members = comp.pool.unionMemberCount(set);
+            var at: u32 = 0;
+            while (at < members) : (at += 1) {
+                const member = comp.pool.unionMemberAt(set, at);
+                if (coveredByAny(&comp.pool, survivors, member) == false) continue;
+                rest[count] = member;
                 count += 1;
             }
             assert(count > 0);
-            if (count < member_count) {
+            if (count < members) {
                 const narrowed = try check.uniteRest(rest[0..count]);
                 try check.applyFact(.{ .local = local, .type = narrowed, .node = node });
             }
         }
     }
 
-    const value = try join.close(check, all_diverged);
-    return if (join.carries and broken) .poison else value;
+    return join.close(check, all_diverged);
 }
 
-/// `match T { u32 => ..., else => ... }`
-fn checkMatchType(
+/// What the label pass settled: which arm is `else`, and whether the count is clean.
+const Labels = struct { otherwise: ?usize, clean: bool };
+
+/// Resolves every label into `pool.scratch`, one type per arm and poison where
+/// nothing is known, and counts what they cover. Repeats, strays, and what a
+/// closed set leaves out are reported here, before any body runs.
+fn matchLabels(
     check: *Check,
     node: Node.Index,
     view: AST.View.Match,
-    scrutinee: Pool.Index,
-    hint: ?Pool.Index,
-) Allocator.Error!Value {
+    subject: Subject,
+) Allocator.Error!Labels {
     const comp = check.comp;
-
-    // resolving a label can intern, so the labels already seen are read by mark
     const mark = comp.pool.scratch.items.len;
-    defer comp.pool.scratch.shrinkRetainingCapacity(mark);
+    var otherwise: ?usize = null;
+    var clean = true;
 
-    var chosen: Node.OptionalIndex = .none;
-    var otherwise: Node.OptionalIndex = .none;
-
-    for (view.arms) |arm_node| {
-        // recovery can leave a hole where an arm was, already reported
-        if (check.tree.nodeTag(arm_node) != .match_arm) continue;
-
-        const label_node = check.tree.viewOf(arm_node).match_arm.label.unwrap() orelse {
-            if (otherwise == .none) {
-                otherwise = arm_node.toOptional();
-            } else {
-                try check.failArmNeverRuns(arm_node, else_takes_the_rest);
+    for (view.arms, 0..) |arm_node, position| {
+        const arm_type: Pool.Index = blk: {
+            // recovery can leave a hole where an arm was, already reported
+            if (check.tree.nodeTag(arm_node) != .match_arm) {
+                clean = false;
+                break :blk .poison;
             }
-            continue;
+            const label_node = check.tree.viewOf(arm_node).match_arm.label.unwrap() orelse {
+                // `else` takes whatever the arms before it left, so nothing may follow it
+                if (otherwise != null) {
+                    try check.failArmNeverRuns(arm_node, else_takes_the_rest);
+                    clean = false;
+                    break :blk .poison;
+                }
+                otherwise = position;
+                const set = subject.set orelse break :blk .poison;
+                break :blk try check.matchRest(arm_node, set, mark);
+            };
+
+            const label = try check.resolveType(label_node);
+            if (label == .poison) {
+                clean = false;
+                break :blk .poison;
+            }
+            if (otherwise != null) {
+                try check.failArmNeverRuns(label_node, else_takes_the_rest);
+                clean = false;
+                break :blk .poison;
+            }
+            if (subject.set) |set| {
+                if (try check.labelWithin(label_node, label, set) == false) {
+                    clean = false;
+                    break :blk .poison;
+                }
+            }
+            if (try check.matchRepeat(view.arms, label_node, label, mark)) {
+                clean = false;
+                break :blk .poison;
+            }
+            break :blk label;
         };
-
-        const label = try check.resolveType(label_node);
-        if (label == .poison) continue;
-        if (otherwise != .none) {
-            try check.failArmNeverRuns(label_node, else_takes_the_rest);
-            continue;
-        }
-        if (std.mem.indexOfScalar(Pool.Index, comp.pool.scratch.items[mark..], label)) |_| {
-            try check.failArmNeverRuns(label_node, try comp.fmt(
-                "'{s}' is already handled by an earlier arm",
-                .{try comp.typeName(label)},
-            ));
-            continue;
-        }
-
-        try comp.pool.scratch.append(comp.gpa, label);
-        if (label == scrutinee and chosen == .none) chosen = arm_node.toOptional();
+        try comp.pool.scratch.append(comp.gpa, arm_type);
     }
 
-    // a generic body is checked per instantiation, so the type it is names the arm
-    const arm = chosen.unwrap() orelse otherwise.unwrap() orelse {
-        try check.failToken(check.tree.nodeMainToken(node), .{
-            .code = .missing_arm,
-            .message = try comp.fmt("this match has no arm for '{s}'", .{
-                try comp.typeName(scrutinee),
-            }),
-            .label = "no arm names it",
-            .help = "add an arm naming it, or 'else =>' for the rest",
-        });
-        return .poison;
-    };
-    const arm_body = check.tree.viewOf(arm).match_arm.body;
-
-    const value = try check.checkExpr(arm_body, hint);
-    if (wantsValue(hint)) return value;
-    try check.expectNothing(arm_body, value);
-    return if (value == .diverged) .diverged else .void_value;
+    // only a clean count can prove something was left out
+    if (subject.set) |set| {
+        if (clean) {
+            const covered = comp.pool.scratch.items[mark..];
+            if (try check.checkMatchMissing(node, set, covered)) clean = false;
+        }
+    }
+    return .{ .otherwise = otherwise, .clean = clean };
 }
 
-const else_takes_the_rest = "'else' already takes every type the arms do not name";
-
-fn failArmNeverRuns(check: *Check, node: Node.Index, message: []const u8) Allocator.Error!void {
-    @branchHint(.cold);
-    try check.fail(node, .{
-        .code = .duplicate_arm,
-        .message = message,
-        .label = "never runs",
-    });
+/// Whether one of the sets covers the member.
+fn coveredByAny(pool: *const Pool, sets: []const Pool.Index, member: Pool.Index) bool {
+    for (sets) |set| {
+        if (pool.covers(set, member)) return true;
+    }
+    return false;
 }
 
-/// Marks what the label covers, reports repeats and strays. Poison once anything misfired.
-fn checkMatchCover(
+/// A member of the label an earlier arm already handles, reported. The arm's
+/// types are read from `pool.scratch` past `mark`, one per arm before this one.
+fn matchRepeat(
     check: *Check,
-    label_node: Node.Index,
-    arm_type: Pool.Index,
-    scrutinee_type: Pool.Index,
-    covered_by: []ArmIndex,
-    arm_index: ArmIndex,
     arms: []const Node.Index,
-) Allocator.Error!Pool.Index {
+    label_node: Node.Index,
+    label: Pool.Index,
+    mark: usize,
+) Allocator.Error!bool {
     const comp = check.comp;
-    assert(arm_type != .poison);
-    assert(covered_by.len == comp.pool.unionMemberCount(scrutinee_type));
+    const earlier = comp.pool.scratch.items[mark..];
 
-    var clean = true;
-    const multi = comp.pool.isUnion(arm_type);
-    const count: u32 = if (multi) comp.pool.unionMemberCount(arm_type) else 1;
+    const count: u32 = if (comp.pool.isUnion(label)) comp.pool.unionMemberCount(label) else 1;
     var at: u32 = 0;
     while (at < count) : (at += 1) {
-        const member = if (multi) comp.pool.unionMemberAt(arm_type, at) else arm_type;
-
-        const position = comp.pool.unionMemberPosition(scrutinee_type, member) orelse {
-            try check.failNotMember(label_node, member, scrutinee_type);
-            clean = false;
-            continue;
-        };
-        if (covered_by[position].unwrap()) |earlier| {
+        const member = if (comp.pool.isUnion(label)) comp.pool.unionMemberAt(label, at) else label;
+        for (earlier, 0..) |arm_type, position| {
+            if (comp.pool.covers(arm_type, member) == false) continue;
             // one report per arm, however many members repeat
-            const first = arms[earlier.int()];
+            const first = arms[position];
             const first_label = check.tree.viewOf(first).match_arm.label;
             try check.fail(label_node, .{
                 .code = .duplicate_arm,
@@ -2261,32 +2261,31 @@ fn checkMatchCover(
                 .label = "handled again here",
                 .notes = try check.noteHere(first_label.unwrap() orelse first, "handled here"),
             });
-            clean = false;
-            continue;
+            return true;
         }
-        covered_by[position] = arm_index;
     }
-    return if (clean) arm_type else .poison;
+    return false;
 }
 
-/// The uncovered members become the `else` arm's type. Poison when nothing is left.
-fn checkMatchRest(
+/// The members of the set no earlier arm covers, which the `else` arm takes.
+/// Poison once reported, where nothing is left for it.
+fn matchRest(
     check: *Check,
     arm_node: Node.Index,
-    scrutinee_type: Pool.Index,
-    covered_by: []ArmIndex,
-    arm_index: ArmIndex,
+    set: Pool.Index,
+    mark: usize,
 ) Allocator.Error!Pool.Index {
     const comp = check.comp;
-    assert(covered_by.len == comp.pool.unionMemberCount(scrutinee_type));
-    assert(covered_by.len >= 2);
+    const earlier = comp.pool.scratch.items[mark..];
 
     var rest: [Pool.union_members_max]Pool.Index = undefined;
     var count: u32 = 0;
-    for (covered_by, 0..) |cover, position| {
-        if (cover != .none) continue;
-        rest[count] = comp.pool.unionMemberAt(scrutinee_type, @intCast(position));
-        covered_by[position] = arm_index;
+    const members = comp.pool.unionMemberCount(set);
+    var at: u32 = 0;
+    while (at < members) : (at += 1) {
+        const member = comp.pool.unionMemberAt(set, at);
+        if (coveredByAny(&comp.pool, earlier, member)) continue;
+        rest[count] = member;
         count += 1;
     }
     if (count > 0) return check.uniteRest(rest[0..count]);
@@ -2307,66 +2306,60 @@ fn uniteRest(check: *Check, members: []const Pool.Index) Allocator.Error!Pool.In
     return check.comp.pool.intern(check.comp.gpa, .{ .type_union = members });
 }
 
-/// One test per member the arm covers. Covering nothing skips the arm whole.
-fn checkMatchTests(
-    check: *Check,
-    node: Node.Index,
-    scrutinee_type: Pool.Index,
-    scrutinee_ref: Ref,
-    covered_by: []const ArmIndex,
-    arm_index: ArmIndex,
-    arm_block: IR.Block.Index,
-) Allocator.Error!void {
-    assert(scrutinee_ref != .none);
-    assert(check.blockOpen());
-
-    var tested = false;
-    for (covered_by, 0..) |cover, position| {
-        if (cover != arm_index) continue;
-        const member = check.comp.pool.unionMemberAt(scrutinee_type, @intCast(position));
-
-        const chain = try check.newBlock();
-        // the compiler's own test, typed void, so no 'bool' is asked of the file
-        const held = try check.emit(node, .union_is, .void_type, .{
-            .probe = .{ .operand = scrutinee_ref, .member = member },
-        });
-        check.endBlock(.{ .branch = .{
-            .cond = held,
-            .then_block = arm_block,
-            .else_block = chain,
-        } });
-        check.startBlock(chain);
-        tested = true;
+/// The last arm that is one, where recovery left any.
+fn lastArm(tree: *const AST, arms: []const Node.Index) ?usize {
+    var index = arms.len;
+    while (index > 0) {
+        index -= 1;
+        if (tree.nodeTag(arms[index]) == .match_arm) return index;
     }
-
-    if (tested == false) {
-        const chain = try check.newBlock();
-        check.endBlock(.{ .jump = chain });
-        check.startBlock(chain);
-    }
-    assert(check.blockOpen());
+    return null;
 }
 
-/// The members no arm handles, all named at the keyword. Whether any were.
+const else_takes_the_rest = "'else' already takes every type the arms do not name";
+
+fn failArmNeverRuns(check: *Check, node: Node.Index, message: []const u8) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .duplicate_arm,
+        .message = message,
+        .label = "never runs",
+    });
+}
+
+/// A generic body is checked per instantiation, so the type it is names the arm.
+fn failNoArm(check: *Check, node: Node.Index, held: Pool.Index) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.failToken(check.tree.nodeMainToken(node), .{
+        .code = .missing_arm,
+        .message = try check.comp.fmt("this match has no arm for '{s}'", .{
+            try check.comp.typeName(held),
+        }),
+        .label = "no arm names it",
+        .help = "add an arm naming it, or 'else =>' for the rest",
+    });
+}
+
+/// The members no arm covers, all named at the keyword. Whether any were.
 fn checkMatchMissing(
     check: *Check,
     node: Node.Index,
-    scrutinee_type: Pool.Index,
-    covered_by: []const ArmIndex,
+    set: Pool.Index,
+    covered: []const Pool.Index,
 ) Allocator.Error!bool {
     const comp = check.comp;
-    assert(covered_by.len == comp.pool.unionMemberCount(scrutinee_type));
 
     // named up to a cap, so a wide union does not flood the message
     const named_max = 5;
     var missing_count: u32 = 0;
     var names: ?[]const u8 = null;
-    for (covered_by, 0..) |cover, position| {
-        if (cover != .none) continue;
+    const members = comp.pool.unionMemberCount(set);
+    var at: u32 = 0;
+    while (at < members) : (at += 1) {
+        const member = comp.pool.unionMemberAt(set, at);
+        if (coveredByAny(&comp.pool, covered, member)) continue;
         missing_count += 1;
         if (missing_count > named_max) continue;
-
-        const member = comp.pool.unionMemberAt(scrutinee_type, @intCast(position));
         names = try quotedList(comp, names, try comp.typeName(member));
     }
     if (missing_count == 0) return false;
@@ -2453,17 +2446,8 @@ fn factsOfIs(
     const comp = check.comp;
     const view = check.tree.viewOf(node).is_expr;
 
-    if (check.tree.nodeTag(view.operand) != .ident) return null;
-    const text = check.mainTokenText(view.operand);
-    const index = check.findLocalIndex(text) orelse return null;
-
-    const local = check.localAt(index);
-    switch (local.kind) {
-        .let_value, .param => {},
-        .let_constant, .var_slot => return null,
-    }
-
-    const found = if (check.activeNarrow(index)) |narrow| narrow.type else local.type;
+    const index = check.narrowedLocal(view.operand) orelse return null;
+    const found = if (check.activeNarrow(index)) |narrow| narrow.type else check.localAt(index).type;
     if (comp.pool.isUnion(found) == false) return null;
 
     const label = try check.resolveType(view.type_expr);
@@ -2492,17 +2476,48 @@ fn applyFacts(check: *Check, range: Compilation.Range) Allocator.Error!void {
 
 fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
     const builder = check.body();
-    const local = check.localAt(fact.local);
     const source: Ref = if (check.activeNarrow(fact.local)) |narrow|
         narrow.ref
     else
-        local.payload.ref;
-    const narrowed = try check.emitOne(fact.node, .union_narrow, fact.type, source);
+        localRef(check.localAt(fact.local));
+    const narrowed: Ref = switch (source.unwrap()) {
+        // a settled union narrows to the member it holds, with nothing to run
+        .constant => |constant| .fromConstant(try check.narrowConstant(constant, fact.type)),
+        .inst => try check.emitOne(fact.node, .union_narrow, fact.type, source),
+    };
     try builder.narrows.append(check.comp.gpa, .{
         .local = fact.local,
         .type = fact.type,
         .ref = narrowed,
     });
+}
+
+/// The member a settled union holds, as the type a branch proved. Poison where
+/// the branch cannot run, which is never reported since nothing in it is checked.
+fn narrowConstant(check: *Check, constant: Pool.Index, proved: Pool.Index) Allocator.Error!Pool.Index {
+    const comp = check.comp;
+    if (constant == .poison) return .poison;
+    const held = comp.pool.keyOf(constant).value_union.value;
+    return switch (try comp.pool.fit(comp.gpa, held, proved, .refused)) {
+        .value => |fitted| fitted,
+        .does_not_fit, .wrong_kind => .poison,
+    };
+}
+
+/// What a local stands for before any branch narrows it, a `var` by its address.
+fn localRef(local: Builder.Local) Ref {
+    return switch (local.kind) {
+        .let_constant => .fromConstant(local.payload.constant),
+        .let_value, .param, .var_slot => local.payload.ref,
+    };
+}
+
+/// A constant or a running value, told apart by the ref.
+fn valueOfRef(ref: Ref, type_index: Pool.Index) Value {
+    return switch (ref.unwrap()) {
+        .constant => |constant| .{ .constant = constant },
+        .inst => runtimeValue(ref, type_index),
+    };
 }
 
 fn namedType(check: *Check, node: Node.Index, value: Value) Allocator.Error!?Pool.Index {
@@ -2950,12 +2965,9 @@ fn checkIdent(check: *Check, node: Node.Index) Allocator.Error!Value {
     if (check.findLocalIndex(text)) |index| {
         const local = check.localAt(index);
         switch (local.kind) {
-            .let_constant => return .{ .constant = local.payload.constant },
-            .let_value, .param => {
-                if (check.activeNarrow(index)) |narrow| {
-                    return runtimeValue(narrow.ref, narrow.type);
-                }
-                return runtimeValue(local.payload.ref, local.type);
+            .let_constant, .let_value, .param => {
+                if (check.activeNarrow(index)) |narrow| return valueOfRef(narrow.ref, narrow.type);
+                return valueOfRef(localRef(local), local.type);
             },
             .var_slot => {
                 const loaded = try check.emitOne(node, .load, local.type, local.payload.ref);
@@ -5643,15 +5655,11 @@ fn localPlace(
 ) Place {
     const local = check.localAt(index);
     const narrow = check.activeNarrow(index);
-    if (narrow != null) assert(local.kind == .let_value or local.kind == .param);
+    if (narrow != null) assert(local.kind != .var_slot);
 
     return .{
         .kind = if (local.kind == .var_slot) .address else .value,
-        .ref = switch (local.kind) {
-            .var_slot => local.payload.ref,
-            .let_constant => .fromConstant(local.payload.constant),
-            .let_value, .param => if (narrow) |it| it.ref else local.payload.ref,
-        },
+        .ref = if (narrow) |it| it.ref else localRef(local),
         .type = if (narrow) |it| it.type else local.type,
         .node = node,
         .mutable = local.kind == .var_slot,

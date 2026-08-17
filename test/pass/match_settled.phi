@@ -1,0 +1,67 @@
+type A
+type B
+type C
+
+let held: A | B | C = B
+
+/// A settled union enters one arm, and the others are never checked.
+fn chosen() u32 {
+    return match held {
+        A => 1
+        B => 2
+        C => 3
+    }
+}
+
+/// The name narrows to the member the constant holds, so it is a `u32` here.
+fn narrowed() u32 {
+    let number: u32 | u8 = 10
+    match number {
+        u32 => return number + 1
+        u8 => return 0
+    }
+}
+
+/// An arm not chosen is not entered, so what would not typecheck there is never met.
+fn unchosen_is_not_checked() u32 {
+    let number: u32 | u8 = 10
+    return match number {
+        u32 => number + 1
+        u8 => number.nothing_here
+    }
+}
+
+/// `else` takes the rest, and takes the settled member where no label names it.
+fn through_else() u32 {
+    return match held {
+        A => 1
+        else => 9
+    }
+}
+
+/// A label naming several members covers the settled one.
+fn through_a_pair() u32 {
+    return match held {
+        A => 1
+        B | C => 2
+    }
+}
+
+/// As a statement, the arm still runs and what follows it is reached.
+fn as_a_statement() u32 {
+    match held {
+        A => return 5
+        B => {}
+        C => return 5
+    }
+    return 6
+}
+
+/// `is` narrows a settled constant the same way, and the dead branch is never entered.
+fn narrowed_by_is() u32 {
+    let number: u32 | u8 = 10
+    if number is u32 {
+        return number + 1
+    }
+    return number.nothing_here
+}

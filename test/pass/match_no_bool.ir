@@ -20,15 +20,19 @@ b6:
   %5 = union_narrow %0 : C
   jump b1
 
-fn main() u32
+fn choose(a: u32 | u8) u32
 b0:
-  %0 = union_is 10:u32, u32
-  branch %0, b2, b3
+  %0 = param a : u32 | u8
+  %1 = union_is %0, u32
+  branch %1, b2, b3
 b1:
+  %4 = union_narrow %0 : u8
   return 10:u32
 b2:
-  return 10:u32
+  %2 = union_narrow %0 : u32
+  return %2
 b3:
   jump b4
 b4:
+  %3 = union_narrow %0 : u8
   jump b1
