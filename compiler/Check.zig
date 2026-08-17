@@ -1650,8 +1650,7 @@ fn checkIf(
 
     const cond = try check.checkCondition(view.cond);
 
-    // a settled condition takes its edge here, and the dead arm is never
-    // entered, the way a settled 'and' never enters its dead side
+    // a settled condition takes its edge here, so the dead arm is never entered
     const decided = check.conditionTruth(cond);
     const then_live = decided orelse true;
     const else_live = !(decided orelse false);
@@ -4747,7 +4746,6 @@ fn checkStructLiteral(
     try comp.ensureRows(instance);
     const rows = comp.instanceAt(instance).rows;
 
-    // one slot per field, in declaration order
     const start: u32 = @intCast(comp.operands.items.len);
     defer comp.operands.shrinkRetainingCapacity(start);
     try comp.operands.appendNTimes(
