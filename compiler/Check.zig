@@ -1661,13 +1661,19 @@ const Join = struct {
         return if (join.settled) join.result_type else null;
     }
 
+    /// An arm's value into the slot. The first arm with a type names it, and an
+    /// untyped constant waits in the slot for one, so the arms may come in any order.
     fn take(join: *Join, check: *Check, value: Value, at: Node.Index) Allocator.Error!void {
         if (join.carries == false) return;
         if (value == .diverged) return;
 
         if (join.settled == false) {
+            const found = check.typeOf(value);
+            if (value == .constant and Pool.isUntyped(found)) {
+                return check.emitStore(at, join.slot, refOf(value));
+            }
             const blamed = join.names_type.unwrap() orelse at;
-            join.result_type = try check.settleType(blamed, check.typeOf(value), join.what);
+            join.result_type = try check.settleType(blamed, found, join.what);
             join.settled = true;
         }
         const met = try check.coerce(value, join.result_type, at);
@@ -1679,11 +1685,42 @@ const Join = struct {
     fn close(join: Join, check: *Check, diverged: bool) Allocator.Error!Value {
         if (join.carries == false) return .void_value;
         try check.setSlotType(join.slot, join.result_type);
+        try join.settleWaiting(check);
 
         if (diverged) return .diverged;
         if (join.result_type == .poison) return .poison;
         const loaded = try check.emitOne(join.node, .load, join.result_type, join.slot);
         return runtimeValue(loaded, join.result_type);
+    }
+
+    /// The untyped constants left waiting in the slot meet the type the arms
+    /// settled, or say that nothing did. Found by the stores into the slot.
+    fn settleWaiting(join: Join, check: *Check) Allocator.Error!void {
+        const builder = check.body();
+        const pool = &check.comp.pool;
+        const tags = builder.insts.items(.tag);
+        const data = builder.insts.items(.data);
+        const nodes = builder.insts.items(.node);
+
+        // the slot was emitted first, so its stores all follow it
+        var at = join.slot.unwrap().inst.int() + 1;
+        while (at < builder.insts.len) : (at += 1) {
+            if (tags[at] != .store) continue;
+            if (data[at].bin.lhs != join.slot) continue;
+            const constant = switch (data[at].bin.rhs.unwrap()) {
+                .constant => |constant| constant,
+                .inst => continue,
+            };
+            if (Pool.isUntyped(pool.typeOfValue(constant)) == false) continue;
+
+            if (join.settled == false) {
+                const blamed = join.names_type.unwrap() orelse nodes[at];
+                _ = try check.settleType(blamed, pool.typeOfValue(constant), join.what);
+                return;
+            }
+            const met = try check.fitValue(constant, join.result_type, nodes[at]);
+            data[at].bin.rhs = refOf(met);
+        }
     }
 };
 

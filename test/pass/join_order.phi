@@ -1,0 +1,61 @@
+type A
+type B
+
+/// The arms of an `if` name its type between them, in whichever order they come.
+fn constant_first(c: bool, small: u8) u8 {
+    let a = if c { 1 } else { small }
+    return a
+}
+
+fn constant_last(c: bool, small: u8) u8 {
+    let a = if c { small } else { 1 }
+    return a
+}
+
+/// A later arm may name a union, and the constant enters it as a member.
+fn into_a_union(c: bool, maybe: u32 | none) u32 | none {
+    let a = if c { 7 } else { maybe }
+    return a
+}
+
+/// A chain settles on the one arm with a type, wherever it sits.
+fn one_typed_arm(n: u32, wide: u64) u64 {
+    let a = if n > 10 { 1 } else if n > 5 { wide } else { 3 }
+    return a
+}
+
+/// A `break` carrying a constant waits for the one carrying a value.
+fn from_a_loop(limit: u32, wide: u64) u64 {
+    var i: u32 = 0
+    let a = loop {
+        if i == limit {
+            break 0
+        }
+        if i > 3 {
+            break wide
+        }
+        i += 1
+    }
+    return a
+}
+
+/// Match arms the same, with a settled one naming the type last.
+fn from_a_match(e: A | B, wide: u64) u64 {
+    let a = match e {
+        A => 1
+        B => wide
+    }
+    return a
+}
+
+/// An untyped array waits the same way and lands on the storage another arm names.
+fn an_aggregate(c: bool, pair: [2]u32) [2]u32 {
+    let a = if c { [1, 2] } else { pair }
+    return a
+}
+
+/// A hint settles the type before any arm, so nothing waits.
+fn hinted(c: bool) u16 {
+    let a: u16 = if c { 1 } else { 2 }
+    return a
+}

@@ -1,0 +1,22 @@
+/// Every arm is a constant that has not landed, so nothing names the type.
+fn all_untyped(c: bool) u32 {
+    let a = if c { 1 } else { 2 }
+    return a
+}
+
+/// The constant that waited does not fit the type a later arm named.
+fn does_not_fit(c: bool, small: u8) u8 {
+    let a = if c { 300 } else { small }
+    return a
+}
+
+/// Nor from a loop, where the value comes last.
+fn from_a_loop(c: bool, small: u8) u8 {
+    let a = loop {
+        if c {
+            break 300
+        }
+        break small
+    }
+    return a
+}

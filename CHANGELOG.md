@@ -54,6 +54,10 @@
 
 ### Compiler
 
+- The arms of an `if`, a `loop`, or a `match` used as a value name its type
+  between them in whichever order they come, so `if c { 1 } else { small }`
+  is a `u8` the way `if c { small } else { 1 }` always was. A constant that
+  has not landed waits for the arm that has.
 - An operator refused on a union says how to narrow it, which only `==` and
   `!=` used to.
 - A report from inside a long chain of instantiations keeps both ends of it,

@@ -1,0 +1,164 @@
+fn constant_first(c: true | false, small: u8) u8
+b0:
+  %0 = param c : true | false
+  %1 = param small : u8
+  %2 = local : *var u8
+  branch %0, b1, b2
+b1:
+  %3 = store %2, 1:u8
+  jump b3
+b2:
+  %4 = store %2, %1
+  jump b3
+b3:
+  %5 = load %2 : u8
+  return %5
+
+fn constant_last(c: true | false, small: u8) u8
+b0:
+  %0 = param c : true | false
+  %1 = param small : u8
+  %2 = local : *var u8
+  branch %0, b1, b2
+b1:
+  %3 = store %2, %1
+  jump b3
+b2:
+  %4 = store %2, 1:u8
+  jump b3
+b3:
+  %5 = load %2 : u8
+  return %5
+
+fn into_a_union(c: true | false, maybe: u32 | none) u32 | none
+b0:
+  %0 = param c : true | false
+  %1 = param maybe : u32 | none
+  %2 = local : *var u32 | none
+  branch %0, b1, b2
+b1:
+  %3 = store %2, 7:u32
+  jump b3
+b2:
+  %4 = store %2, %1
+  jump b3
+b3:
+  %5 = load %2 : u32 | none
+  return %5
+
+fn one_typed_arm(n: u32, wide: u64) u64
+b0:
+  %0 = param n : u32
+  %1 = param wide : u64
+  %2 = local : *var u64
+  %3 = cmp_gt %0, 10:u32 : true | false
+  branch %3, b1, b2
+b1:
+  %4 = store %2, 1:u64
+  jump b3
+b2:
+  %5 = local : *var u64
+  %6 = cmp_gt %0, 5:u32 : true | false
+  branch %6, b4, b5
+b3:
+  %11 = load %2 : u64
+  return %11
+b4:
+  %7 = store %5, %1
+  jump b6
+b5:
+  %8 = store %5, 3:u64
+  jump b6
+b6:
+  %9 = load %5 : u64
+  %10 = store %2, %9
+  jump b3
+
+fn from_a_loop(limit: u32, wide: u64) u64
+b0:
+  %0 = param limit : u32
+  %1 = param wide : u64
+  %2 = local i : *var u32
+  %3 = store %2, 0:u32
+  %4 = local : *var u64
+  jump b1
+b1:
+  jump b2
+b2:
+  %5 = load %2 : u32
+  %6 = cmp_eq %5, %0 : true | false
+  branch %6, b4, b5
+b3:
+  %14 = load %4 : u64
+  return %14
+b4:
+  %7 = store %4, 0:u64
+  jump b3
+b5:
+  jump b6
+b6:
+  %8 = load %2 : u32
+  %9 = cmp_gt %8, 3:u32 : true | false
+  branch %9, b7, b8
+b7:
+  %10 = store %4, %1
+  jump b3
+b8:
+  jump b9
+b9:
+  %11 = load %2 : u32
+  %12 = add %11, 1:u32 : u32
+  %13 = store %2, %12
+  jump b1
+
+fn from_a_match(e: A | B, wide: u64) u64
+b0:
+  %0 = param e : A | B
+  %1 = param wide : u64
+  %2 = local : *var u64
+  %3 = union_is %0, A
+  branch %3, b2, b3
+b1:
+  %8 = load %2 : u64
+  return %8
+b2:
+  %4 = union_narrow %0 : A
+  %5 = store %2, 1:u64
+  jump b1
+b3:
+  jump b4
+b4:
+  %6 = union_narrow %0 : B
+  %7 = store %2, %1
+  jump b1
+
+fn an_aggregate(c: true | false, pair: [2]u32) [2]u32
+b0:
+  %0 = param c : true | false
+  %1 = param pair : [2]u32
+  %2 = local : *var [2]u32
+  branch %0, b1, b2
+b1:
+  %3 = store %2, [1:u32, 2:u32]
+  jump b3
+b2:
+  %4 = store %2, %1
+  jump b3
+b3:
+  %5 = load %2 : [2]u32
+  return %5
+
+fn hinted(c: true | false) u16
+b0:
+  %0 = param c : true | false
+  %1 = local : *var u16
+  branch %0, b1, b2
+b1:
+  %2 = store %1, 1:u16
+  jump b3
+b2:
+  %3 = store %1, 2:u16
+  jump b3
+b3:
+  %4 = load %1 : u16
+  return %4
