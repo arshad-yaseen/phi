@@ -60,3 +60,34 @@ fn counted(xs: []u32) u32 {
 fn float_operands(a: f32, b: f64) f64 {
     return a + b
 }
+
+// an integer reaches a float that holds every value of it exactly
+fn to_double(n: u32) f64 {
+    return n
+}
+
+fn signed_to_double(n: i32) f64 {
+    return n
+}
+
+fn to_single(n: i16) f32 {
+    return n
+}
+
+fn mixed_operands(a: u32, b: f64) f64 {
+    return a + b
+}
+
+fn into_an_optional(n: u16) f32 | none {
+    return n
+}
+
+// the largest an f32 and an f64 hold whole, and a typed constant that widens
+let widest_single: f32 = 16777216
+let widest_double: f64 = 9007199254740992
+let small_constant: u8 = 200
+let small_as_double: f64 = small_constant
+
+fn edges() f64 {
+    return widest_single + widest_double + small_as_double
+}

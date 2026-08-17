@@ -1,19 +1,19 @@
 fn lands(small: u8) u32
 b0:
   %0 = param small : u8
-  %1 = int_widen %0 : u32
+  %1 = widen %0 : u32
   return %1
 
 fn crosses(small: u8) i16
 b0:
   %0 = param small : u8
-  %1 = int_widen %0 : i16
+  %1 = widen %0 : i16
   return %1
 
 fn keeps_the_sign(small: i8) i64
 b0:
   %0 = param small : i8
-  %1 = int_widen %0 : i64
+  %1 = widen %0 : i64
   return %1
 
 fn from_a_constant() u64
@@ -23,14 +23,14 @@ b0:
 fn into_a_field(small: i32) Pair
 b0:
   %0 = param small : i32
-  %1 = int_widen %0 : i64
+  %1 = widen %0 : i64
   %2 = aggregate_init .{ wide: %1 } : Pair
   return %2
 
 fn into_an_argument(small: u16) u32
 b0:
   %0 = param small : u16
-  %1 = int_widen %0 : u32
+  %1 = widen %0 : u32
   %2 = call lands_wide(%1) : u32
   return %2
 
@@ -42,21 +42,21 @@ b0:
 fn into_an_element(small: u8) [2]u32
 b0:
   %0 = param small : u8
-  %1 = int_widen %0 : u32
+  %1 = widen %0 : u32
   %2 = aggregate_init [%1, 1:u32] : [2]u32
   return %2
 
 fn floats(x: f32) f64
 b0:
   %0 = param x : f32
-  %1 = float_widen %0 : f64
+  %1 = widen %0 : f64
   return %1
 
 fn adds(a: i32, b: i64) i64
 b0:
   %0 = param a : i32
   %1 = param b : i64
-  %2 = int_widen %0 : i64
+  %2 = widen %0 : i64
   %3 = add %2, %1 : i64
   return %3
 
@@ -64,7 +64,7 @@ fn shifts(value: u32, by: u8) u32
 b0:
   %0 = param value : u32
   %1 = param by : u8
-  %2 = int_widen %1 : u32
+  %2 = widen %1 : u32
   %3 = shift_left %0, %2 : u32
   return %3
 
@@ -79,7 +79,7 @@ b0:
 b1:
   %5 = load %3 : u32
   %6 = slice_len %0 : u64
-  %7 = int_widen %5 : u64
+  %7 = widen %5 : u64
   %8 = cmp_lt %7, %6 : true | false
   branch %8, b2, b3
 b2:
@@ -103,6 +103,43 @@ fn float_operands(a: f32, b: f64) f64
 b0:
   %0 = param a : f32
   %1 = param b : f64
-  %2 = float_widen %0 : f64
+  %2 = widen %0 : f64
   %3 = add %2, %1 : f64
   return %3
+
+fn to_double(n: u32) f64
+b0:
+  %0 = param n : u32
+  %1 = widen %0 : f64
+  return %1
+
+fn signed_to_double(n: i32) f64
+b0:
+  %0 = param n : i32
+  %1 = widen %0 : f64
+  return %1
+
+fn to_single(n: i16) f32
+b0:
+  %0 = param n : i16
+  %1 = widen %0 : f32
+  return %1
+
+fn mixed_operands(a: u32, b: f64) f64
+b0:
+  %0 = param a : u32
+  %1 = param b : f64
+  %2 = widen %0 : f64
+  %3 = add %2, %1 : f64
+  return %3
+
+fn into_an_optional(n: u16) f32 | none
+b0:
+  %0 = param n : u16
+  %1 = widen %0 : f32
+  %2 = union_init %1, f32 : f32 | none
+  return %2
+
+fn edges() f64
+b0:
+  return 9007199271518408:f64

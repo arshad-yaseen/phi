@@ -1,0 +1,27 @@
+// 2^24 + 1 is the first integer an f32 cannot hold, 2^53 + 1 the first an f64 cannot
+let single: f32 = 16777217
+let double: f64 = 9007199254740993
+
+// the widest an f32 holds whole is 2^24, so the constant is refused and the value below it
+let just_past: f32 = -16777217
+
+// a runtime integer reaches a float only where every value of it is exact
+fn wide_to_double(n: u64) f64 {
+    return n
+}
+
+fn signed_wide_to_double(n: i64) f64 {
+    return n
+}
+
+fn to_single(n: u32) f32 {
+    return n
+}
+
+// a fold refuses what a runtime operand would, so the two never disagree
+let seed: f32 = 3.0
+let folded = seed * 16777217
+
+fn mixed(a: u64, b: f64) f64 {
+    return a + b
+}

@@ -14,7 +14,7 @@ error[E0207]: '+' mixes i8 and u64
   |
   = help: nothing converts on its own, so give both sides one type
 
-error[E0207]: '+' mixes u32 and f64
+error[E0207]: '+' mixes u64 and f64
   --> test/fail/mixed_types.phi:10:14
    |
 10 |     return a + b

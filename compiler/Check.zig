@@ -3162,14 +3162,7 @@ fn settleFold(
             }),
             .label = "not a shift count",
         },
-        .does_not_fit => |missed| .{
-            .code = .does_not_fit,
-            .message = try comp.fmt("{d} does not fit in {s}", .{
-                missed.value,
-                try comp.typeName(missed.type),
-            }),
-            .label = "past the type's edge",
-        },
+        .does_not_fit => |missed| try check.doesNotFit(missed.value, missed.type, null),
         .mismatch => |pair| {
             try check.failMixedTypes(op_token, pair.left, pair.right, operand_help);
             return .poison;
@@ -6126,8 +6119,7 @@ fn coerce(
             const want = comp.pool.keyOf(wanted);
 
             if (Pool.widens(runtime.type, wanted)) {
-                const tag: IR.Inst.Tag = if (Pool.isFloat(wanted)) .float_widen else .int_widen;
-                return runtimeValue(try check.emitOne(node, tag, wanted, runtime.ref), wanted);
+                return runtimeValue(try check.emitOne(node, .widen, wanted, runtime.ref), wanted);
             }
 
             // the one subtyping edge. a view gets it for the same reason a pointer does
@@ -6248,29 +6240,30 @@ fn fitValue(
     return switch (try comp.pool.fit(comp.gpa, constant, wanted, .allowed)) {
         .value => |final| .{ .constant = final },
         .does_not_fit => fitted: {
-            try check.reportDoesNotFit(node, constant, wanted);
+            try check.fail(node, try check.doesNotFit(constant, wanted, "an untyped constant " ++
+                "takes any type its value fits, and this value does not fit this one"));
             break :fitted .poison;
         },
         .wrong_kind => try check.reportMismatch(node, .{ .constant = constant }, wanted),
     };
 }
 
-fn reportDoesNotFit(
+/// A value the type would not hold whole, wherever it met the type.
+fn doesNotFit(
     check: *Check,
-    node: Node.Index,
     constant: Pool.Index,
     wanted: Pool.Index,
-) Allocator.Error!void {
-    try check.fail(node, .{
+    help: ?[]const u8,
+) Allocator.Error!Compilation.Report {
+    return .{
         .code = .does_not_fit,
         .message = try check.comp.fmt("{s} does not fit in {s}", .{
             try check.comp.spellValue(constant),
             try check.comp.typeName(wanted),
         }),
         .label = "past the type's edge",
-        .help = "an untyped constant takes any type its value fits, " ++
-            "and this value does not fit this one",
-    });
+        .help = help,
+    };
 }
 
 fn reportMismatch(

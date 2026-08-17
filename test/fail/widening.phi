@@ -2,10 +2,6 @@ fn narrows(x: f64) f32 {
     return x
 }
 
-fn int_to_float(n: u32) f64 {
-    return n
-}
-
 fn float_to_int(x: f64) u32 {
     return x
 }

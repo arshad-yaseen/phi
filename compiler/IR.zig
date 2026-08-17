@@ -172,10 +172,8 @@ pub const Inst = struct {
 
         /// Retypes a pointer and emits nothing.
         ptr_cast,
-        /// Sign- or zero-extends into a type holding every value of the old one.
-        int_widen,
-        /// Widens a float into one holding every value of the old one.
-        float_widen,
+        /// Converts into a type holding every value of the old one, so nothing is lost.
+        widen,
         /// The value when the type holds it, the union's other member when not.
         int_cast,
 
@@ -198,7 +196,7 @@ pub const Inst = struct {
                 .union_is, .union_init => .probe,
                 .call, .slice_make, .aggregate_init => .payload,
                 .load, .slice_len, .slice_ptr, .negate, .not, .bit_not => .un,
-                .ptr_cast, .int_widen, .float_widen, .int_cast => .un,
+                .ptr_cast, .widen, .int_cast => .un,
                 .union_narrow => .un,
                 .store, .elem_ptr, .bounds_check, .order_check => .bin,
                 .add, .sub, .mul, .div, .mod => .bin,

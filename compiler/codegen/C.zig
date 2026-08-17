@@ -967,7 +967,7 @@ fn writeInst(backend: *C, local: Position) Fail!void {
         },
         .bit_not => try backend.put(.{ assign(local), "(", inst.type, ")~", inst.data.un, ";\n" }),
 
-        .ptr_cast, .int_widen, .float_widen => try backend.put(.{
+        .ptr_cast, .widen => try backend.put(.{
             assign(local), "(", inst.type, ")", inst.data.un, ";\n",
         }),
         .int_cast => try backend.writeIntCast(local, inst),

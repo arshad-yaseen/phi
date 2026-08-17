@@ -31,6 +31,11 @@
   labeled with the type it is, so a generic specializes on its own type
   argument. Only the chosen arm is checked, and a type no arm names is refused
   where the generic was instantiated.
+- An integer reaches a float the way it reaches a wider integer, with nothing
+  written, wherever every value of it is exact: a `u32` is an `f64`, an `i16`
+  is an `f32`, and a `u64` is neither. An integer constant that a float would
+  round is refused rather than rounded, so `let x: f32 = 16777217` reports
+  where it used to lose the one.
 - A top-level binding takes whatever settles before anything runs, so
   `let size: u64 = @size_of[Node]()` and `let same = Byte is u8` bind where
   they used to be refused. What has to run, such as a call, still cannot.

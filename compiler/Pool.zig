@@ -730,9 +730,36 @@ pub fn isSizedInt(index: Index) bool {
 pub fn widens(from: Index, into: Index) bool {
     if (from == .f32_type) return into == .f64_type;
     if (isSizedInt(from) == false) return false;
+    if (isSizedFloat(into)) {
+        // a float holds every integer up to its mantissa exactly, and nothing wider
+        return minInt(from) >= -exactIntMax(into) and maxInt(from) <= exactIntMax(into);
+    }
     if (isSizedInt(into) == false) return false;
     if (minInt(into) > minInt(from)) return false;
     return maxInt(from) <= maxInt(into);
+}
+
+fn isSizedFloat(index: Index) bool {
+    return index == .f32_type or index == .f64_type;
+}
+
+/// The largest integer a float holds exactly, and every one below it.
+fn exactIntMax(float_type: Index) i128 {
+    return switch (float_type) {
+        .f32_type => 1 << 24,
+        .f64_type => 1 << 53,
+        else => unreachable,
+    };
+}
+
+/// The float that is exactly `value`, or null where the type would round it.
+fn exactFloat(value: i128, type_index: Index) ?f64 {
+    assert(isFloat(type_index));
+    const wide = narrowFloat(@floatFromInt(value), type_index);
+    // past the fold's own width nothing is exact, and reading back would overflow
+    if (wide < -0x1p127 or wide >= 0x1p127) return null;
+    if (@as(i128, @intFromFloat(wide)) != value) return null;
+    return wide;
 }
 
 fn isSignedInt(index: Index) bool {
@@ -780,7 +807,7 @@ pub const Fold = union(enum) {
     /// Outside the width the shifted value occupies.
     bad_shift: struct { count: i128, type: Index },
     /// Refused by the type both operands carry.
-    does_not_fit: struct { value: i128, type: Index },
+    does_not_fit: struct { value: Index, type: Index },
     mismatch: struct { left: Index, right: Index },
     bad_operand: Index,
     /// A comparison's answer, spelled by the checker, because `bool` is declared.
@@ -800,27 +827,41 @@ pub fn fold(
     if (lhs == .poison) return .{ .value = .poison };
     if (rhs == .poison) return .{ .value = .poison };
 
-    const left = pool.keyOf(lhs);
-    const right = pool.keyOf(rhs);
-
     assert(op != .bool_and);
     assert(op != .bool_or);
 
-    const a = numberOf(left) orelse return .{ .bad_operand = pool.typeOfValue(lhs) };
-    const b = numberOf(right) orelse return .{ .bad_operand = pool.typeOfValue(rhs) };
+    const left = numberOf(pool.keyOf(lhs)) orelse return .{ .bad_operand = pool.typeOfValue(lhs) };
+    const right = numberOf(pool.keyOf(rhs)) orelse return .{ .bad_operand = pool.typeOfValue(rhs) };
 
-    const result_type = sharedType(a.type, b.type) orelse {
-        return .{ .mismatch = .{ .left = a.type, .right = b.type } };
+    const result_type = sharedType(left.type, right.type) orelse {
+        return .{ .mismatch = .{ .left = left.type, .right = right.type } };
+    };
+
+    // both meet the shared type first, so a constant that would round is refused as at run time
+    const a = try pool.fitNumber(gpa, lhs, result_type) orelse {
+        return .{ .does_not_fit = .{ .value = lhs, .type = result_type } };
+    };
+    const b = try pool.fitNumber(gpa, rhs, result_type) orelse {
+        return .{ .does_not_fit = .{ .value = rhs, .type = result_type } };
     };
 
     if (isFloat(result_type)) {
-        const x = a.toFloat();
-        const y = b.toFloat();
-        if (compareFold(op, x, y)) |answer| return answer;
-        return pool.foldFloat(gpa, op, x, y, result_type);
+        if (compareFold(op, a.float, b.float)) |answer| return answer;
+        return pool.foldFloat(gpa, op, a.float, b.float, result_type);
     }
     if (compareFold(op, a.int, b.int)) |answer| return answer;
     return pool.foldInt(gpa, op, a.int, b.int, result_type);
+}
+
+/// A number as the type holds it, or null where it does not fit.
+fn fitNumber(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocator.Error!?Number {
+    return switch (try pool.fit(gpa, value, type_index, .allowed)) {
+        // a number fitted to a numeric type is a number
+        .value => |fitted| numberOf(pool.keyOf(fitted)).?,
+        .does_not_fit => null,
+        // `sharedType` admits only numeric pairs, so the kind always matches
+        .wrong_kind => unreachable,
+    };
 }
 
 /// The one place an operator becomes a comparison, so both widths ask it alike.
@@ -843,7 +884,7 @@ pub fn foldNegate(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!F
         return .{ .bad_operand = pool.typeOfValue(operand) };
     };
     if (isFloat(number.type)) {
-        return pool.internFloat(gpa, -number.toFloat(), number.type);
+        return pool.internFloat(gpa, -number.float, number.type);
     }
     const negated = std.math.negate(number.int) catch return .overflow;
     return pool.internInt(gpa, negated, number.type);
@@ -936,7 +977,7 @@ pub fn fit(
         if (type_index == found) return .{ .value = value };
         if (widen == .allowed and widens(found, type_index)) {
             const widened: Key = switch (pool.keyOf(value)) {
-                .value_int => |it| .{ .value_int = .{ .type = type_index, .value = it.value } },
+                .value_int => |it| widenedInt(it.value, type_index),
                 .value_float => |it| .{ .value_float = .{ .type = type_index, .value = it.value } },
                 // widening answers for a number and nothing else
                 else => unreachable,
@@ -956,7 +997,11 @@ pub fn fit(
                 return .{ .value = try pool.internWith(gpa, it.value, type_index) };
             }
             if (isFloat(type_index)) {
-                return .{ .value = try pool.internWith(gpa, it.value, type_index) };
+                // an integer is exact, so a float that would round it loses a value
+                const exact = exactFloat(it.value, type_index) orelse return .does_not_fit;
+                return .{ .value = try pool.intern(gpa, .{
+                    .value_float = .{ .type = type_index, .value = exact },
+                }) };
             }
             return .wrong_kind;
         },
@@ -1045,16 +1090,11 @@ fn fitAggregate(
 
 // the arms of the core
 
-/// Widened, so the fold has one integer and one float shape.
+/// One integer and one float shape, whichever the type says.
 const Number = struct {
     type: Index,
     int: i128,
     float: f64,
-
-    fn toFloat(number: Number) f64 {
-        if (isFloat(number.type)) return number.float;
-        return @floatFromInt(number.int);
-    }
 };
 
 fn numberOf(key: Key) ?Number {
@@ -1164,11 +1204,13 @@ fn internInt(
 ) Allocator.Error!Fold {
     assert(isInteger(type_index));
     if (fitsInt(value, type_index) == false) {
-        return .{ .does_not_fit = .{ .value = value, .type = type_index } };
+        // interned untyped, so the report can spell the number the type would not hold
+        return .{ .does_not_fit = .{
+            .value = try pool.internWith(gpa, value, .untyped_int_type),
+            .type = type_index,
+        } };
     }
-    return .{ .value = try pool.intern(gpa, .{
-        .value_int = .{ .type = type_index, .value = value },
-    }) };
+    return .{ .value = try pool.internWith(gpa, value, type_index) };
 }
 
 fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Allocator.Error!Fold {
@@ -1178,14 +1220,21 @@ fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Alloc
     }) };
 }
 
-/// Into a type already checked to hold the value.
+/// Into an integer type already checked to hold the value.
 fn internWith(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Index {
-    if (isFloat(type_index)) {
-        const narrowed = narrowFloat(@floatFromInt(value), type_index);
-        return pool.intern(gpa, .{ .value_float = .{ .type = type_index, .value = narrowed } });
-    }
+    assert(isInteger(type_index));
     assert(fitsInt(value, type_index));
     return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
+}
+
+/// A typed integer widened, which lands as a float where the type is one.
+fn widenedInt(value: i128, into: Index) Key {
+    if (isFloat(into)) {
+        // `widens` admitted the type, so every value of it is exact here
+        assert(exactFloat(value, into) != null);
+        return .{ .value_float = .{ .type = into, .value = @floatFromInt(value) } };
+    }
+    return .{ .value_int = .{ .type = into, .value = value } };
 }
 
 /// Constants fold at 64 bits, so landing on an `f32` rounds to what it can hold.
