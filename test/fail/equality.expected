@@ -4,7 +4,7 @@ error[E0207]: '==' mixes Ready | Timeout and Ready
 10 |     return s == Ready
    |              ^^ two different types
    |
-   = help: nothing converts on its own, so give both sides one type
+   = help: 'is' tests which member a union holds and narrows the name to it
 
 error[E0211]: '==' cannot be applied to Ready | Timeout
   --> test/fail/equality.phi:14:14

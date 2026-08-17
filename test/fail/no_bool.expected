@@ -1,7 +1,7 @@
 error[E0258]: this needs 'bool', a union of two unit types
- --> test/fail/no_bool.phi:4:8
+ --> test/fail/no_bool.phi:6:8
   |
-4 |     if a < b {
+6 |     if a < b {
   |        ^ no such 'bool' in scope
   |
   = help: declare 'type true', 'type false', and 'type bool = true | false'

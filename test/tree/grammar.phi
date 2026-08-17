@@ -16,7 +16,9 @@ pub type Box[T,] = {
     }
 }
 
-type Empty = {}
+type Empty = {
+    fn nothing() {}
+}
 
 let top_level: i64 = 1 + 2 * 3
 pub let exported = 0xff_ff

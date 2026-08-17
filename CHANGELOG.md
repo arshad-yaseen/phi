@@ -47,6 +47,9 @@
   is an `f32`, and a `u64` is neither. An integer constant that a float would
   round is refused rather than rounded, so `let x: f32 = 16777217` reports
   where it used to lose the one.
+- `type X = { }` with nothing inside is refused, because a type with nothing
+  inside is `type X`, and one spelling is enough. A struct holding only
+  functions stays, since it is a namespace rather than a value.
 - A top-level binding takes whatever settles before anything runs, so
   `let size: u64 = @size_of[Node]()` and `let same = Byte is u8` bind where
   they used to be refused. What has to run, such as a call, still cannot.
@@ -66,7 +69,8 @@
   is a `u8` the way `if c { small } else { 1 }` always was. A constant that
   has not landed waits for the arm that has.
 - An operator refused on a union says how to narrow it, which only `==` and
-  `!=` used to.
+  `!=` used to, and only where narrowing could reach a member that takes the
+  operator. An operator that mixes a union with a member of it says the same.
 - A report from inside a long chain of instantiations keeps both ends of it,
   the innermost frames and the caller's own, and counts what it leaves out
   between. It used to drop the caller's end, which is the half a reader can

@@ -18,7 +18,7 @@ fn a_wide_payload_pads_its_tag() u64
 b0:
   return 16:u64
 
-fn an_empty_struct_is_nothing() u64
+fn a_unit_is_nothing() u64
 b0:
   return 0:u64
 

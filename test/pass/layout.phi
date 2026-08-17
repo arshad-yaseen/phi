@@ -4,7 +4,7 @@ type bool = true | false
 
 type none
 
-type Empty = { }
+type Empty
 
 type Node = {
     value: u64
@@ -42,7 +42,7 @@ fn a_wide_payload_pads_its_tag() u64 {
     return @size_of[u64 | none]()
 }
 
-fn an_empty_struct_is_nothing() u64 {
+fn a_unit_is_nothing() u64 {
     return @size_of[Empty]()
 }
 

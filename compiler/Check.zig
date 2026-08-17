@@ -3398,13 +3398,23 @@ fn failMixedTypes(
 }
 
 fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
-    const left = Pool.sharedType(check.typeOf(it.lhs), check.typeOf(it.rhs)) orelse {
-        try check.failMixedTypes(
-            it.op_token,
-            check.typeOf(it.lhs),
-            check.typeOf(it.rhs),
-            operand_help,
-        );
+    const pool = &check.comp.pool;
+    const lhs_type = check.typeOf(it.lhs);
+    const rhs_type = check.typeOf(it.rhs);
+    const left = Pool.sharedType(lhs_type, rhs_type) orelse {
+        // a union side is narrowed rather than converted, so the help says how
+        const union_side: ?Pool.Index = if (pool.isUnion(lhs_type))
+            lhs_type
+        else if (pool.isUnion(rhs_type))
+            rhs_type
+        else
+            null;
+        const equality = it.op == .equal or it.op == .not_equal;
+        const help = if (union_side) |side|
+            check.operandHelp(side, equality) orelse operand_help
+        else
+            operand_help;
+        try check.failMixedTypes(it.op_token, lhs_type, rhs_type, help);
         return .poison;
     };
 
@@ -6595,7 +6605,7 @@ fn reportNotValue(check: *Check, node: Node.Index, value: Value) Allocator.Error
             .code = .type_as_value,
             .message = "types are not values",
             .label = "a type, where a value belongs",
-            .help = "a type appears in type positions, and as the base of a '.' access",
+            .help = "a type stands where a type is written, before a '.', and after 'is' or 'match'",
         },
         .named_fn => .{
             .code = .not_a_function,
@@ -6634,10 +6644,17 @@ fn reportBadOperand(
 
 /// What answers where this operator cannot.
 fn operandHelp(check: *const Check, found: Pool.Index, equality: bool) ?[]const u8 {
-    if (check.comp.pool.isUnion(found)) {
+    const pool = &check.comp.pool;
+    if (pool.isUnion(found)) {
         if (equality) return "'is' tests which member a union holds and narrows the name to it";
-        return "narrow it first, with 'match' or a guard 'is T or return', " ++
-            "and never through a 'var'";
+        // narrowing helps only where a member could take the operator, which a bool has none
+        for (pool.unionMembers(found)) |member| {
+            if (Pool.isNumeric(member) or pool.keyOf(member) == .type_pointer) {
+                return "narrow it first, with 'match' or a guard 'is T or return', " ++
+                    "and never through a 'var'";
+            }
+        }
+        return null;
     }
     if (equality == false) return null;
     return switch (check.comp.pool.keyOf(found)) {

@@ -40,6 +40,8 @@ root
             lhs: ident self
           rhs: ident value
   struct_decl Empty
+    fn_decl nothing
+      body: block
   var_decl top_level let
     type: ident i64
     init: binary add

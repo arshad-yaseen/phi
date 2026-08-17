@@ -1,0 +1,16 @@
+error[E0106]: a struct holds a field or a function, and this one holds nothing
+ --> test/fail/empty_struct.phi:2:14
+  |
+2 | type Empty = { }
+  |              ^^^ nothing inside
+  |
+  = help: a type with nothing inside is written 'type Empty'
+
+error[E0106]: a struct holds a field or a function, and this one holds nothing
+ --> test/fail/empty_struct.phi:4:15
+  |
+4 | type Spaced = {
+  |               ^ nothing inside
+  |
+  = help: a type with nothing inside is written 'type Spaced'
+

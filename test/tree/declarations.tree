@@ -13,6 +13,8 @@ root
   alias_decl Count pub
     type: ident i64
   struct_decl Empty pub
+    fn_decl nothing
+      body: block
   struct_decl Point
     field x
       type: ident i64

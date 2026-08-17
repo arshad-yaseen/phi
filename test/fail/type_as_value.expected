@@ -4,5 +4,5 @@ error[E0203]: types are not values
 2 |     let t = i64
   |             ^^^ a type, where a value belongs
   |
-  = help: a type appears in type positions, and as the base of a '.' access
+  = help: a type stands where a type is written, before a '.', and after 'is' or 'match'
 

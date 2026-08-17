@@ -165,6 +165,11 @@ fn spanOf(self: *const Parse, index: Token.Index) Diagnostic.Span {
     return .{ .start = start, .end = @min(end, @as(u32, @intCast(self.source.len))) };
 }
 
+fn tokenText(self: *const Parse, index: Token.Index) []const u8 {
+    const span = self.spanOf(index);
+    return self.source[span.start..span.end];
+}
+
 fn here(self: *const Parse) Diagnostic.Span {
     assert(self.token_index.int() <= self.eof_index.int());
     return self.spanOf(self.token_index);
@@ -724,6 +729,19 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
         .code = .expected_struct_member,
         .expected = "a field or a function",
     });
+
+    // a struct with nothing inside is a unit, which has a spelling of its own
+    if (self.scratch.items.len == members_start) {
+        try self.err(.{
+            .code = .expected_struct_member,
+            .span = self.spanSince(lbrace),
+            .message = "a struct holds a field or a function, and this one holds nothing",
+            .label = "nothing inside",
+            .help = try self.fmt("a type with nothing inside is written 'type {s}'", .{
+                self.tokenText(type_token.after(1)),
+            }),
+        });
+    }
 
     const start = self.extraStart();
     try self.extraList(self.scratch.items[top..members_start]);

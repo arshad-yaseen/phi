@@ -1,0 +1,10 @@
+/// A struct with nothing inside is a unit, which has a spelling of its own.
+type Empty = { }
+
+type Spaced = {
+}
+
+/// A struct with only a function is a namespace, and stays.
+type Space = {
+    fn nothing() {}
+}
