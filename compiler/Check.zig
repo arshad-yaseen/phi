@@ -1589,9 +1589,6 @@ fn checkIf(
     try join.take(check, then_value, view.then_block);
 
     var join_reachable = check.jumpTo(join_block);
-    // a skipped arm was spared the walk, not proven to leave, so it counts
-    // as flowing and what follows the if stays checked
-    if (then_live == false and entry_reachable) join_reachable = true;
 
     check.startBlock(else_block);
     builder.reachable = entry_reachable and else_live;
@@ -1605,7 +1602,6 @@ fn checkIf(
         try join.take(check, else_value, else_node);
 
         if (check.jumpTo(join_block)) join_reachable = true;
-        if (else_live == false and entry_reachable) join_reachable = true;
     } else {
         if (entry_reachable) join_reachable = true;
         check.endBlock(.{ .jump = join_block });

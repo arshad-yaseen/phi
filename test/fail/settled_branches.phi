@@ -1,0 +1,26 @@
+let always: bool = true
+
+/// A settled condition still leaves through both arms, so nothing follows it.
+fn settled(a: u32) u32 {
+    if always {
+        return 1
+    } else {
+        return 2
+    }
+    return a
+}
+
+/// The same shape with a condition that runs, which must read the same way.
+fn running(flag: bool, a: u32) u32 {
+    if flag {
+        return 1
+    } else {
+        return 2
+    }
+    return a
+}
+
+fn drive(flag: bool) u32 {
+    _ = settled(0)
+    return running(flag, 0)
+}

@@ -1,0 +1,64 @@
+let always: bool = true
+let never: bool = false
+
+fn both_arms_return() u32 {
+    if always {
+        return 1
+    } else {
+        return 2
+    }
+}
+
+fn the_false_edge() u32 {
+    if never {
+        return 1
+    } else {
+        return 2
+    }
+}
+
+fn on_a_type[T](value: T) u32 {
+    _ = value
+    if T is u32 {
+        return 1
+    } else {
+        return 2
+    }
+}
+
+/// The arm that cannot run is never checked, so '%' never meets the float.
+fn the_dead_arm_is_not_checked[T](value: T) T {
+    if T is f64 {
+        return value
+    } else {
+        return value % 2
+    }
+}
+
+fn a_live_arm_flows() u32 {
+    var total: u32 = 0
+    if always {
+        total += 1
+    } else {
+        total += 2
+    }
+    return total
+}
+
+fn no_else_falls_past() u32 {
+    if always {
+        return 1
+    }
+    return 2
+}
+
+fn drive(x: f64, n: u32) u32 {
+    _ = the_dead_arm_is_not_checked(x)
+    _ = the_dead_arm_is_not_checked(n)
+    _ = on_a_type(x)
+    _ = on_a_type(n)
+    _ = both_arms_return()
+    _ = the_false_edge()
+    _ = a_live_arm_flows()
+    return no_else_falls_past()
+}

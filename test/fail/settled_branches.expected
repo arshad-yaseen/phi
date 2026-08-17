@@ -1,0 +1,22 @@
+error[E0250]: this cannot be reached
+  --> test/fail/settled_branches.phi:10:5
+   |
+10 |     return a
+   |     ^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/settled_branches.phi:5:5
+   |
+ 5 |     if always {
+   |     ^^^^^^^^^^^
+
+error[E0250]: this cannot be reached
+  --> test/fail/settled_branches.phi:20:5
+   |
+20 |     return a
+   |     ^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/settled_branches.phi:15:5
+   |
+15 |     if flag {
+   |     ^^^^^^^^^
+
