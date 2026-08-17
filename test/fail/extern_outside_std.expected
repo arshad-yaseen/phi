@@ -1,7 +1,7 @@
 error[E0251]: only the standard library declares an 'extern fn'
- --> test/fail/extern_outside_std.phi:2:11
+ --> test/fail/extern_outside_std.phi:1:11
   |
-2 | extern fn puts(text: *u8) i32
+1 | extern fn puts(text: *u8) i32
   |           ^^^^ not available here
   |
   = help: std wraps one in an ordinary function, so call that instead

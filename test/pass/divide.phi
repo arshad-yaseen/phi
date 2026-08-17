@@ -1,8 +1,4 @@
-import std/io
-
 fn main() {
-    io.print("before\n")
     var d: u64 = 0
     _ = 10 / d
-    io.print("after\n")
 }

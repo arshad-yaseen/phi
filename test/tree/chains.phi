@@ -13,7 +13,6 @@ fn across_blank_lines(value: Builder) i64 {
 
 fn across_comments(value: Builder) i64 {
     return value
-        // the chain carries on
         .first()
 }
 

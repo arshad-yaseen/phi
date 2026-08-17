@@ -1,4 +1,3 @@
-/// The absent value, a unit type like any other.
 type none
 pub type Timeout
 

@@ -1,0 +1,15 @@
+fn writes(v: []var u8 | none) {
+    _ = v
+}
+
+fn through(p: *var u32 | none) {
+    _ = p
+}
+
+fn main() {
+    let storage: [4]u8 = [1, 2, 3, 4]
+    let counter: u32 = 7
+
+    writes(storage[0..])
+    through(&counter)
+}

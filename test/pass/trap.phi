@@ -4,7 +4,6 @@ fn stop() {
     @trap()
 }
 
-// a trap never continues, so what follows the branch that trapped still runs
 fn guarded(n: u32) u32 {
     if n == 0 {
         @trap()
@@ -19,7 +18,6 @@ fn find(n: u32) u32 | none {
     return n
 }
 
-// and it ends a path, so a function owing a value need not return on it
 fn must(n: u32) u32 {
     let found = find(n)
     if found is u32 {
@@ -28,7 +26,6 @@ fn must(n: u32) u32 {
     @trap()
 }
 
-// which is what lets a handler stand where a value is owed
 fn must_or(n: u32) u32 {
     return find(n) or e {
         _ = e

@@ -7,27 +7,22 @@ type Buffer[T] = {
     items: [8]T
 }
 
-// an array is a value, so a parameter is a copy and so is a return
 fn echo(a: [4]u32) [4]u32 {
     return a
 }
 
-// nesting only multiplies
 fn echo_grid(g: [2][3]u8) [2][3]u8 {
     return g
 }
 
-// an array field sits inline, so the field beside it is an ordinary read
 fn version(h: Header) u32 {
     return h.version
 }
 
-// an element type may come from a type parameter
 fn hold(b: Buffer[u32]) Buffer[u32] {
     return b
 }
 
-// a length is any constant expression, and folding makes it one type
 fn computed(a: [2 * 3]u8) [6]u8 {
     return a
 }

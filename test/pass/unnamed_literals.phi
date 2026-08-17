@@ -8,7 +8,6 @@ type Frame = {
     size: Point
 }
 
-// an annotation says which struct, so the literal need not
 let origin: Point = .{ x: 0, y: 0 }
 
 fn from_a_return() Point {
@@ -23,12 +22,10 @@ fn from_an_argument() u32 {
     return takes(.{ x: 1, y: 2 })
 }
 
-// a field says the type of what fills it, however deep
 fn from_a_field() Frame {
     return .{ origin: .{ x: 0, y: 0 }, size: .{ x: 1, y: 1 } }
 }
 
-// and so does an element
 fn from_an_element() [2]Point {
     return [.{ x: 0, y: 0 }, .{ x: 1, y: 1 }]
 }
@@ -39,19 +36,16 @@ fn from_a_binding(n: u32) u32 {
     return p.x
 }
 
-// every arm lands on what the branch feeds
 fn from_an_arm(f: bool) Point {
     return if f { .{ x: 1, y: 1 } } else { .{ x: 2, y: 2 } }
 }
 
-// nothing lands it, so it names itself
 fn named_where_nothing_says(n: u32) u32 {
     var here = Point.{ x: 3, y: n }
     here.x = 5
     return here.x
 }
 
-// a union lists several types, so the member is named
 fn named_into_a_union(f: bool) Point | none {
     if f {
         return Point.{ x: 1, y: 2 }
@@ -59,7 +53,6 @@ fn named_into_a_union(f: bool) Point | none {
     return none
 }
 
-// the written name wins, and still has to agree with where it lands
 fn named_where_the_hint_agrees() Point {
     return Point.{ x: 9, y: 9 }
 }

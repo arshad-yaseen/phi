@@ -4,7 +4,6 @@ type Point = {
 
 let table: [4]u32 = [2, 3, 5, 7]
 
-// a constant index is answered against the length before anything runs
 fn past_the_end(a: [4]u32) u32 {
     return a[4]
 }
@@ -17,7 +16,6 @@ fn a_folded_element() u32 {
     return table[9]
 }
 
-// only what holds elements is indexed
 fn a_struct(p: Point) u32 {
     return p[0]
 }
@@ -27,12 +25,10 @@ fn a_constant_that_has_not_landed() u32 {
     return loose[0]
 }
 
-// an index is a count
 fn not_a_count(a: [4]u32) u32 {
     return a[1.5]
 }
 
-// mutability follows the place the index reached through
 fn a_let_array() {
     let a: [4]u32 = [1, 2, 3, 4]
     a[0] = 9
@@ -46,12 +42,10 @@ fn a_read_only_pointer(p: *[4]u32) {
     p[0] = 9
 }
 
-// one bracket holds one index
 fn two_at_once(g: [2][3]u8) u8 {
     return g[1, 2]
 }
 
-// the same mistake, asked the other way
 fn its_count_has_not_landed() u64 {
     let loose = [1, 2, 3]
     return loose.len

@@ -1,7 +1,5 @@
-// only the standard library declares one
 extern fn puts(text: *u8) i32
 
-// and a call to it says nothing further, the declaration having been refused
 fn greet(text: *u8) i32 {
     return puts(text)
 }

@@ -1,4 +1,3 @@
-// arithmetic's domain is numbers, and an array is not one
 fn compared(a: [2]u32, b: [2]u32) bool {
     return a == b
 }
@@ -15,7 +14,6 @@ fn constants_too() {
     let both = [1, 2] == [1, 2]
 }
 
-// a struct is not one either
 type Point = {
     x: u32
 }

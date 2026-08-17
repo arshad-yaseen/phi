@@ -1,0 +1,51 @@
+fn first_byte(v: []u8 | none) u64 {
+    return match v {
+        []u8 => v[0]
+        none => 999
+    }
+}
+
+fn read_through(p: *u32 | none) u32 {
+    return match p {
+        *u32 => p.*
+        none => 999
+    }
+}
+
+fn or_default(n: u64 | none) u64 {
+    return match n {
+        u64 => n
+        none => 999
+    }
+}
+
+fn sum(v: [2]u64 | none) u64 {
+    return match v {
+        [2]u64 => v[0] + v[1]
+        none => 999
+    }
+}
+
+fn count(v: []u64 | none) u64 {
+    return match v {
+        []u64 => v.len
+        none => 999
+    }
+}
+
+fn main() {
+    var storage: [4]u8 = @splat(7)
+    var counter: u32 = 42
+    let sealed: u32 = 12345
+    let wide: u64 = 5
+
+    if first_byte(storage[0..]) != 7 { @trap() }
+    if read_through(&counter) != 42 { @trap() }
+    if or_default(counter) != 42 { @trap() }
+    if or_default(sealed) != 12345 { @trap() }
+    if or_default(42) != 42 { @trap() }
+    if first_byte(none) != 999 { @trap() }
+    if sum([wide, wide + 1]) != 11 { @trap() }
+    if sum([1, 2]) != 3 { @trap() }
+    if count([7, 8, 9]) != 3 { @trap() }
+}

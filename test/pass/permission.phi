@@ -1,30 +1,21 @@
-import std/io
-
-fn held(num: *u8) {
-    _ = num
-    io.print("held\n")
+fn held(num: *u8) u8 {
+    return num.*
 }
 
 fn main() {
     let b: u8 = 7
     var num: *u8 | none = &b
     let a = num
-    if a is *u8 {
-        held(a)
-    }
+    if a is not *u8 { @trap() }
+    if held(a) != 7 { @trap() }
+
     num = none
     let gone = num
-    if gone is none {
-        io.print("gone\n")
-    }
+    if gone is not none { @trap() }
 
     var c: u8 = 9
     var either: *u8 | *var u8 | none = &b
-    if either is *u8 {
-        io.print("immutable\n")
-    }
+    if either is not *u8 { @trap() }
     either = &c
-    if either is *var u8 {
-        io.print("mutable\n")
-    }
+    if either is not *var u8 { @trap() }
 }

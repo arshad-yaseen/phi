@@ -1,6 +1,5 @@
 root
   fn_decl write extern
-    doc /// Written into the file descriptor.
     param fd
       type: ident i32
     param buf

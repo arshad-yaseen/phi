@@ -9,6 +9,8 @@ error[E0211]: '-' cannot be applied to true | false
   |
 8 |     return a - b
   |              ^ wrong operand type
+  |
+  = help: narrow it first, with 'match' or a guard 'is T or return', and never through a 'var'
 
 error[E0211]: '-' needs a signed number, and this is u8
   --> test/fail/bad_operand.phi:12:12

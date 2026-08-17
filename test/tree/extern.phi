@@ -1,4 +1,3 @@
-/// Written into the file descriptor.
 extern fn write(fd: i32, buf: *u8, len: u64) i64
 
 pub extern fn malloc(size: u64) *var u8 | none

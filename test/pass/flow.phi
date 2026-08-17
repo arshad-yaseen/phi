@@ -1,17 +1,14 @@
-import std/io
-
 fn answer(a: i64, b: i64) i64 {
     return a * b
 }
 
 fn main() {
-    if answer(6, 7) == 42 {
-        io.print("yes\n")
-    } else {
-        io.print("no\n")
-    }
+    if answer(6, 7) != 42 { @trap() }
+
+    var count: i64 = 0
     loop i in 0..3 {
-        io.print("ha")
+        _ = i
+        count += 1
     }
-    io.print("\n")
+    if count != 3 { @trap() }
 }

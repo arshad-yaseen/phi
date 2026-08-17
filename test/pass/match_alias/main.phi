@@ -11,7 +11,6 @@ fn source(flag: bool) u32 | helper.Timeout | helper.NotFound {
     return helper.Timeout
 }
 
-// an imported alias groups the members it names
 fn settle(flag: bool) u32 {
     let r = source(flag)
     return match r {

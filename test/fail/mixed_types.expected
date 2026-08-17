@@ -1,23 +1,23 @@
 error[E0207]: '+' mixes u32 and i32
- --> test/fail/mixed_types.phi:4:14
+ --> test/fail/mixed_types.phi:2:14
   |
-4 |     return a + b
+2 |     return a + b
   |              ^ two different types
   |
   = help: nothing converts on its own, so give both sides one type
 
 error[E0207]: '+' mixes i8 and u64
- --> test/fail/mixed_types.phi:8:14
+ --> test/fail/mixed_types.phi:6:14
   |
-8 |     return a + b
+6 |     return a + b
   |              ^ two different types
   |
   = help: nothing converts on its own, so give both sides one type
 
 error[E0207]: '+' mixes u32 and f64
-  --> test/fail/mixed_types.phi:12:14
+  --> test/fail/mixed_types.phi:10:14
    |
-12 |     return a + b
+10 |     return a + b
    |              ^ two different types
    |
    = help: nothing converts on its own, so give both sides one type

@@ -1,9 +1,7 @@
-// a wider float holds values the narrower one cannot
 fn narrows(x: f64) f32 {
     return x
 }
 
-// the two kinds never cross on their own, however much room there is
 fn int_to_float(n: u32) f64 {
     return n
 }
@@ -12,7 +10,6 @@ fn float_to_int(x: f64) u32 {
     return x
 }
 
-// and an unsigned edge sits past the signed one of the same width
 fn unsigned_to_signed(n: u64) i64 {
     return n
 }

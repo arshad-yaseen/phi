@@ -3,19 +3,15 @@ type List[T] = {
     capacity: u64
 }
 
-// a view holds no elements, so a type may hold a view of itself
 type Tree = {
     value: u32
     children: []Tree
 }
 
-// a view carries its length as data, so it is read
 fn count(xs: []u32) u64 {
     return xs.len
 }
 
-// and an index reaches through the address it carries, answered against the
-// length beside it, because a view covering nothing has no first element
 fn first(xs: []u32) u32 {
     return xs[0]
 }
@@ -30,23 +26,19 @@ fn sum(xs: []u32) u32 {
     return total
 }
 
-// what may be written is the view's own business
 fn fill(xs: []var u32) {
     xs[0] = 1
 }
 
-// so a 'let' still writes through one
 fn through_a_let(xs: []var u32) {
     let same = xs
     same[1] = 2
 }
 
-// '[]var T' fits where '[]T' is asked, the edge '*var T' already had
 fn widen(xs: []var u32) u32 {
     return sum(xs)
 }
 
-// the member question and the index each follow one pointer
 fn through_a_pointer(p: *[]u32) u32 {
     return p[0]
 }
@@ -55,7 +47,6 @@ fn counted_through_a_pointer(p: *[]u32) u64 {
     return p.len
 }
 
-// a view sits in a struct the way any two-word value does
 fn held(list: List[u32]) u64 {
     return list.items.len + list.capacity
 }
@@ -64,12 +55,10 @@ fn grown(tree: Tree) u64 {
     return tree.children.len
 }
 
-// a view reached through a 'let' still writes through, because the view says so
 fn into_a_held_view(list: List[u32]) {
     list.items[0] = 7
 }
 
-// absent is a union, settled by a branch, and the niche keeps it two words
 fn counted(found: []u32 | none) u64 {
     if found is []u32 {
         return found.len
@@ -84,22 +73,18 @@ fn matched(found: []u32 | none) u64 {
     }
 }
 
-// the address a view already holds
 fn address(xs: []u32) *u32 {
     return xs.ptr
 }
 
-// what may be written through it is exactly what the view allowed
 fn writable_address(xs: []var u32) *var u32 {
     return xs.ptr
 }
 
-// one pointer is followed to reach the view, the way the length is
 fn address_through_a_pointer(p: *[]u32) *u32 {
     return p.ptr
 }
 
-// storage crosses by being sliced first, so the bridge is still written out
 fn address_of_storage(a: *[4]u32) *u32 {
     return a[0..].ptr
 }

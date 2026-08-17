@@ -398,7 +398,7 @@ fn splatArray(
             break :element try splatArray(check, node, array.child, value, depth + 1) orelse
                 return null;
         }
-        switch (try comp.pool.fit(comp.gpa, value, array.child)) {
+        switch (try comp.pool.fit(comp.gpa, value, array.child, .allowed)) {
             .value => |fitted| break :element fitted,
             .does_not_fit, .wrong_kind => {
                 try check.fail(node, .{

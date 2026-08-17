@@ -1,4 +1,3 @@
-// an import binds a name in the file that wrote it, and nowhere else
 import wrapper
 
 fn drive(seed: i64) i64 {

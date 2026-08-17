@@ -1,23 +1,18 @@
-// A signature the linker resolves.
 extern fn write(fd: i32, buf: *u8, len: u64) i64
 
-// the niche crosses as one word, with the null address standing for 'none'
 extern fn malloc(size: u64) *var u8 | none
 extern fn free(p: *var u8)
 
-// it is called the way any other function is
 fn emit(text: []u8) i64 {
     return write(1, text.ptr, text.len)
 }
 
-// the null address arrives as 'none', so the check cannot be skipped
 fn grab(size: u64) u64 {
     let bytes = malloc(size) or return 0
     free(bytes)
     return size
 }
 
-// a narrower argument widens on the way in, the way it does anywhere else
 fn emit_one(byte: *u8) i64 {
     let one: u32 = 1
     return write(1, byte, one)
@@ -25,7 +20,6 @@ fn emit_one(byte: *u8) i64 {
 
 type Missing
 
-// the member hiding in the null address is any type with no values, not just 'none'
 extern fn lookup(key: u64) *u8 | Missing
 
 fn pass_through(key: u64) *u8 | Missing {

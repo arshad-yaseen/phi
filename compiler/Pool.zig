@@ -896,8 +896,17 @@ pub const Fit = union(enum) {
     wrong_kind,
 };
 
-/// An untyped constant meets any type its value fits, a typed one only its own.
-pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocator.Error!Fit {
+/// Whether a settled constant may widen on the way in. An element never does.
+pub const Widen = enum { allowed, refused };
+
+/// An untyped constant meets any type its value fits, a settled one its own or wider.
+pub fn fit(
+    pool: *Pool,
+    gpa: Allocator,
+    value: Index,
+    type_index: Index,
+    widen: Widen,
+) Allocator.Error!Fit {
     if (value == .poison) return .{ .value = .poison };
     if (type_index == .poison) return .{ .value = .poison };
     assert(pool.isType(type_index));
@@ -910,7 +919,7 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
         while (at < count) : (at += 1) {
             const member = pool.unionMemberAt(type_index, at);
             assert(pool.isUnion(member) == false);
-            switch (try pool.fit(gpa, value, member)) {
+            switch (try pool.fit(gpa, value, member, widen)) {
                 .value => |fitted| return .{ .value = try pool.intern(gpa, .{
                     .value_union = .{ .type = type_index, .value = fitted },
                 }) },
@@ -921,12 +930,21 @@ pub fn fit(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocat
         return if (wrong_size) .does_not_fit else .wrong_kind;
     }
 
-    // a settled value takes only its own type, and a wrapped one may still unwrap
+    // a settled value takes its own type or a wider one
     const found = pool.typeOfValue(value);
     if (isUntyped(found) == false) {
         if (type_index == found) return .{ .value = value };
+        if (widen == .allowed and widens(found, type_index)) {
+            const widened: Key = switch (pool.keyOf(value)) {
+                .value_int => |it| .{ .value_int = .{ .type = type_index, .value = it.value } },
+                .value_float => |it| .{ .value_float = .{ .type = type_index, .value = it.value } },
+                // widening answers for a number and nothing else
+                else => unreachable,
+            };
+            return .{ .value = try pool.intern(gpa, widened) };
+        }
         return switch (pool.keyOf(value)) {
-            .value_union => |it| pool.fit(gpa, it.value, type_index),
+            .value_union => |it| pool.fit(gpa, it.value, type_index, widen),
             else => .wrong_kind,
         };
     }
@@ -1012,7 +1030,7 @@ fn fitAggregate(
 
     var at: u32 = 0;
     while (at < count) : (at += 1) {
-        switch (try pool.fit(gpa, pool.aggregateAt(value, at), array.child)) {
+        switch (try pool.fit(gpa, pool.aggregateAt(value, at), array.child, .refused)) {
             .value => |fitted| try pool.scratch.append(gpa, fitted),
             .does_not_fit => return .does_not_fit,
             .wrong_kind => return .wrong_kind,

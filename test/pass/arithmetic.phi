@@ -1,6 +1,3 @@
-// every arithmetic and comparison operator, on operands the checker cannot
-// fold, so each one lowers to its own instruction rather than to a constant
-
 fn divide(a: i64, b: i64) i64 {
     return a / b
 }

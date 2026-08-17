@@ -1,39 +1,39 @@
 error[E0206]: expected []var u8, found an untyped array
- --> test/fail/text_landing.phi:3:12
+ --> test/fail/text_landing.phi:2:12
   |
-3 |     return "hi"
+2 |     return "hi"
   |            ^^^^ the wrong type
   |
   = help: a constant makes '[]T' and never '[]var T', because the program's own bytes are read-only
 
 error[E0208]: [104:u8, 105:u8] does not fit in [3]u8
- --> test/fail/text_landing.phi:8:24
+ --> test/fail/text_landing.phi:6:24
   |
-8 |     let magic: [3]u8 = "hi"
+6 |     let magic: [3]u8 = "hi"
   |                        ^^^^ past the type's edge
   |
   = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
 error[E0206]: expected [2]u32, found an untyped array
-  --> test/fail/text_landing.phi:14:24
+  --> test/fail/text_landing.phi:11:24
    |
-14 |     let wide: [2]u32 = "hi"
+11 |     let wide: [2]u32 = "hi"
    |                        ^^^^ the wrong type
    |
    = help: nothing converts on its own
 
 error[E0208]: 129408 does not fit in u8
-  --> test/fail/text_landing.phi:20:12
+  --> test/fail/text_landing.phi:16:12
    |
-20 |     return '🦀'
+16 |     return '🦀'
    |            ^^^^^^ past the type's edge
    |
    = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
 error[E0219]: this array has no type yet, so it has no members to reach
-  --> test/fail/text_landing.phi:26:18
+  --> test/fail/text_landing.phi:21:18
    |
-26 |     return loose.len
+21 |     return loose.len
    |                  ^^^ no type in sight
    |
    = help: give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and everything it holds can be reached

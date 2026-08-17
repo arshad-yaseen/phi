@@ -1,10 +1,6 @@
-import std/io
-
 fn main() {
-    io.print("before\n")
     var data: [4]u8 = @splat(0)
     var high: u64 = 3
     var low: u64 = 1
     _ = data[high..low]
-    io.print("after\n")
 }

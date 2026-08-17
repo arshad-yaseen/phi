@@ -17,8 +17,6 @@ fn drive(wide: Wide) i64 {
     return copied.a + pointer.a
 }
 
-// a wrapper the parameter is written in comes off the argument's own type, so a
-// view, an array, a pointer, and a pointer to a view all pin what they hold
 fn counted[T](xs: []T) u64 {
     return xs.len
 }
@@ -39,7 +37,6 @@ fn pinned_by_a_wrapper(xs: []u32, arr: [3]i16, p: *[]u8) u64 {
     return counted(xs) + triple(arr) + behind(p) + both_ends(xs, xs)
 }
 
-// a constant that has not landed has no type to read, so a later parameter pins it
 fn pair[T](a: T, b: T) T {
     return a
 }

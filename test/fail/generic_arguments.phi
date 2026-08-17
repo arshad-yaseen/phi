@@ -20,7 +20,6 @@ fn on_a_plain_function() i64 {
     return plain[i64]()
 }
 
-// the argument must be shaped the way the parameter was written
 fn viewed[T](xs: []T) u64 {
     return xs.len
 }

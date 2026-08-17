@@ -1,5 +1,3 @@
-// Neither type holds every value of the other, so nothing bridges them.
-
 fn signs(a: u32, b: i32) i64 {
     return a + b
 }

@@ -22,7 +22,6 @@ fn discarded(n: u64) {
     }
 }
 
-// the name is a 'let', so the body cannot move it
 fn assigned(n: u64) {
     loop i in 0..n {
         i = 3

@@ -1,7 +1,3 @@
-//! A match needs no 'bool' in scope. Its member tests belong to the
-//! compiler, so only a written test, a comparison, 'and', or 'not' asks
-//! the file for the type.
-
 type A
 type B
 type C
