@@ -4602,10 +4602,15 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     const elements = check.tree.viewOf(node).array_literal;
 
     // a literal names no type, so where it lands is the only thing that can
+    const landing: ?Pool.Index = if (hint) |found|
+        aggregateLanding(&comp.pool, found, elements.len)
+    else
+        null;
+
     var target: ?Pool.Key.Array = null;
     var viewed = false;
 
-    if (hint) |found| switch (comp.pool.keyOf(found)) {
+    if (landing) |found| switch (comp.pool.keyOf(found)) {
         .type_array => |array| target = array,
         .type_slice => viewed = true,
         else => {},
@@ -4613,7 +4618,7 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
 
     const element_hint: ?Pool.Index = element: {
         if (target) |array| break :element array.child;
-        if (viewed) break :element comp.pool.keyOf(hint.?).type_slice.child;
+        if (viewed) break :element comp.pool.keyOf(landing.?).type_slice.child;
         break :element null;
     };
 
@@ -4680,7 +4685,7 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
             .message = try comp.fmt("this literal has {d} element{s}, and {s} holds {d}", .{
                 elements.len,
                 plural(@intCast(elements.len)),
-                try comp.typeName(hint.?),
+                try comp.typeName(landing.?),
                 array.len,
             }),
             .label = "the wrong number of elements",
@@ -4696,7 +4701,25 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     }
     if (clean == false) return .poison;
 
-    return check.settleAggregate(node, hint.?, comp.operands.items[start..]);
+    return check.settleAggregate(node, landing.?, comp.operands.items[start..]);
+}
+
+/// Where an array literal of `count` elements lands, looking through a union.
+fn aggregateLanding(pool: *const Pool, found: Pool.Index, count: usize) Pool.Index {
+    if (pool.isUnion(found) == false) return found;
+
+    const members = pool.unionMemberCount(found);
+    var at: u32 = 0;
+    while (at < members) : (at += 1) {
+        const member = pool.unionMemberAt(found, at);
+        switch (pool.keyOf(member)) {
+            .type_array => |array| if (array.len == count) return member,
+            // a view has no length in its type, so any count lands
+            .type_slice => return member,
+            else => {},
+        }
+    }
+    return found;
 }
 
 /// A header, then one ref per operand, as `Func.callAt` reads it back.
@@ -6014,6 +6037,10 @@ fn coerce(
                     });
                     return runtimeValue(wrapped, wanted);
                 }
+                // one more member never refuses a value the member itself took
+                if (unionMemberFor(&comp.pool, wanted, runtime.type)) |member| {
+                    return check.enterUnion(value, wanted, member, node);
+                }
             }
 
             return check.reportMismatch(node, value, wanted);
@@ -6036,6 +6063,40 @@ fn writesThrough(pool: *const Pool, have: Pool.Index, want: Pool.Index) ?bool {
         .type_slice => |it| if (it.child == to.type_slice.child) it.mutable else null,
         else => null,
     };
+}
+
+/// The member `found` reaches by an edge, in declaration order.
+fn unionMemberFor(pool: *const Pool, wanted: Pool.Index, found: Pool.Index) ?Pool.Index {
+    assert(pool.isUnion(wanted));
+    assert(pool.unionHas(wanted, found) == false);
+
+    const count = pool.unionMemberCount(wanted);
+    var at: u32 = 0;
+    while (at < count) : (at += 1) {
+        const member = pool.unionMemberAt(wanted, at);
+        if (Pool.widens(found, member)) return member;
+        // permission is only ever given up, never gained
+        if (writesThrough(pool, found, member)) |writable| {
+            if (writable) return member;
+        }
+    }
+    return null;
+}
+
+/// Converted to the member, then entered as one.
+fn enterUnion(
+    check: *Check,
+    value: Value,
+    wanted: Pool.Index,
+    member: Pool.Index,
+    node: Node.Index,
+) Allocator.Error!Value {
+    // membership settles the second step, so it cannot come back here
+    assert(check.comp.pool.unionHas(wanted, member));
+
+    const met = try check.coerce(value, member, node);
+    if (met == .poison) return .poison;
+    return check.coerce(met, wanted, node);
 }
 
 fn failNeedsWritable(
@@ -6072,19 +6133,7 @@ fn fitValue(
     if (constant == .poison) return .poison;
     if (wanted == .poison) return .poison;
 
-    const found = comp.pool.typeOfValue(constant);
-
-    if (found != wanted and Pool.widens(found, wanted)) {
-        const widened: Pool.Key = switch (comp.pool.keyOf(constant)) {
-            .value_int => |it| .{ .value_int = .{ .type = wanted, .value = it.value } },
-            .value_float => |it| .{ .value_float = .{ .type = wanted, .value = it.value } },
-            // widening answers for a number and nothing else
-            else => unreachable,
-        };
-        return .{ .constant = try comp.pool.intern(comp.gpa, widened) };
-    }
-
-    return switch (try comp.pool.fit(comp.gpa, constant, wanted)) {
+    return switch (try comp.pool.fit(comp.gpa, constant, wanted, .allowed)) {
         .value => |final| .{ .constant = final },
         .does_not_fit => fitted: {
             try check.reportDoesNotFit(node, constant, wanted);

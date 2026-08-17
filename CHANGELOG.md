@@ -27,6 +27,10 @@
   picks its `if` edge before anything runs, so the arm that cannot run is
   never entered, the way a settled `and` never enters its dead side. Testing
   a constant optional used to crash the compiler.
+- A value enters a union through whatever edge its member would have taken on
+  its own, so `[]var T` reaches `[]T | none`, a `u32` reaches `u64 | none`, and
+  an array literal lands on the member that holds it. Listing one more member
+  used to refuse values the member itself took.
 - `std/io` opens with `print`, which writes text whole to standard output, and
   `print_uint`, which writes an unsigned integer as decimal digits.
   `format_uint` fills a caller's buffer with those digits instead of writing
