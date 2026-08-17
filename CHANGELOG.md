@@ -36,6 +36,11 @@
   `format_uint` fills a caller's buffer with those digits instead of writing
   them, sized by `uint_digits_max`.
 
+### Compiler
+
+- An operator refused on a union says how to narrow it, which only `==` and
+  `!=` used to.
+
 ### Command line
 
 - `phi build` compiles the program to a native binary for 64-bit targets,

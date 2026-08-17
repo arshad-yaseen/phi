@@ -3,4 +3,6 @@ error[E0211]: '+' cannot be applied to u32 | none
    |
 10 |         u32 => return v + 1
    |                         ^ wrong operand type
+   |
+   = help: narrow it first, with 'match' or a guard 'is T or return', and never through a 'var'
 

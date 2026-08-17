@@ -6310,14 +6310,19 @@ fn reportBadOperand(
             try check.comp.typeName(operand_type),
         }),
         .label = "wrong operand type",
-        .help = if (equality) check.equalityHelp(operand_type) else null,
+        .help = check.operandHelp(operand_type, equality),
     });
 }
 
-/// What answers where one comparison cannot.
-fn equalityHelp(check: *const Check, found: Pool.Index) ?[]const u8 {
+/// What answers where this operator cannot.
+fn operandHelp(check: *const Check, found: Pool.Index, equality: bool) ?[]const u8 {
+    if (check.comp.pool.isUnion(found)) {
+        if (equality) return "'is' tests which member a union holds and narrows the name to it";
+        return "narrow it first, with 'match' or a guard 'is T or return', " ++
+            "and never through a 'var'";
+    }
+    if (equality == false) return null;
     return switch (check.comp.pool.keyOf(found)) {
-        .type_union => "'is' tests which member a union holds and narrows the name to it",
         .type_slice => "'std.mem.eql' compares two views element by element",
         .type_array => "slice them first, as in 'mem.eql(a[0..], b[0..])'",
         .type_struct => "compare the fields that decide it",
