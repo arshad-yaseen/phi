@@ -17,14 +17,6 @@ note: to close the '(' opened here
 128 | (
     | ^
 
-error[E0214]: a top-level binding must be a constant, and a call happens at run time
-   --> test/fail/deep_nesting.phi:129:1
-    |
-129 | (
-    | ^ not a constant
-    |
-    = help: the constant set is literals, names of constants, operators, and parentheses
-
 error[E0101]: expected ',' or the end of the line, found '('
    --> test/fail/deep_nesting.phi:131:1
     |

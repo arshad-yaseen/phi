@@ -11,6 +11,7 @@ let left = return 1
 let escaped = break
 let carried = continue
 let called = answer()
+let trapped = @trap()
 let built = i64.{ x: 1 }
 
 let folded_and = false and true

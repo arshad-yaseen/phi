@@ -64,6 +64,14 @@ pub const Builtin = enum {
         };
     }
 
+    /// Whether this needs a body to lower into, so a top-level binding refuses it.
+    pub fn needsBody(builtin: Builtin) bool {
+        return switch (builtin) {
+            .ptr_cast, .trap => true,
+            .int_cast, .size_of, .align_of, .min_int, .max_int, .splat => false,
+        };
+    }
+
     /// The name a `@name` token spells, without the sigil that opened it.
     pub fn nameOf(text: []const u8) []const u8 {
         assert(text.len > 1);

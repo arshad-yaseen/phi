@@ -21,6 +21,38 @@ let held: i64 | none = 7
 let kept = held or 100
 let widened = seat or held
 
+type Byte = u8
+
+let byte_size: u64 = @size_of[u32]()
+let byte_align: u64 = @align_of[u64]()
+let highest: u32 = @max_int[u16]()
+let lowest: i64 = @min_int[i32]()
+let zeroed: [4]u8 = @splat(0)
+
+let byte_is_u8 = Byte is u8
+let byte_is_u32 = Byte is u32
+let seat_is_none = seat is none
+
+fn measured() u64 {
+    return byte_size + byte_align
+}
+
+fn edges() i64 {
+    return lowest + highest
+}
+
+fn typed() bool {
+    return byte_is_u8 and not byte_is_u32
+}
+
+fn absent() bool {
+    return seat_is_none
+}
+
+fn filled() u8 {
+    return zeroed[2]
+}
+
 fn narrowing() u8 {
     let across: u8 = narrow_seed
     let folded = 3 * 4 - 2

@@ -2552,6 +2552,9 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
         return .{ .constant = try check.truthValue(bools, holds != view.negated) };
     }
 
+    // only a union settled at run time is left, which needs a body to test in
+    if (check.builder == null) return check.needRuntime(node, "an 'is' test");
+
     assert(operand == .runtime);
     const bools = try check.boolType(node);
     const tested = try check.emit(node, .union_is, bools, .{
@@ -4862,9 +4865,17 @@ fn checkCall(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error
     };
     switch (callee.kind) {
         .builtin => |which| {
+            if (check.builder == null and which.needsBody()) {
+                const name = try check.comp.fmt("'@{s}'", .{@tagName(which)});
+                return check.needRuntime(node, name);
+            }
             return which.call(check, node, callee.explicit orelse &.{}, view.args, hint);
         },
-        else => return check.checkCallResolved(node, callee, view.args, hint),
+        else => {
+            // a top-level binding has no body to lower a call into
+            if (check.builder == null) return check.needRuntime(node, "a call");
+            return check.checkCallResolved(node, callee, view.args, hint);
+        },
     }
 }
 
@@ -6350,9 +6361,7 @@ fn runtimeOnly(tag: Node.Tag) ?[]const u8 {
         .return_expr => "'return'",
         .break_expr => "'break'",
         .continue_expr => "'continue'",
-        .call => "a call",
         .deref => "reading through a pointer",
-        .is_expr => "an 'is' test",
         .or_bind => "an 'or' handler",
         else => null,
     };

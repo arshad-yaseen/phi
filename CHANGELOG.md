@@ -31,6 +31,9 @@
   labeled with the type it is, so a generic specializes on its own type
   argument. Only the chosen arm is checked, and a type no arm names is refused
   where the generic was instantiated.
+- A top-level binding takes whatever settles before anything runs, so
+  `let size: u64 = @size_of[Node]()` and `let same = Byte is u8` bind where
+  they used to be refused. What has to run, such as a call, still cannot.
 - A value enters a union through whatever edge its member would have taken on
   its own, so `[]var T` reaches `[]T | none`, a `u32` reaches `u64 | none`, and
   an array literal lands on the member that holds it. Listing one more member

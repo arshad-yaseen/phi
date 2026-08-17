@@ -38,9 +38,17 @@ error[E0214]: a top-level binding must be a constant, and a call happens at run 
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0202]: i64 has no fields to give
-  --> test/fail/constant_context.phi:14:13
+error[E0214]: a top-level binding must be a constant, and '@trap' happens at run time
+  --> test/fail/constant_context.phi:14:15
    |
-14 | let built = i64.{ x: 1 }
+14 | let trapped = @trap()
+   |               ^^^^^^^ not a constant
+   |
+   = help: the constant set is literals, names of constants, operators, and parentheses
+
+error[E0202]: i64 has no fields to give
+  --> test/fail/constant_context.phi:15:13
+   |
+15 | let built = i64.{ x: 1 }
    |             ^^^ not a struct
 
