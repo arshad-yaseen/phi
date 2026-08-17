@@ -4413,7 +4413,7 @@ fn checkRange(
     range_node: Node.Index,
     range: AST.View.Range,
     elements: Elements,
-    through: Through,
+    through: Place,
 ) Allocator.Error!?Bounds {
     const start = try check.checkRangeEnd(range.start) orelse return null;
     const end_node = range.end.unwrap();
@@ -4568,7 +4568,7 @@ fn checkRangeEnd(check: *Check, node: Node.Index) Allocator.Error!?Value {
 }
 
 /// What `a..` runs to. An array answers untyped, a view with the count it carries.
-fn baseLength(check: *Check, elements: Elements, through: Through) Allocator.Error!Value {
+fn baseLength(check: *Check, elements: Elements, through: Place) Allocator.Error!Value {
     const count = elements.holds.len orelse return runtimeValue(
         try check.emitOne(elements.node, .slice_len, .u64_type, through.ref),
         .u64_type,
@@ -5926,6 +5926,24 @@ const Place = struct {
         read_only: Pool.Index,
         temporary,
     };
+
+    /// The chain crossing a pointer or a view, which sets what may be written from here on.
+    fn crossing(place: Place, mutable: bool, crossed: Pool.Index) Place {
+        var beyond = place;
+        beyond.mutable = mutable;
+        beyond.reason = if (mutable) .mutable else .{ .read_only = crossed };
+        return beyond;
+    }
+
+    /// One step further along the same chain, as mutable as this one.
+    fn reaching(place: Place, node: Node.Index, ref: Ref, type_index: Pool.Index) Place {
+        var reached = place;
+        reached.kind = .address;
+        reached.ref = ref;
+        reached.type = type_index;
+        reached.node = node;
+        return reached;
+    }
 };
 
 /// The place a name reaches. Only a `var` has an address of its own, and only
@@ -6129,7 +6147,7 @@ fn elementPlace(check: *Check, elements: Elements, index: Ref) Allocator.Error!?
 fn emitBoundsCheck(
     check: *Check,
     elements: Elements,
-    through: Through,
+    through: Place,
     index: Ref,
 ) Allocator.Error!void {
     if (settledAgainstBase(elements, index)) return;
@@ -6147,7 +6165,7 @@ fn settledAgainstBase(elements: Elements, count: Ref) bool {
 }
 
 /// The count a check reads against, always a `u64`.
-fn baseLengthRef(check: *Check, elements: Elements, through: Through) Allocator.Error!Ref {
+fn baseLengthRef(check: *Check, elements: Elements, through: Place) Allocator.Error!Ref {
     const comp = check.comp;
     const count = elements.holds.len orelse
         return check.emitOne(elements.node, .slice_len, .u64_type, through.ref);
@@ -6160,7 +6178,7 @@ fn baseLengthRef(check: *Check, elements: Elements, through: Through) Allocator.
 fn emitRangeCheck(
     check: *Check,
     elements: Elements,
-    through: Through,
+    through: Place,
     range: AST.View.Range,
     bounds: Bounds,
 ) Allocator.Error!void {
@@ -6190,7 +6208,7 @@ fn refIsConstant(ref: Ref) bool {
 
 /// A view carries its own permission and leads with the address, so elements
 /// reach through its value. Storage is reached through its place instead.
-fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Through {
+fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Place {
     if (elements.holds.len != null) {
         return check.placeThrough(elements.base, elements.pointer);
     }
@@ -6200,59 +6218,19 @@ fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Through {
     if (elements.pointer != null) {
         held = try check.emitOne(elements.node, .load, elements.owner, held);
     }
-    const mutable = elements.holds.mutable;
-    return .{
-        .ref = held,
-        .mutable = mutable,
-        .reason = if (mutable) .mutable else .{ .read_only = elements.owner },
-        .root = elements.base,
-    };
+    const base = elements.base.reaching(elements.base.node, held, elements.owner);
+    return base.crossing(elements.holds.mutable, elements.owner);
 }
-
-/// Where one step into a place starts, and what it may do once it arrives.
-const Through = struct {
-    /// The pointer to reach through, or the base's own address.
-    ref: Ref,
-    mutable: bool,
-    reason: Place.Reason,
-    /// Whose name a report about what was reached carries.
-    root: Place,
-
-    fn reaching(through: Through, node: Node.Index, place: Ref, type_index: Pool.Index) Place {
-        return .{
-            .kind = .address,
-            .ref = place,
-            .type = type_index,
-            .node = node,
-            .mutable = through.mutable,
-            .reason = through.reason,
-            .root_name = through.root.root_name,
-            .root_node = through.root.root_node,
-        };
-    }
-};
 
 /// Through a pointer the reach is the pointer's own, otherwise the base's address.
 fn placeThrough(
     check: *Check,
     base: Place,
     pointer: ?Pool.Key.Pointer,
-) Allocator.Error!?Through {
-    if (pointer) |it| {
-        return .{
-            .ref = try check.placeValue(base),
-            .mutable = it.mutable,
-            .reason = if (it.mutable) .mutable else .{ .read_only = base.type },
-            .root = base,
-        };
-    }
-    const addressed = try check.placeAddress(base) orelse return null;
-    return .{
-        .ref = addressed.ref,
-        .mutable = addressed.mutable,
-        .reason = addressed.reason,
-        .root = addressed,
-    };
+) Allocator.Error!?Place {
+    const it = pointer orelse return check.placeAddress(base);
+    const beyond = base.reaching(base.node, try check.placeValue(base), it.child);
+    return beyond.crossing(it.mutable, base.type);
 }
 
 /// The constant a place holds outright, where it holds one.
