@@ -1,0 +1,19 @@
+type true
+type false
+type bool = true | false
+
+/// A header that leaves on one edge and flows on the other lets the rest through.
+fn sometimes(flag: bool) u32 {
+    if if flag { return 9 } else { not flag } {
+        return 1
+    }
+    return 2
+}
+
+fn in_a_loop(flag: bool) u32 {
+    var count: u32 = 0
+    loop if flag { return 9 } else { count < 3 } {
+        count += 1
+    }
+    return count
+}

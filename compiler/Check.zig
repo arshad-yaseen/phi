@@ -976,7 +976,7 @@ pub const Builder = struct {
     };
 
     const Narrow = struct {
-        local: Local.Index,
+        name: Name,
         type: Pool.Index,
         ref: Ref,
     };
@@ -1364,13 +1364,13 @@ fn loopPtr(check: *Check, index: usize) *Builder.LoopFrame {
     return &builder.loops.items[index];
 }
 
-fn activeNarrow(check: *const Check, local: Builder.Local.Index) ?Builder.Narrow {
-    const builder = check.body();
+fn activeNarrow(check: *const Check, name: Name) ?Builder.Narrow {
+    const builder = check.builder orelse return null;
     var index = builder.narrows.items.len;
     while (index > 0) {
         index -= 1;
         const narrow = builder.narrows.items[index];
-        if (narrow.local == local) return narrow;
+        if (std.meta.eql(narrow.name, name)) return narrow;
     }
     return null;
 }
@@ -1658,7 +1658,6 @@ fn checkIf(
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
     const builder = check.body();
-    const entry_reachable = builder.reachable;
 
     const wants = wantsValue(hint);
     if (wants and view.else_node == .none) {
@@ -1690,7 +1689,9 @@ fn checkIf(
 
     const facts = try check.gatherFacts(view.cond);
 
+    // a header that left lets nothing through, so the arms are read after it
     try check.reopenDead();
+    const entry_reachable = builder.reachable;
     if (decided) |truth| {
         check.endBlock(.{ .jump = if (truth) then_block else else_block });
     } else {
@@ -1910,7 +1911,6 @@ fn checkLoop(
 
     // control may already have left, same dance `emit` does
     try check.reopenDead();
-    const entry_reachable = builder.reachable;
 
     const carries = wantsValue(hint);
 
@@ -1934,6 +1934,8 @@ fn checkLoop(
         .forever, .cond => null,
     };
     const counter: ?Counter = if (counting) |it| try check.startCounter(it.name, it.over) else null;
+    // an end of the range may have left, the way any header may
+    try check.reopenDead();
 
     const header = try check.newBlock();
     const body_block = try check.newBlock();
@@ -1957,6 +1959,8 @@ fn checkLoop(
         },
         .range => try check.counterBelowEnd(counter),
     };
+    // what the header lets through, which a header that left is none of
+    const runs = builder.reachable;
     if (holds) |cond| {
         check.endBlock(.{ .branch = .{
             .cond = cond,
@@ -1978,7 +1982,7 @@ fn checkLoop(
     });
 
     check.startBlock(body_block);
-    builder.reachable = entry_reachable;
+    builder.reachable = runs;
     if (counting) |it| try check.bindCounter(it.name, counter);
     _ = try check.checkBlockValue(view.body, .void_type);
     if (counting != null) check.popScope();
@@ -2005,7 +2009,7 @@ fn checkLoop(
                 .label = "never runs",
             });
         } else {
-            builder.reachable = entry_reachable;
+            builder.reachable = runs;
         }
 
         const else_value = try check.checkExpr(else_node, join.armHint());
@@ -2017,7 +2021,7 @@ fn checkLoop(
     var exit_reachable = finished.broke_reachable;
     if (view.head.ends()) {
         if (view.else_node == .none) {
-            if (entry_reachable) exit_reachable = true;
+            if (runs) exit_reachable = true;
         } else {
             if (else_flows) exit_reachable = true;
         }
@@ -2127,8 +2131,8 @@ const Subject = struct {
     set: ?Pool.Index,
     held: ?Pool.Index,
     ref: Ref,
-    /// The local the arms narrow, where the scrutinee names one.
-    local: ?Builder.Local.Index,
+    /// The name the arms narrow, where the scrutinee is one.
+    name: ?Name,
 };
 
 /// Null once reported. A type is always settled, a value only where constant.
@@ -2137,7 +2141,7 @@ fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Er
     if (try check.namedType(scrutinee, value)) |named| {
         if (named == .poison) return null;
         // a bounded parameter is one of the bound's members, so the arms cover them
-        return .{ .set = check.unionBoundOfName(scrutinee), .held = named, .ref = .fromConstant(.poison), .local = null };
+        return .{ .set = check.unionBoundOfName(scrutinee), .held = named, .ref = .fromConstant(.poison), .name = null };
     }
 
     if (try check.valueOnly(scrutinee, value) == false) return null;
@@ -2152,15 +2156,46 @@ fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Er
         .constant => |constant| comp.pool.typeOfValue(comp.pool.keyOf(constant).value_union.value),
         else => null,
     };
-    return .{ .set = found, .held = held, .ref = refOf(value), .local = check.narrowedLocal(scrutinee) };
+    return .{ .set = found, .held = held, .ref = refOf(value), .name = check.narrowedName(scrutinee) };
 }
 
-/// The local a name reaches, where a branch may narrow it. A `var` may change under the fact.
-fn narrowedLocal(check: *const Check, node: Node.Index) ?Builder.Local.Index {
+/// What a bare name reaches that a branch may narrow, a local or a top-level
+/// constant. A `var` may change under the fact, so it is neither.
+fn narrowedName(check: *const Check, node: Node.Index) ?Name {
     if (check.tree.nodeTag(node) != .ident) return null;
-    const index = check.findLocalIndex(check.mainTokenText(node)) orelse return null;
-    if (check.localAt(index).kind == .var_slot) return null;
-    return index;
+    const text = check.mainTokenText(node);
+    if (check.findLocalIndex(text)) |index| {
+        if (check.localAt(index).kind == .var_slot) return null;
+        return .{ .local = index };
+    }
+    const decl_index = check.visibleDecl(text) orelse return null;
+    if (check.comp.declAt(decl_index).kind != .let) return null;
+    return .{ .decl = decl_index };
+}
+
+/// The type a name holds before any branch narrows it.
+fn nameType(check: *const Check, name: Name) Pool.Index {
+    return switch (name) {
+        .local => |index| check.localAt(index).type,
+        .decl => |index| check.comp.pool.typeOfValue(check.declConstant(index)),
+    };
+}
+
+/// What a name stands for before any branch narrows it, a `var` by its address.
+fn nameRef(check: *const Check, name: Name) Ref {
+    return switch (name) {
+        .local => |index| localRef(check.localAt(index)),
+        .decl => |index| .fromConstant(check.declConstant(index)),
+    };
+}
+
+/// The constant a top-level binding holds. Poison where it never settled, which
+/// was reported when the name was checked, before any fact about it was gathered.
+fn declConstant(check: *const Check, decl_index: Decl.Index) Pool.Index {
+    const decl = check.comp.declAt(decl_index);
+    assert(decl.kind == .let);
+    if (decl.state != .done) return .poison;
+    return @enumFromInt(decl.result);
 }
 
 /// Arms name sets of members. Coverage is counted before any body runs, a
@@ -2175,14 +2210,13 @@ fn checkMatch(
     const builder = check.body();
     assert(check.tree.nodeTag(node) == .match_expr);
 
-    const entry_reachable = builder.reachable;
     const scrutinee = try check.checkExpr(view.scrutinee, null);
+    // a header that left lets nothing through, so the arms are read after it
     try check.reopenDead();
+    const entry_reachable = builder.reachable;
 
     const subject = try check.matchSubject(view.scrutinee, scrutinee) orelse {
-        // the arms are still walked, so a mistake inside one is reported, and a
-        // header that left counts as flowing, the way an `if` header does
-        builder.reachable = entry_reachable;
+        // the arms are still walked, so a mistake inside one is reported
         for (view.arms) |arm_node| {
             if (check.tree.nodeTag(arm_node) != .match_arm) continue;
             _ = try check.checkExpr(check.tree.viewOf(arm_node).match_arm.body, hint);
@@ -2207,10 +2241,10 @@ fn checkMatch(
         };
         const arm = check.tree.viewOf(view.arms[chosen]).match_arm;
 
-        if (subject.local) |local| {
+        if (subject.name) |name| {
             const arm_type = comp.pool.scratch.items[mark + chosen];
             if (arm_type != .poison) {
-                try check.applyFact(.{ .local = local, .type = arm_type, .node = view.arms[chosen] });
+                try check.applyFact(.{ .name = name, .type = arm_type, .node = view.arms[chosen] });
             }
         }
         const value = try check.checkExpr(arm.body, hint);
@@ -2259,9 +2293,9 @@ fn checkMatch(
 
         check.startBlock(arm_block);
         builder.reachable = entry_reachable;
-        if (subject.local) |local| {
+        if (subject.name) |name| {
             if (arm_type != .poison) {
-                try check.applyFact(.{ .local = local, .type = arm_type, .node = arm_node });
+                try check.applyFact(.{ .name = name, .type = arm_type, .node = arm_node });
             }
         }
 
@@ -2288,7 +2322,7 @@ fn checkMatch(
     builder.reachable = join_reachable;
 
     // an arm that leaves narrows the code after the match, like a diverging branch
-    if (subject.local) |local| {
+    if (subject.name) |name| {
         if (labels.clean and join_reachable) {
             const set = subject.set.?;
             const survivors = comp.pool.scratch.items[mark + view.arms.len ..];
@@ -2305,7 +2339,7 @@ fn checkMatch(
             assert(count > 0);
             if (count < members) {
                 const narrowed = try check.uniteRest(rest[0..count]);
-                try check.applyFact(.{ .local = local, .type = narrowed, .node = node });
+                try check.applyFact(.{ .name = name, .type = narrowed, .node = node });
             }
         }
     }
@@ -2542,7 +2576,10 @@ fn checkMatchMissing(
 
 // narrowing, the facts a condition proves
 
-const Fact = struct { local: Builder.Local.Index, type: Pool.Index, node: Node.Index };
+/// A local, or a top-level constant, which a branch narrows alike.
+const Name = union(enum) { local: Builder.Local.Index, decl: Decl.Index };
+
+const Fact = struct { name: Name, type: Pool.Index, node: Node.Index };
 
 /// What a condition proves about locals, per edge. Both are runs in `Builder.facts`.
 const Facts = struct {
@@ -2606,8 +2643,8 @@ fn factsOfIs(
     const comp = check.comp;
     const view = check.tree.viewOf(node).is_expr;
 
-    const index = check.narrowedLocal(view.operand) orelse return null;
-    const found = if (check.activeNarrow(index)) |narrow| narrow.type else check.localAt(index).type;
+    const name = check.narrowedName(view.operand) orelse return null;
+    const found = if (check.activeNarrow(name)) |narrow| narrow.type else check.nameType(name);
     if (comp.pool.isUnion(found) == false) return null;
 
     const label = try check.resolveType(view.type_expr);
@@ -2618,13 +2655,13 @@ fn factsOfIs(
 
     if (view.negated) {
         return .{
-            .when_true = .{ .local = index, .type = rest, .node = node },
-            .when_false = .{ .local = index, .type = label, .node = node },
+            .when_true = .{ .name = name, .type = rest, .node = node },
+            .when_false = .{ .name = name, .type = label, .node = node },
         };
     }
     return .{
-        .when_true = .{ .local = index, .type = label, .node = node },
-        .when_false = .{ .local = index, .type = rest, .node = node },
+        .when_true = .{ .name = name, .type = label, .node = node },
+        .when_false = .{ .name = name, .type = rest, .node = node },
     };
 }
 
@@ -2636,17 +2673,17 @@ fn applyFacts(check: *Check, range: Compilation.Range) Allocator.Error!void {
 
 fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
     const builder = check.body();
-    const source: Ref = if (check.activeNarrow(fact.local)) |narrow|
+    const source: Ref = if (check.activeNarrow(fact.name)) |narrow|
         narrow.ref
     else
-        localRef(check.localAt(fact.local));
+        check.nameRef(fact.name);
     const narrowed: Ref = switch (source.unwrap()) {
         // a settled union narrows to the member it holds, with nothing to run
         .constant => |constant| .fromConstant(try check.narrowConstant(constant, fact.type)),
         .inst => try check.emitOne(fact.node, .union_narrow, fact.type, source),
     };
     try builder.narrows.append(check.comp.gpa, .{
-        .local = fact.local,
+        .name = fact.name,
         .type = fact.type,
         .ref = narrowed,
     });
@@ -3129,7 +3166,9 @@ fn checkIdent(check: *Check, node: Node.Index) Allocator.Error!Value {
         const local = check.localAt(index);
         switch (local.kind) {
             .let_constant, .let_value, .param => {
-                if (check.activeNarrow(index)) |narrow| return valueOfRef(narrow.ref, narrow.type);
+                if (check.activeNarrow(.{ .local = index })) |narrow| {
+                    return valueOfRef(narrow.ref, narrow.type);
+                }
                 return valueOfRef(localRef(local), local.type);
             },
             .var_slot => {
@@ -3146,6 +3185,10 @@ fn checkIdent(check: *Check, node: Node.Index) Allocator.Error!Value {
     if (Pool.primitiveType(text)) |primitive| return .{ .named_type = primitive };
 
     if (check.visibleDecl(text)) |decl_index| {
+        // a settled constant narrows past a branch the way a local does
+        if (check.activeNarrow(.{ .decl = decl_index })) |narrow| {
+            return valueOfRef(narrow.ref, narrow.type);
+        }
         return check.declAsValue(decl_index, node);
     }
 
@@ -5849,7 +5892,7 @@ fn localPlace(
     text: []const u8,
 ) Place {
     const local = check.localAt(index);
-    const narrow = check.activeNarrow(index);
+    const narrow = check.activeNarrow(.{ .local = index });
     if (narrow != null) assert(local.kind != .var_slot);
 
     return .{

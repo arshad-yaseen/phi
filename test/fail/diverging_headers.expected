@@ -1,0 +1,66 @@
+error[E0250]: this cannot be reached
+ --> test/fail/diverging_headers.phi:9:5
+  |
+9 |     return 2
+  |     ^^^^^^^^ never runs
+note: the block already left here
+ --> test/fail/diverging_headers.phi:8:5
+  |
+8 |     if return 1 { }
+  |     ^^^^^^^^^^^^^^^
+
+error[E0250]: this cannot be reached
+  --> test/fail/diverging_headers.phi:14:5
+   |
+14 |     return 4
+   |     ^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/diverging_headers.phi:13:5
+   |
+13 |     loop return 3 { }
+   |     ^^^^^^^^^^^^^^^^^
+
+error[E0250]: this cannot be reached
+  --> test/fail/diverging_headers.phi:19:5
+   |
+19 |     return 6
+   |     ^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/diverging_headers.phi:18:5
+   |
+18 |     loop i in return 5..9 { }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0250]: this cannot be reached
+  --> test/fail/diverging_headers.phi:24:5
+   |
+24 |     return 8
+   |     ^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/diverging_headers.phi:23:5
+   |
+23 |     loop i in 0..return 7 { }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0250]: this cannot be reached
+  --> test/fail/diverging_headers.phi:31:5
+   |
+31 |     return 10
+   |     ^^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/diverging_headers.phi:28:5
+   |
+28 |     match return 9 {
+   |     ^^^^^^^^^^^^^^^^
+
+error[E0250]: this cannot be reached
+  --> test/fail/diverging_headers.phi:36:5
+   |
+36 |     return n
+   |     ^^^^^^^^ never runs
+note: the block already left here
+  --> test/fail/diverging_headers.phi:35:5
+   |
+35 |     let n: u32 = if return 11 { 12 } else { 13 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

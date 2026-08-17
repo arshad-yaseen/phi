@@ -26,8 +26,8 @@
 - `is` and `match` fold where the union is already settled, and a settled
   condition picks its `if` edge before anything runs, so the arm that cannot
   run is never entered, the way a settled `and` never enters its dead side. A
-  settled name narrows inside the branch as a running one does. Testing a
-  constant optional used to crash the compiler.
+  settled name narrows inside the branch as a running one does, a top-level
+  constant among them. Testing a constant optional used to crash the compiler.
 - `T is u32` asks whether two types are the same, and `match T` picks the arm
   labeled with the type it is, so a generic specializes on its own type
   argument. Only the chosen arm is checked, and a type no arm names is refused
@@ -64,6 +64,10 @@
 
 ### Compiler
 
+- A header that leaves, `if return 1 { }` or `loop i in 0..return 3 { }`,
+  lets nothing through, so what follows the construct is reported as
+  unreachable the way it is after a bare `return`. A range end that left
+  used to crash the compiler.
 - The arms of an `if`, a `loop`, or a `match` used as a value name its type
   between them in whichever order they come, so `if c { 1 } else { small }`
   is a `u8` the way `if c { small } else { 1 }` always was. A constant that

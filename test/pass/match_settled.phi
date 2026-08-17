@@ -65,3 +65,20 @@ fn narrowed_by_is() u32 {
     }
     return number.nothing_here
 }
+
+/// A top-level constant is a name, and narrows the way a local does.
+let port: u32 | none = 8080
+
+fn top_level_by_is() u32 {
+    if port is u32 {
+        return port + 1
+    }
+    return 0
+}
+
+fn top_level_by_match() u32 {
+    return match port {
+        u32 => port * 2
+        none => 0
+    }
+}
