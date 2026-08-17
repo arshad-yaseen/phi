@@ -2,7 +2,7 @@ import std/debug
 
 let stdout: i32 = 1
 
-/// The most bytes `format` writes, a sign and the twenty digits of the widest integer.
+/// The most bytes `format` writes.
 pub let format_max: u64 = 21
 
 let digits: str = "0123456789"
@@ -14,19 +14,9 @@ pub fn print(value: str | u64 | i64) {
     var buf: [format_max]u8 = @splat(0)
     write_all(match value {
         str => value
-        u64 => format(buf[0..], value)
-        i64 => format(buf[0..], value)
+        u64 => format_unsigned(buf[0..], value)
+        i64 => format_signed(buf[0..], value)
     })
-}
-
-/// The decimal digits of `value`, a `-` ahead where it is negative, written into
-/// the end of `buf`, which must hold `format_max` bytes. What they filled.
-pub fn format[T: Integer](buf: []var u8, value: T) str {
-    debug.assert(buf.len >= format_max)
-    return match T {
-        Signed => format_signed(buf, value)
-        Unsigned => format_unsigned(buf, value)
-    }
 }
 
 fn format_unsigned(buf: []var u8, value: u64) str {
