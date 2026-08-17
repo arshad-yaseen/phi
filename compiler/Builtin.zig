@@ -176,14 +176,15 @@ pub const Builtin = enum {
             .ptr_cast => return ptrCast(check, args[0], types[0], values[0]),
             .int_cast => {
                 const written: ?Pool.Index = if (type_args.len == 1) types[0] else null;
-                const wanted = try intCastDestination(check, node, written, hint) orelse
+                const wanted = try destination(check, node, written, hint, int_cast_destination) orelse
                     return .poison;
                 return intCast(check, node, args[0], wanted, values[0]);
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
             .splat => {
-                const wanted = try splatDestination(check, node, hint) orelse return .poison;
+                const wanted = try destination(check, node, null, hint, splat_destination) orelse
+                    return .poison;
                 return splat(check, node, args[0], wanted, values[0]);
             },
             .trap => {
@@ -236,35 +237,69 @@ fn resolveTypes(
     return true;
 }
 
-/// The type `@int_cast` converts to. Its result leads with the destination, so a
-/// landing names it whole or as its first member. Null once reported.
-fn intCastDestination(
+/// What a builtin lands its result on, and how a report names it.
+const Destination = struct {
+    accepts: *const fn (*const Pool, Pool.Index) bool,
+    /// `'@int_cast' converts between integers`, ahead of what it met instead.
+    does: []const u8,
+    label: []const u8,
+    missing: []const u8,
+    help: []const u8,
+};
+
+const int_cast_destination: Destination = .{
+    .accepts = isSizedIntType,
+    .does = "'@int_cast' converts between integers",
+    .label = "not an integer type",
+    .missing = "nothing here says what type '@int_cast' converts to",
+    .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
+};
+
+const splat_destination: Destination = .{
+    .accepts = isArrayType,
+    .does = "'@splat' builds an array",
+    .label = "not an array type",
+    .missing = "nothing here says what array '@splat' builds",
+    .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @splat(0)'",
+};
+
+fn isSizedIntType(_: *const Pool, index: Pool.Index) bool {
+    return Pool.isSizedInt(index);
+}
+
+fn isArrayType(pool: *const Pool, index: Pool.Index) bool {
+    return pool.keyOf(index) == .type_array;
+}
+
+/// The written type where there is one, else what the call lands on, which
+/// leads with the destination. Null once reported.
+fn destination(
     check: *Check,
     node: Node.Index,
     written: ?Pool.Index,
     hint: ?Pool.Index,
+    wants: Destination,
 ) Allocator.Error!?Pool.Index {
     const comp = check.comp;
-
     if (written) |wanted| {
-        if (Pool.isSizedInt(wanted)) return wanted;
-        try failDestination(check, node, wanted, "and this is");
+        if (wants.accepts(&comp.pool, wanted)) return wanted;
+        try failDestination(check, node, wanted, wants, "and this is");
         return null;
     }
 
     const landing = comp.pool.firstMember(hint orelse .void_type);
-    if (Pool.isSizedInt(landing)) return landing;
+    if (wants.accepts(&comp.pool, landing)) return landing;
 
     // a type that cannot be the destination is not the same as no type at all
     if (check.typeCanHold(landing)) {
-        try failDestination(check, node, landing, "and this lands on");
+        try failDestination(check, node, landing, wants, "and this lands on");
         return null;
     }
     try check.fail(node, .{
         .code = .inference_failed,
-        .message = "nothing here says what type '@int_cast' converts to",
+        .message = wants.missing,
         .label = "no type in sight",
-        .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
+        .help = wants.help,
     });
     return null;
 }
@@ -273,16 +308,18 @@ fn failDestination(
     check: *Check,
     node: Node.Index,
     found: Pool.Index,
+    wants: Destination,
     reached: []const u8,
 ) Allocator.Error!void {
     @branchHint(.cold);
     try check.fail(node, .{
         .code = .bad_operand,
-        .message = try check.comp.fmt("'@int_cast' converts between integers, {s} {s}", .{
+        .message = try check.comp.fmt("{s}, {s} {s}", .{
+            wants.does,
             reached,
             try check.comp.typeName(found),
         }),
-        .label = "not an integer type",
+        .label = wants.label,
     });
 }
 
@@ -331,41 +368,6 @@ fn intCast(
 
     const ref = try check.emitOne(node, .int_cast, result, Check.refOf(operand));
     return Check.runtimeValue(ref, result);
-}
-
-/// The array `@splat` builds. Null once reported.
-fn splatDestination(
-    check: *Check,
-    node: Node.Index,
-    hint: ?Pool.Index,
-) Allocator.Error!?Pool.Index {
-    const comp = check.comp;
-
-    const landing = comp.pool.firstMember(hint orelse .void_type);
-    if (comp.pool.keyOf(landing) == .type_array) return landing;
-
-    if (check.typeCanHold(landing)) {
-        try failSplatDestination(check, node, landing);
-        return null;
-    }
-    try check.fail(node, .{
-        .code = .inference_failed,
-        .message = "nothing here says what array '@splat' builds",
-        .label = "no type in sight",
-        .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @splat(0)'",
-    });
-    return null;
-}
-
-fn failSplatDestination(check: *Check, node: Node.Index, found: Pool.Index) Allocator.Error!void {
-    @branchHint(.cold);
-    try check.fail(node, .{
-        .code = .bad_operand,
-        .message = try check.comp.fmt("'@splat' builds an array, and this lands on {s}", .{
-            try check.comp.typeName(found),
-        }),
-        .label = "not an array type",
-    });
 }
 
 fn splat(

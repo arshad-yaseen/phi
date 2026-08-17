@@ -13,7 +13,6 @@ const Compilation = @import("../Compilation.zig");
 const IR = @import("../IR.zig");
 const Layout = @import("../Layout.zig");
 const Pool = @import("../Pool.zig");
-const Source = @import("../Source.zig");
 const Spell = @import("../Spell.zig");
 
 const Ref = IR.Ref;
@@ -1396,20 +1395,9 @@ fn writeCondition(backend: *C, cond: Ref) Fail!void {
 
 const testing = std.testing;
 
-fn testCompile(comp: *Compilation, text: []const u8) !void {
-    const gpa = testing.allocator;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
-    errdefer comp.deinit();
-
-    const buffer = try gpa.alloc(u8, text.len + Source.padding);
-    @memcpy(buffer[0..text.len], text);
-    buffer[text.len] = 0;
-    try comp.compile(.{ .path = "test.phi", .bytes = buffer[0..text.len :0] });
-}
-
 test "the entry is found, missed, or refused" {
     var comp: Compilation = undefined;
-    try testCompile(&comp,
+    try Compilation.testCompile(&comp,
         \\fn main() {
         \\}
         \\
@@ -1419,7 +1407,7 @@ test "the entry is found, missed, or refused" {
     try testing.expect(try entryOf(&comp) == .instance);
 
     var absent: Compilation = undefined;
-    try testCompile(&absent,
+    try Compilation.testCompile(&absent,
         \\fn helper() {
         \\}
         \\
@@ -1429,7 +1417,7 @@ test "the entry is found, missed, or refused" {
     try testing.expectEqual(0, absent.diagnostics.items.len);
 
     var shaped: Compilation = undefined;
-    try testCompile(&shaped,
+    try Compilation.testCompile(&shaped,
         \\fn main(a: i64) i64 {
         \\    return a
         \\}

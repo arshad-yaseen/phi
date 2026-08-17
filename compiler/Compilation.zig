@@ -1043,10 +1043,10 @@ fn pathInside(outer: []const u8, inner: []const u8) bool {
 
 const testing = std.testing;
 
-/// One compilation over one source, which every test below stands up the same way.
-fn testCompile(comp: *Compilation, options: Options, text: []const u8) !void {
+/// One compilation over one source, with no standard library, as every test stands one up.
+pub fn testCompile(comp: *Compilation, text: []const u8) !void {
     const gpa = testing.allocator;
-    try comp.init(gpa, testing.io, options);
+    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
     errdefer comp.deinit();
 
     const buffer = try gpa.alloc(u8, text.len + Source.padding);
@@ -1055,11 +1055,9 @@ fn testCompile(comp: *Compilation, options: Options, text: []const u8) !void {
     try comp.compile(.{ .path = "test.phi", .bytes = buffer[0..text.len :0] });
 }
 
-const test_options: Options = .{ .root_path = "test.phi", .std_dir = null };
-
 test "instantiation identity is index equality" {
     var comp: Compilation = undefined;
-    try testCompile(&comp, test_options,
+    try testCompile(&comp,
         \\pub type Box[T] = {
         \\    item: T
         \\}
@@ -1090,7 +1088,7 @@ test "instantiation identity is index equality" {
 test "a generic alias is the type it names, not a new one" {
     var comp: Compilation = undefined;
     // `return b` compiles only because the alias and the union are one type
-    try testCompile(&comp, test_options,
+    try testCompile(&comp,
         \\type none
         \\type Maybe[T] = T | none
         \\fn pick(a: Maybe[i64], b: i64 | none) Maybe[i64] {
@@ -1129,7 +1127,7 @@ test "a call chain compiles at any depth" {
     try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
 
     var comp: Compilation = undefined;
-    try testCompile(&comp, test_options, deep.written());
+    try testCompile(&comp, deep.written());
     defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
     try testing.expectEqual(levels + 1, comp.funcs.items.len);
@@ -1155,7 +1153,7 @@ test "the deepest nesting that reaches analysis does not overflow the stack" {
     try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
 
     var comp: Compilation = undefined;
-    try testCompile(&comp, test_options, deep.written());
+    try testCompile(&comp, deep.written());
     defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
 }

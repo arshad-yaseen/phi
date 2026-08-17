@@ -1484,55 +1484,11 @@ fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
     else
         null;
 
-    const value = try check.checkExpr(view.init_expr, annotation);
+    var value = try check.checkExpr(view.init_expr, annotation);
+    if (try check.valueOnly(view.init_expr, value) == false) return check.declarePoisoned(name, node);
+    if (annotation) |wanted| value = try check.coerce(value, wanted, view.init_expr);
 
-    switch (value) {
-        .diverged, .poison => try check.declarePoisoned(name, node),
-        .constant => {
-            const met = if (annotation) |wanted|
-                try check.coerce(value, wanted, view.init_expr)
-            else
-                value;
-            switch (met) {
-                .constant => |final| {
-                    if (view.is_mutable) {
-                        try check.checkVarDeclSlot(node, name, .{ .constant = final }, annotation);
-                    } else {
-                        try check.declareLocal(.{
-                            .name = name,
-                            .node = node,
-                            .kind = .let_constant,
-                            .payload = .{ .constant = final },
-                            .type = comp.pool.typeOfValue(final),
-                        }, node);
-                    }
-                },
-                else => try check.checkVarDeclSlot(node, name, met, annotation),
-            }
-        },
-        .runtime => try check.checkVarDeclSlot(node, name, value, annotation),
-        else => {
-            try check.reportNotValue(view.init_expr, value);
-            try check.declarePoisoned(name, node);
-        },
-    }
-}
-
-/// Bind a runtime value. A `let` keeps the ref, a `var` gets storage.
-fn checkVarDeclSlot(
-    check: *Check,
-    node: Node.Index,
-    name: Pool.String,
-    value: Value,
-    annotation: ?Pool.Index,
-) Allocator.Error!void {
-    const comp = check.comp;
-    const view = check.tree.viewOf(node).var_decl;
-
-    var final = value;
-    if (annotation) |wanted| final = try check.coerce(value, wanted, view.init_expr);
-
-    const value_type = check.typeOf(final);
+    const value_type = check.typeOf(value);
     if (value_type == .void_type) {
         try check.fail(view.init_expr, .{
             .code = .type_mismatch,
@@ -1543,10 +1499,20 @@ fn checkVarDeclSlot(
     }
     if (value_type == .poison) return check.declarePoisoned(name, node);
 
-    // a typed constant is fine here, only one that never chose needs the error
-    if (final == .constant and annotation == null and Pool.isUntyped(value_type)) {
-        assert(view.is_mutable);
-        const example: ?[]const u8 = switch (comp.pool.keyOf(final.constant)) {
+    // a let holds a constant as it is, landed or not
+    if (value == .constant and view.is_mutable == false) {
+        return check.declareLocal(.{
+            .name = name,
+            .node = node,
+            .kind = .let_constant,
+            .payload = .{ .constant = value.constant },
+            .type = value_type,
+        }, node);
+    }
+
+    // a var needs storage, which a constant that never chose has no type for
+    if (value == .constant and annotation == null and Pool.isUntyped(value_type)) {
+        const example: ?[]const u8 = switch (comp.pool.keyOf(value.constant)) {
             .value_int => "i64",
             .value_float => "f64",
             .value_aggregate => |it| try comp.fmt("[{d}]{s}", .{
@@ -1571,18 +1537,17 @@ fn checkVarDeclSlot(
     }
 
     if (view.is_mutable == false) {
-        try check.declareLocal(.{
+        return check.declareLocal(.{
             .name = name,
             .node = node,
             .kind = .let_value,
-            .payload = .{ .ref = refOf(final) },
+            .payload = .{ .ref = refOf(value) },
             .type = value_type,
         }, node);
-        return;
     }
 
     const slot = try check.emitSlot(node, name, value_type);
-    try check.emitStore(node, slot, refOf(final));
+    try check.emitStore(node, slot, refOf(value));
     try check.declareLocal(.{
         .name = name,
         .node = node,
@@ -3101,22 +3066,14 @@ fn expectNothing(check: *Check, node: Node.Index, value: Value) Allocator.Error!
 
 pub fn checkExpr(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     const value = try check.checkExprInner(node, hint);
-    if (check.comp.record_expr_types) try check.checkExprRemember(node, value);
-    return value;
-}
-
-/// The editor's record, so the IR is one consumer of the answer rather than the only copy.
-fn checkExprRemember(check: *Check, node: Node.Index, value: Value) Allocator.Error!void {
-    assert(check.comp.record_expr_types);
-    const builder = check.builder orelse return;
-
-    switch (value) {
-        .constant, .runtime => {},
-        else => return,
+    // the editor's record, so the IR is one consumer of the answer rather than the only copy
+    if (check.comp.record_expr_types) {
+        if (check.builder) |builder| {
+            const found = check.typeOf(value);
+            if (found != .poison) try check.comp.rememberExprType(builder.instance, node, found);
+        }
     }
-    const found = check.typeOf(value);
-    if (found == .poison) return;
-    try check.comp.rememberExprType(builder.instance, node, found);
+    return value;
 }
 
 fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
@@ -4958,20 +4915,9 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     else
         null;
 
-    var target: ?Pool.Key.Array = null;
-    var viewed = false;
-
-    if (landing) |found| switch (comp.pool.keyOf(found)) {
-        .type_array => |array| target = array,
-        .type_slice => viewed = true,
-        else => {},
-    };
-
-    const element_hint: ?Pool.Index = element: {
-        if (target) |array| break :element array.child;
-        if (viewed) break :element comp.pool.keyOf(landing.?).type_slice.child;
-        break :element null;
-    };
+    // storage says the element and the count, a view only the element
+    const holds: ?Holds = if (landing) |found| holdsOf(&comp.pool, found) else null;
+    const element_hint: ?Pool.Index = if (holds) |it| it.child else null;
 
     const start = comp.operands.items.len;
     defer comp.operands.shrinkRetainingCapacity(start);
@@ -5004,13 +4950,13 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     if (diverged) return .diverged;
     if (clean == false) return .poison;
 
-    const array = target orelse {
+    const count = (if (holds) |it| it.len else null) orelse {
         // nothing chose, so the literal stays unchosen and fits where it lands
         if (all_constant) {
             return check.internAggregate(.untyped_aggregate_type, comp.operands.items[start..]);
         }
         // a view is an address, and only what the program owns has one to give
-        if (viewed) {
+        if (holds != null) {
             try check.fail(node, .{
                 .code = .not_constant,
                 .message = "a view needs bytes the program owns, and part of this " ++
@@ -5030,14 +4976,14 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
         return .poison;
     };
 
-    if (array.len != elements.len) {
+    if (count != elements.len) {
         try check.fail(node, .{
             .code = .does_not_fit,
             .message = try comp.fmt("this literal has {d} element{s}, and {s} holds {d}", .{
                 elements.len,
                 plural(@intCast(elements.len)),
                 try comp.typeName(landing.?),
-                array.len,
+                count,
             }),
             .label = "the wrong number of elements",
         });
@@ -5046,7 +4992,7 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
 
     for (elements, 0..) |element, position| {
         const at = start + position;
-        const met = try check.coerce(comp.operands.items[at].value, array.child, element);
+        const met = try check.coerce(comp.operands.items[at].value, holds.?.child, element);
         comp.operands.items[at].value = met;
         if (met == .poison) clean = false;
     }
