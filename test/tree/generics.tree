@@ -63,3 +63,22 @@ root
               base: ident Pair
               arg: ident i64
               arg: ident bool
+  fn_decl bounded
+    type_param T
+      bound: ident Number
+    type_param U
+    param a
+      type: ident T
+    param b
+      type: ident U
+    ret: ident T
+    body: block
+      return_expr
+        value: ident a
+  struct_decl Bounded
+    type_param T
+      bound: union_type
+        ident u32
+        ident u64
+    field item
+      type: ident T

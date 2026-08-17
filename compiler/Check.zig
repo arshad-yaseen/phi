@@ -47,7 +47,8 @@ const bindings_max = type_params_max * 2;
 const call_args_max = 255;
 const type_depth_max = AST.nest_max;
 
-const Binding = struct { name: Pool.String, type: Pool.Index };
+/// A type parameter as one instantiation sees it, and the bound it was written under.
+const Binding = struct { name: Pool.String, type: Pool.Index, bound: ?Pool.Index };
 
 /// One part of a literal or one call argument. `initializer` is `.none` outside a literal.
 pub const Operand = struct { value: Value, initializer: Node.OptionalIndex };
@@ -79,7 +80,7 @@ pub const Value = union(enum) {
 // entry points, one per unit kind `ensure` dispatches
 
 pub fn typeAlias(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index, &.{});
+    var check = context(comp, decl_index);
     const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
 
     const resolved = try check.resolveWrittenType(view.aliased);
@@ -93,7 +94,8 @@ pub fn aliasInstance(comp: *Compilation, instance: Pool.Instance) Allocator.Erro
     assert(comp.declAt(decl_index).kind == .type_alias);
 
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
+    var check = context(comp, decl_index);
+    try check.bindTypeParams(instance, &buffer);
 
     const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
     const resolved = try check.resolveWrittenType(view.aliased);
@@ -102,7 +104,7 @@ pub fn aliasInstance(comp: *Compilation, instance: Pool.Instance) Allocator.Erro
 }
 
 pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index, &.{});
+    var check = context(comp, decl_index);
     const view = check.tree.viewOf(check.declNode(decl_index)).var_decl;
     // a top-level 'var' was already refused by the parser, and checks as 'let'
 
@@ -139,7 +141,8 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
 pub fn structRows(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     const decl_index = comp.instanceDecl(instance);
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
+    var check = context(comp, decl_index);
+    try check.bindTypeParams(instance, &buffer);
     check.demand_embedding = false;
 
     const view = check.tree.viewOf(check.declNode(decl_index)).struct_decl;
@@ -219,7 +222,7 @@ fn walkEmbedded(
 }
 
 pub fn externDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index, &.{});
+    var check = context(comp, decl_index);
     const view = check.tree.viewOf(check.declNode(decl_index)).fn_decl;
     const name = comp.pool.stringText(comp.declAt(decl_index).name);
 
@@ -293,7 +296,8 @@ const extern_union_help = "a pointer beside a type with no values crosses, the "
 pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     const decl_index = comp.instanceDecl(instance);
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
+    var check = context(comp, decl_index);
+    try check.bindTypeParams(instance, &buffer);
 
     const view = check.tree.viewOf(check.declNode(decl_index)).fn_decl;
 
@@ -357,46 +361,160 @@ pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!
     return clean;
 }
 
-/// Arguments to type parameters, the owner first for a member.
+/// The type parameters a declaration binds, the owner's first for a member.
+fn typeParamNodes(comp: *const Compilation, decl_index: Decl.Index) struct {
+    owner: []const Node.Index,
+    own: []const Node.Index,
+} {
+    const decl = comp.declAt(decl_index);
+    const tree = comp.treeOf(decl.module);
+    return .{
+        .owner = if (decl.owner.unwrap()) |owner_index|
+            tree.viewOf(comp.declAt(owner_index).node).struct_decl.type_params
+        else
+            &.{},
+        .own = switch (tree.viewOf(decl.node)) {
+            .struct_decl => |view| view.type_params,
+            .fn_decl => |view| view.type_params,
+            .alias_decl => |view| view.type_params,
+            else => unreachable,
+        },
+    };
+}
+
+/// Arguments to type parameters, each with the bound it was written under.
 fn bindTypeParams(
-    comp: *Compilation,
+    check: *Check,
     instance: Pool.Instance,
     buffer: *[bindings_max]Binding,
-) Allocator.Error![]const Binding {
-    const decl_index = comp.instanceDecl(instance);
-    const decl = comp.declAt(decl_index);
+) Allocator.Error!void {
+    const comp = check.comp;
+    assert(check.bindings.len == 0);
     const args = comp.instanceArgs(instance);
-    const tree = comp.treeOf(decl.module);
-
-    const owner_params: []const Node.Index = if (decl.owner.unwrap()) |owner_index|
-        tree.viewOf(comp.declAt(owner_index).node).struct_decl.type_params
-    else
-        &.{};
-    const own = switch (tree.viewOf(decl.node)) {
-        .struct_decl => |view| view.type_params,
-        .fn_decl => |view| view.type_params,
-        .alias_decl => |view| view.type_params,
-        else => unreachable,
-    };
+    const params = typeParamNodes(comp, comp.instanceDecl(instance));
 
     var count: u32 = 0;
-    for ([_][]const Node.Index{ owner_params, own }) |params| {
-        assert(params.len <= type_params_max);
-        for (params) |param| {
+    for ([_][]const Node.Index{ params.owner, params.own }) |list| {
+        assert(list.len <= type_params_max);
+        for (list) |param| {
             assert(count < buffer.len);
+            const name_token = check.tree.nodeMainToken(param);
             buffer[count] = .{
-                .name = try comp.pool.string(comp.gpa, tree.tokenSlice(tree.nodeMainToken(param))),
+                .name = try comp.pool.string(comp.gpa, check.tree.tokenSlice(name_token)),
                 .type = args[count],
+                .bound = try check.boundOf(comp.instanceDecl(instance), param),
             };
             count += 1;
         }
     }
 
     assert(count == args.len);
-    return buffer[0..count];
+    check.bindings = buffer[0..count];
 }
 
-fn context(comp: *Compilation, decl_index: Decl.Index, bindings: []const Binding) Check {
+/// The bound a type parameter was written with, resolved before any binding is
+/// in scope, since a bound names concrete types. Null where there is none, or
+/// once a broken one is reported.
+fn boundOf(check: *Check, decl_index: Decl.Index, param: Node.Index) Allocator.Error!?Pool.Index {
+    assert(check.bindings.len == 0);
+    // recovery can leave a hole where a parameter was, already reported
+    if (check.tree.nodeTag(param) != .type_param) return null;
+    const written = check.tree.viewOf(param).type_param.bound.unwrap() orelse return null;
+
+    // a parameter is not concrete, and would otherwise be reported as unknown
+    if (check.tree.nodeTag(written) == .ident) {
+        const params = typeParamNodes(check.comp, decl_index);
+        for ([_][]const Node.Index{ params.owner, params.own }) |list| {
+            for (list) |other| {
+                if (check.tree.nodeTag(other) != .type_param) continue;
+                const other_name = check.tree.tokenSlice(check.tree.nodeMainToken(other));
+                if (std.mem.eql(u8, other_name, check.mainTokenText(written)) == false) continue;
+                try check.fail(written, .{
+                    .code = .not_a_type,
+                    .message = try check.comp.fmt("a bound names concrete types, and '{s}' " ++
+                        "is a type parameter", .{other_name}),
+                    .label = "not concrete",
+                });
+                return null;
+            }
+        }
+    }
+
+    const bound = try check.resolveType(written);
+    return if (bound == .poison) null else bound;
+}
+
+/// The bound a bare name is bound under, where it names a type parameter with one.
+fn boundOfName(check: *const Check, node: Node.Index) ?Pool.Index {
+    if (check.tree.nodeTag(node) != .ident) return null;
+    const text = check.mainTokenText(node);
+    for (check.bindings) |binding| {
+        if (check.comp.pool.sameText(binding.name, text)) return binding.bound;
+    }
+    return null;
+}
+
+/// The bound of a bare name where it is a union, which is the closed set a
+/// `match` or an `is` on the parameter counts against. One type bounds nothing worth counting.
+fn unionBoundOfName(check: *const Check, node: Node.Index) ?Pool.Index {
+    const bound = check.boundOfName(node) orelse return null;
+    return if (check.comp.pool.isUnion(bound)) bound else null;
+}
+
+/// Whether the type is one the bound admits, which a union bound answers by
+/// membership. A union is never a member, so a bounded parameter is never one.
+fn withinBound(pool: *const Pool, bound: Pool.Index, type_index: Pool.Index) bool {
+    if (pool.isUnion(bound)) return pool.unionHas(bound, type_index);
+    return bound == type_index;
+}
+
+/// What a hint pins under a bound: the hint where the bound admits it, else the
+/// first member of a union hint the bound admits, since the result enters the
+/// union the way any value does. Null where nothing is admitted.
+fn admittedBy(pool: *const Pool, bound: Pool.Index, hinted: Pool.Index) ?Pool.Index {
+    if (withinBound(pool, bound, hinted)) return hinted;
+    if (pool.isUnion(hinted) == false) return null;
+    for (pool.unionMembers(hinted)) |member| {
+        if (withinBound(pool, bound, member)) return member;
+    }
+    return null;
+}
+
+/// Whether each argument is one its parameter's bound admits. Reported at the
+/// call or the bracket, with the bound noted where it was written.
+fn boundsHold(
+    check: *Check,
+    decl_index: Decl.Index,
+    args: []const Pool.Index,
+    node: Node.Index,
+) Allocator.Error!bool {
+    const comp = check.comp;
+    const decl = comp.declAt(decl_index);
+    const params = typeParamNodes(comp, decl_index).own;
+    assert(params.len == args.len);
+
+    // resolved in the declaration's own file, which is where the bound is written
+    var callee = context(comp, decl_index);
+    for (params, args) |param, arg| {
+        const bound = try callee.boundOf(decl_index, param) orelse continue;
+        if (withinBound(&comp.pool, bound, arg)) continue;
+
+        try check.fail(node, .{
+            .code = .not_a_member,
+            .message = try comp.fmt("'{s}' is not a member of '{s}', which bounds '{s}'", .{
+                try comp.typeName(arg),
+                try comp.typeName(bound),
+                callee.tree.tokenSlice(callee.tree.nodeMainToken(param)),
+            }),
+            .label = "outside the bound",
+            .notes = try comp.noteOne(decl.module, param, "bounded here"),
+        });
+        return false;
+    }
+    return true;
+}
+
+fn context(comp: *Compilation, decl_index: Decl.Index) Check {
     const decl = comp.declAt(decl_index);
     const module = comp.moduleAt(decl.module);
     return .{
@@ -404,7 +522,7 @@ fn context(comp: *Compilation, decl_index: Decl.Index, bindings: []const Binding
         .module_index = decl.module,
         .module = module,
         .tree = &module.tree,
-        .bindings = bindings,
+        .bindings = &.{},
         .builder = null,
         .bool_type = .poison,
         .none_type = .poison,
@@ -784,6 +902,9 @@ fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.Inde
         if (resolved == .poison) return .poison;
         args_buffer[position] = resolved;
     }
+    if (try check.boundsHold(decl_index, args_buffer[0..view.args.len], node) == false) {
+        return .poison;
+    }
 
     const instance = try comp.instantiate(
         decl_index,
@@ -925,7 +1046,8 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     if (comp.instanceAt(instance).rows_state != .done) return false;
 
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index, try bindTypeParams(comp, instance, &buffer));
+    var check = context(comp, decl_index);
+    try check.bindTypeParams(instance, &buffer);
 
     const builder = &comp.body_builder;
     assert(builder.insts.len == 0);
@@ -2014,7 +2136,8 @@ fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Er
     const comp = check.comp;
     if (try check.namedType(scrutinee, value)) |named| {
         if (named == .poison) return null;
-        return .{ .set = null, .held = named, .ref = .fromConstant(.poison), .local = null };
+        // a bounded parameter is one of the bound's members, so the arms cover them
+        return .{ .set = check.unionBoundOfName(scrutinee), .held = named, .ref = .fromConstant(.poison), .local = null };
     }
 
     if (try check.valueOnly(scrutinee, value) == false) return null;
@@ -2582,6 +2705,9 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
     // a type is settled by the checker, so the answer is a constant
     if (try check.namedType(view.operand, operand)) |named| {
         if (named == .poison) return .poison;
+        if (check.unionBoundOfName(view.operand)) |bound| {
+            if (try check.labelWithin(view.type_expr, label, bound) == false) return .poison;
+        }
         return check.settledTruth(node, comp.pool.covers(label, named) != view.negated);
     }
 
@@ -5208,6 +5334,11 @@ fn checkCallResolved(
     }
     const start: u32 = if (inferred) mark + @as(u32, @intCast(args.len)) else mark;
 
+    // the owner's arguments held when the owner was named, so only the own are asked
+    if (try check.boundsHold(decl_index, full_args[owner_count..][0..own_count], node) == false) {
+        return .poison;
+    }
+
     const instance = try comp.instantiate(
         decl_index,
         full_args[0 .. owner_count + own_count],
@@ -5329,10 +5460,18 @@ fn inferTypeArguments(
         try comp.operands.append(comp.gpa, .{ .value = value, .initializer = .none });
     }
 
+    // bounds are read in the declaration's own file
+    var callee = context(comp, decl_index);
+
     const receiver_rows: u32 = if (has_receiver) 1 else 0;
     for (fn_view.type_params, 0..) |type_param, param_position| {
         const wanted = owner_tree.tokenSlice(owner_tree.nodeMainToken(type_param));
-        const from_hint = hintFor(&comp.pool, owner_tree, fn_view, wanted, hint);
+        const bound = try callee.boundOf(decl_index, type_param);
+
+        var from_hint = hintFor(&comp.pool, owner_tree, fn_view, wanted, hint);
+        if (from_hint) |hinted| {
+            if (bound) |limit| from_hint = admittedBy(&comp.pool, limit, hinted);
+        }
 
         const pin = switch (check.pinnedType(
             owner_tree,
@@ -5382,8 +5521,17 @@ fn inferTypeArguments(
             return false;
         }
 
-        const found = check.typeOf(comp.operands.items[early + pin.argument].value);
+        const value = comp.operands.items[early + pin.argument].value;
+        const found = check.typeOf(value);
         if (Pool.isUntyped(found)) {
+            // a constant lands on the first member of the bound it fits, the way it
+            // enters a union, so the bound's order says what a bare number is
+            if (bound != null and wrapperOf(owner_tree, pin.written) == null) {
+                const met = try check.fitValue(value.constant, bound.?, args[pin.argument]);
+                if (met != .constant) return false;
+                out[param_position] = comp.pool.memberOfValue(met.constant);
+                continue;
+            }
             try check.fail(args[pin.argument], .{
                 .code = .inference_failed,
                 .message = "a constant that has not landed has no type to read",

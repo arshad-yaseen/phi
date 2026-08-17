@@ -19,3 +19,11 @@ fn use_them(store: Store) {
     _ = make[i64](store, 1)
     _ = store.make[Pair[i64, bool]]()
 }
+
+fn bounded[T: Number, U](a: T, b: U) T {
+    return a
+}
+
+type Bounded[T: u32 | u64] = {
+    item: T
+}

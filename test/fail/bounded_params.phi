@@ -1,0 +1,83 @@
+type Point = {
+    x: u32
+}
+
+fn describe[T: Number](value: T) u32 {
+    return match T {
+        Integer => 1
+        else => 2
+    }
+}
+
+/// A struct outside the bound, written, inferred, and through a bracket.
+fn written(p: Point) u32 {
+    return describe[Point](p)
+}
+
+fn inferred(p: Point) u32 {
+    return describe(p)
+}
+
+type Box[T: Number] = {
+    item: T
+}
+
+fn bracketed(p: Point) Box[Point] {
+    return .{ item: p }
+}
+
+/// A union is never a member, so a bounded parameter is never one.
+fn a_union(maybe: u32 | none) u32 {
+    return describe(maybe)
+}
+
+/// A bare constant that fits no member of the bound.
+fn no_member_fits() u32 {
+    return describe("text")
+}
+
+/// The arms of a bounded match are counted, and a label must be a member.
+fn incomplete[T: Number](value: T) u32 {
+    _ = value
+    return match T {
+        Integer => 1
+    }
+}
+
+fn stray_label[T: Number](value: T) u32 {
+    _ = value
+    return match T {
+        Number => 1
+        Point => 2
+    }
+}
+
+/// So must the label of an `is`.
+fn stray_is[T: Integer](value: T) bool {
+    _ = value
+    return T is f64
+}
+
+/// A bound that names nothing, and one that names a parameter, which is not
+/// concrete.
+fn broken_bound[T: Nonexistent](value: T) T {
+    return value
+}
+
+fn parameter_as_bound[T, U: T](a: T, b: U) T {
+    _ = b
+    return a
+}
+
+fn drive(p: Point, n: u32, maybe: u32 | none) u32 {
+    _ = written(p)
+    _ = inferred(p)
+    _ = bracketed(p)
+    _ = a_union(maybe)
+    _ = no_member_fits()
+    _ = incomplete(n)
+    _ = stray_label(n)
+    _ = stray_is(n)
+    _ = broken_bound(n)
+    return parameter_as_bound(n, n)
+}

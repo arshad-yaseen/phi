@@ -1,0 +1,91 @@
+import std/math
+
+type Point = {
+    x: u32
+}
+
+/// The bound is a closed set, so the arms are counted against it and no `else`
+/// is needed. A label may group several members, and only the arm for the type
+/// it is gets checked.
+fn describe[T: Number](value: T) u32 {
+    return match T {
+        Integer => 1
+        f32 => 2
+        f64 => 3
+    }
+}
+
+/// A bound of one width family, and the arm for the type it is.
+fn parity[T: Integer](value: T) T {
+    return match T {
+        i64 | i32 | i16 | i8 => value % 2
+        u64 | u32 | u16 | u8 => value & 1
+    }
+}
+
+/// `is` on a bounded parameter folds, and its label is checked against the bound.
+fn signed[T: Integer](value: T) bool {
+    _ = value
+    return T is i64 | i32 | i16 | i8
+}
+
+/// A bare number pins the first member of the bound it fits, so `-7` is an `i64`
+/// and `1.5` an `f64`, the way a constant enters a union.
+fn literals() u64 {
+    return describe(-7) + describe(1.5) + describe(300)
+}
+
+/// A hint the bound admits still pins, and one it refuses is set aside for the
+/// literal, so `abs(7)` lands where it is fed and not on the whole union.
+fn hinted(maybe: u32 | none) u32 {
+    let wide: u64 = parity(7)
+    _ = wide
+    let held: u32 | none = parity(7)
+    _ = held
+    _ = maybe
+    let picked: u32 = parity(7)
+    return picked
+}
+
+/// A struct and a member function may be bounded, and the owner's arguments
+/// were checked where the owner was named.
+type Box[T: Number] = {
+    item: T
+
+    pub fn doubled(self: Box[T]) T {
+        return self.item + self.item
+    }
+}
+
+fn boxed(n: u32, x: f64) f64 {
+    let b: Box[u32] = .{ item: n }
+    let c = Box[f64].{ item: x }
+    _ = b.doubled()
+    return c.doubled()
+}
+
+/// A bound of one type is a degenerate set, and the parameter is exactly it.
+fn only_wide[T: u64](value: T) T {
+    return value
+}
+
+/// The standard library's own bounded functions, pinned by a typed value.
+fn from_std(n: u32) bool {
+    return math.is_power_of_two(n)
+}
+
+fn drive(n: u32, x: f64, s: i8, w: u64, maybe: u32 | none) u64 {
+    _ = describe(n)
+    _ = describe(x)
+    _ = describe(s)
+    _ = parity(s)
+    _ = parity(w)
+    _ = signed(n)
+    _ = signed(s)
+    _ = literals()
+    _ = hinted(maybe)
+    _ = boxed(n, x)
+    _ = only_wide(w)
+    _ = from_std(n)
+    return parity(w)
+}

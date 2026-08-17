@@ -827,9 +827,15 @@ fn errTypeParams(self: *Parse, lbracket: Token.Index, top: usize) Allocator.Erro
     self.scratch.shrinkRetainingCapacity(top + type_params_max);
 }
 
+/// `T`, or `T: Number` to bound it to the members of a type.
 fn parseTypeParam(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.ident));
-    return self.addLeaf(.type_param);
+    const name = self.nextToken();
+    const bound: Node.OptionalIndex = if (self.eatToken(.colon) != null)
+        (try self.parseType()).toOptional()
+    else
+        .none;
+    return self.addNode(.{ .tag = .type_param, .main_token = name, .data = .{ .opt_node = bound } });
 }
 
 fn parseParam(self: *Parse) Allocator.Error!Node.Index {

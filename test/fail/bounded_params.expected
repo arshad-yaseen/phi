@@ -1,0 +1,99 @@
+error[E0257]: 'Point' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32', which bounds 'T'
+  --> test/fail/bounded_params.phi:14:12
+   |
+14 |     return describe[Point](p)
+   |            ^^^^^^^^^^^^^^^^^ outside the bound
+note: bounded here
+  --> test/fail/bounded_params.phi:5:13
+   |
+ 5 | fn describe[T: Number](value: T) u32 {
+   |             ^^^^^^^^^
+
+error[E0257]: 'Point' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32', which bounds 'T'
+  --> test/fail/bounded_params.phi:18:12
+   |
+18 |     return describe(p)
+   |            ^^^^^^^^^^ outside the bound
+note: bounded here
+  --> test/fail/bounded_params.phi:5:13
+   |
+ 5 | fn describe[T: Number](value: T) u32 {
+   |             ^^^^^^^^^
+
+error[E0257]: 'Point' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32', which bounds 'T'
+  --> test/fail/bounded_params.phi:25:24
+   |
+25 | fn bracketed(p: Point) Box[Point] {
+   |                        ^^^^^^^^^ outside the bound
+note: bounded here
+  --> test/fail/bounded_params.phi:21:10
+   |
+21 | type Box[T: Number] = {
+   |          ^^^^^^^^^
+
+error[E0257]: 'u32 | none' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32', which bounds 'T'
+  --> test/fail/bounded_params.phi:31:12
+   |
+31 |     return describe(maybe)
+   |            ^^^^^^^^^^^^^^ outside the bound
+note: bounded here
+  --> test/fail/bounded_params.phi:5:13
+   |
+ 5 | fn describe[T: Number](value: T) u32 {
+   |             ^^^^^^^^^
+
+error[E0206]: expected i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32, found an untyped array
+  --> test/fail/bounded_params.phi:36:21
+   |
+36 |     return describe("text")
+   |                     ^^^^^^ the wrong type
+   |
+   = help: nothing converts on its own
+
+error[E0259]: this match leaves out 'f64', 'f32'
+  --> test/fail/bounded_params.phi:42:12
+   |
+42 |     return match T {
+   |            ^^^^^ not every member is handled
+   |
+   = help: add an arm per member, or 'else =>' for the rest
+note: while checking 'incomplete[u32]', needed here
+  --> test/fail/bounded_params.phi:78:9
+   |
+78 |     _ = incomplete(n)
+   |         ^^^^^^^^^^^^
+
+error[E0257]: 'Point' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8 | f64 | f32'
+  --> test/fail/bounded_params.phi:51:9
+   |
+51 |         Point => 2
+   |         ^^^^^ not a member
+note: while checking 'stray_label[u32]', needed here
+  --> test/fail/bounded_params.phi:79:9
+   |
+79 |     _ = stray_label(n)
+   |         ^^^^^^^^^^^^^
+
+error[E0257]: 'f64' is not a member of 'i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8'
+  --> test/fail/bounded_params.phi:58:17
+   |
+58 |     return T is f64
+   |                 ^^^ not a member
+note: while checking 'stray_is[u32]', needed here
+  --> test/fail/bounded_params.phi:80:9
+   |
+80 |     _ = stray_is(n)
+   |         ^^^^^^^^^^
+
+error[E0201]: nothing named 'Nonexistent' is in scope here
+  --> test/fail/bounded_params.phi:63:20
+   |
+63 | fn broken_bound[T: Nonexistent](value: T) T {
+   |                    ^^^^^^^^^^^ unknown name
+
+error[E0202]: a bound names concrete types, and 'T' is a type parameter
+  --> test/fail/bounded_params.phi:67:29
+   |
+67 | fn parameter_as_bound[T, U: T](a: T, b: U) T {
+   |                             ^ not concrete
+

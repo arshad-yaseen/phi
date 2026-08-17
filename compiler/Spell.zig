@@ -292,8 +292,9 @@ fn node(
             if (it.type_expr.unwrap()) |declared| try node(ast, writer, declared, below, "type");
             try node(ast, writer, it.init_expr, below, "init");
         },
-        .type_param => |token| {
-            try writer.print(" {s}\n", .{ast.tokenSlice(token)});
+        .type_param => |it| {
+            try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
+            if (it.bound.unwrap()) |bound| try node(ast, writer, bound, below, "bound");
         },
         .param, .field => |it| {
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});

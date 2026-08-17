@@ -32,6 +32,13 @@
   labeled with the type it is, so a generic specializes on its own type
   argument. Only the chosen arm is checked, and a type no arm names is refused
   where the generic was instantiated.
+- A type parameter may be bounded, `fn abs[T: Number](n: T) T`, to the members
+  of a type the way a value is held to the members of a union. An argument
+  outside the bound is refused where the generic is named, `match T` and `T is`
+  count their arms against the bound as a value match counts against its
+  union, and a bare number pins the first member of the bound it fits, so
+  `abs(-7)` is an `i64`. The prelude declares `Integer`, `Float`, and `Number`
+  for it, widest first.
 - `is` takes a union on its right, `r is Timeout | NotFound`, and asks for
   any of its members, the way a match arm labeled with several already did.
   The branch narrows to exactly those, and the other to what is left.

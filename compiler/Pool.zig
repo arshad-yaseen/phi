@@ -672,6 +672,14 @@ pub fn typeOfValue(pool: *const Pool, value: Index) Index {
     };
 }
 
+/// The type a constant holds, the member where the constant knows its union.
+pub fn memberOfValue(pool: *const Pool, value: Index) Index {
+    return switch (pool.keyOf(value)) {
+        .value_union => |it| pool.typeOfValue(it.value),
+        else => pool.typeOfValue(value),
+    };
+}
+
 pub fn isType(pool: *const Pool, index: Index) bool {
     return switch (pool.keyOf(index)) {
         .type_simple, .type_pointer, .type_array, .type_slice => true,

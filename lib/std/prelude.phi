@@ -9,3 +9,12 @@ pub type bool = true | false
 
 /// Text, which is a view of bytes.
 pub type str = []u8
+
+/// Every integer type, widest first, so a bare number bounded by it lands wide.
+pub type Integer = i64 | i32 | i16 | i8 | u64 | u32 | u16 | u8
+
+/// Every float type, widest first.
+pub type Float = f64 | f32
+
+/// Every number type.
+pub type Number = Integer | Float

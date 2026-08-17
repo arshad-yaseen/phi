@@ -1,0 +1,29 @@
+import std/io
+
+/// The arm for the type it is, and only that arm, per instantiation.
+fn kind[T: Number](value: T) str {
+    _ = value
+    return match T {
+        i64 | i32 | i16 | i8 => "signed"
+        u64 | u32 | u16 | u8 => "unsigned"
+        Float => "float"
+    }
+}
+
+fn main() {
+    var n: u32 = 5
+    var s: i8 = -3
+    var x: f32 = 1.5
+    io.print(kind(n))
+    io.print("\n")
+    io.print(kind(s))
+    io.print("\n")
+    io.print(kind(x))
+    io.print("\n")
+    io.print(kind(-7))
+    io.print("\n")
+    io.print(kind(2.5))
+    io.print("\n")
+    io.print(kind(@max_int[u64]()))
+    io.print("\n")
+}

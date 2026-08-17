@@ -97,7 +97,7 @@ pub const Node = struct {
         fn_decl,
         /// Both `let` and `var`, told apart by `main_token`.
         var_decl,
-        /// One name in a `[T, U]` list.
+        /// One name in a `[T, U: Number]` list, with its bound where one is written.
         type_param,
         param,
         field,
@@ -340,7 +340,7 @@ pub const View = union(enum) {
     unit_decl: UnitDecl,
     fn_decl: FnDecl,
     var_decl: VarDecl,
-    type_param: Token.Index,
+    type_param: TypeParam,
     param: TypedName,
     field: TypedName,
 
@@ -424,6 +424,8 @@ pub const View = union(enum) {
         init_expr: Node.Index,
     };
     pub const LoopRange = struct { name: Node.Index, over: Node.Index };
+    /// `.none` leaves the parameter open to any type.
+    pub const TypeParam = struct { name_token: Token.Index, bound: Node.OptionalIndex };
     pub const TypedName = struct { name_token: Token.Index, type_expr: Node.Index };
     pub const NamedValue = struct { name_token: Token.Index, value: Node.Index };
     pub const Assign = struct {
@@ -548,7 +550,7 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
             .type_expr = data.opt_node_and_node[0],
             .init_expr = data.opt_node_and_node[1],
         } },
-        .type_param => .{ .type_param = main },
+        .type_param => .{ .type_param = .{ .name_token = main, .bound = data.opt_node } },
         .param => .{ .param = .{ .name_token = main, .type_expr = data.node } },
         .field => .{ .field = .{ .name_token = main, .type_expr = data.node } },
 
@@ -907,8 +909,9 @@ fn leftStep(tree: AST, node: Node.Index) Step {
 fn rightStep(tree: AST, node: Node.Index) Step {
     const main = tree.nodeMainToken(node);
     return switch (tree.viewOf(node)) {
-        .root, .err, .type_param, .builtin, .ident => .{ .at = main },
+        .root, .err, .builtin, .ident => .{ .at = main },
         .number_literal, .string_literal, .char_literal, .deref => .{ .at = main },
+        .type_param => |it| unwrapOr(it.bound, main),
         .unit_decl => .{ .at = main.after(1) },
         .multiline_string => |it| .{ .at = it.last },
         .field_access => |it| .{ .at = it.name_token },

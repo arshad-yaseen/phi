@@ -1,4 +1,4 @@
 /// Whether n is a power of two. Zero is not one.
-pub fn is_power_of_two[T](n: T) bool {
+pub fn is_power_of_two[T: Integer](n: T) bool {
     return n != 0 and (n & (n - 1)) == 0
 }
