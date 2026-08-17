@@ -8,7 +8,6 @@ type Box[T] = {
     item: T
 }
 
-// a type parameter labels an arm once substitution resolves it
 fn unwrap_or[T](v: T | none, fallback: T) T {
     return match v {
         T => v
@@ -16,7 +15,6 @@ fn unwrap_or[T](v: T | none, fallback: T) T {
     }
 }
 
-// a generic instantiation labels an arm by its interned identity
 fn open(b: Box[u32] | none) u32 {
     return match b {
         Box[u32] => b.item

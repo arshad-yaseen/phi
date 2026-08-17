@@ -1,6 +1,6 @@
 error[E0235]: no module named 'shaeps/circle' in 'test/fail'
- --> test/fail/import_nested.phi:2:1
+ --> test/fail/import_nested.phi:1:1
   |
-2 | import shaeps/circle
+1 | import shaeps/circle
   | ^^^^^^^^^^^^^^^^^^^^ nothing on disk answers to this
 

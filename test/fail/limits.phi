@@ -10,7 +10,6 @@ fn not_a_number() u64 {
     return @min_int[Point]()
 }
 
-// the edge is exact, so one that does not fit where it lands is refused
 fn does_not_fit() i64 {
     return @max_int[u64]()
 }

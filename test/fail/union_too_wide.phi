@@ -1,4 +1,3 @@
-// 256 distinct members, one past the flat cap a union may hold
 type T0; type T1; type T2; type T3; type T4; type T5; type T6; type T7; type T8; type T9; type T10; type T11; type T12; type T13; type T14; type T15
 type T16; type T17; type T18; type T19; type T20; type T21; type T22; type T23; type T24; type T25; type T26; type T27; type T28; type T29; type T30; type T31
 type T32; type T33; type T34; type T35; type T36; type T37; type T38; type T39; type T40; type T41; type T42; type T43; type T44; type T45; type T46; type T47

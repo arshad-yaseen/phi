@@ -1,18 +1,12 @@
-import std/io
-
-fn shout(n: u8) {
-    if n == 42 {
-        io.print("42!\n")
-    }
+fn shout(n: u8) u8 {
+    return n
 }
 
 fn main() {
     let missing: u8 | none = none
-    if missing is u8 {
-        shout(missing)
-    }
+    if missing is u8 { @trap() }
+
     let present: u8 | none = 42
-    if present is u8 {
-        shout(present)
-    }
+    if present is not u8 { @trap() }
+    if shout(present) != 42 { @trap() }
 }

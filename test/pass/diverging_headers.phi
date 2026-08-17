@@ -1,7 +1,3 @@
-//! A header expression that leaves closes the block it stood in, and what
-//! the construct builds after it lands in blocks nothing reaches, which
-//! `finishFunc` drops.
-
 type true
 type false
 type bool = true | false

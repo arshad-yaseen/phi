@@ -1,6 +1,5 @@
 root
   unit_decl none
-    doc /// The absent value, a unit type like any other.
   unit_decl Timeout pub
   alias_decl Reply
     type: union_type

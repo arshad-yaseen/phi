@@ -1,14 +1,8 @@
-import std/io
-
 fn main() {
     let empty: [0]u8 = []
     let view = empty[0..]
-    if view.len == 0 {
-        io.print("empty\n")
-    }
+    if view.len != 0 { @trap() }
+
     let text: []u8 = ""
-    if text.len == 0 {
-        io.print("blank\n")
-    }
-    io.print("done\n")
+    if text.len != 0 { @trap() }
 }

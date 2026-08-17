@@ -1,29 +1,23 @@
-// a constant that lands on a view gets bytes the program owns, so it outlives the call
 fn kind() []u8 {
     return "text/plain"
 }
 
-// one set of bytes, however often the same constant is written
 fn kind_again() []u8 {
     return "text/plain"
 }
 
-// or storage, where what it lands on holds the bytes itself
 fn magic() [2]u8 {
     return "hi"
 }
 
-// escapes decode at compile time, so a line break is one byte like any other
 fn escaped() [3]u8 {
     return "a\nb"
 }
 
-// the codepoint's UTF-8 bytes, which is what the source would have held
 fn crab() []u8 {
     return "\u{1F980}"
 }
 
-// a run of lines is one string, joined by the break the source wrote between them
 fn usage() []u8 {
     return
         \\phi build <root.phi>
@@ -31,18 +25,15 @@ fn usage() []u8 {
         \\  --run   build, then run it
 }
 
-// the last line ends the string, so nothing trails the text it spells
 fn tiny() [2]u8 {
     return \\hi
 }
 
-// the lines are raw, so a backslash inside one is a backslash
 fn pattern() []u8 {
     return
         \\^\d+\.\d+$
 }
 
-// the same bytes are the same constant, however the two were written
 fn twice() [3]u8 {
     return "a\nb"
 }
@@ -53,17 +44,14 @@ fn twice_again() [3]u8 {
         \\b
 }
 
-// the prelude names the convention, and an alias is not a new type
 fn greet(who: str) u64 {
     return who.len
 }
 
-// a character is a number, so comparing it to a byte compares two numbers
 fn is_a(s: []u8, at: u64) bool {
     return s[at] == 'a'
 }
 
-// and it fits wherever its value fits
 fn wide() u32 {
     let crab_point: u32 = '🦀'
     return crab_point

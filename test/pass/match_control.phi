@@ -12,7 +12,6 @@ fn fetch(flag: bool) u32 | Timeout | NotFound {
     return Timeout
 }
 
-// every arm returns, so the match satisfies the body on its own
 fn all_leave(flag: bool) u32 {
     match flag {
         true => return 1
@@ -20,7 +19,6 @@ fn all_leave(flag: bool) u32 {
     }
 }
 
-// a diverging arm contributes no value and no store
 fn some_leave(flag: bool) u32 {
     let n: u32 = match flag {
         true => 4
@@ -29,7 +27,6 @@ fn some_leave(flag: bool) u32 {
     return n
 }
 
-// 'break' and 'continue' reach the loop around the match
 fn drain(flag: bool) u32 {
     var total: u32 = 0
     loop {
@@ -43,7 +40,6 @@ fn drain(flag: bool) u32 {
     return total
 }
 
-// a label reaches out of a nested loop from inside an arm
 fn labeled(flag: bool) u32 {
     outer: loop {
         loop {
@@ -57,7 +53,6 @@ fn labeled(flag: bool) u32 {
     return 1
 }
 
-// a match runs inside a defer on every way out
 fn deferred(flag: bool) u32 {
     defer {
         match flag {
@@ -68,7 +63,6 @@ fn deferred(flag: bool) u32 {
     return 1
 }
 
-// a match feeds a break value
 fn loop_value(flag: bool) u32 {
     return loop {
         break match flag {

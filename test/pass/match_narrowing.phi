@@ -36,7 +36,6 @@ fn fetch(flag: bool) u32 | Timeout | none {
     return Timeout
 }
 
-// a parameter narrows arm by arm
 fn param_narrow(r: u32 | none) u32 {
     return match r {
         u32 => r
@@ -44,7 +43,6 @@ fn param_narrow(r: u32 | none) u32 {
     }
 }
 
-// fields and methods reach the member an arm proved
 fn measure(shape: Shape) u32 {
     return match shape {
         Circle => shape.area()
@@ -53,7 +51,6 @@ fn measure(shape: Shape) u32 {
     }
 }
 
-// `is` narrows a receiver the same way
 fn measure_by_is(shape: Shape) u32 {
     if shape is Circle {
         return shape.area()
@@ -61,7 +58,6 @@ fn measure_by_is(shape: Shape) u32 {
     return 0
 }
 
-// arms that leave narrow what follows the match
 fn after(flag: bool) u32 {
     let r = find(flag)
     match r {
@@ -71,7 +67,6 @@ fn after(flag: bool) u32 {
     return r + 1
 }
 
-// several surviving arms leave their union behind, in declaration order
 fn survivors(flag: bool) u32 {
     let r = fetch(flag)
     match r {
@@ -85,7 +80,6 @@ fn survivors(flag: bool) u32 {
     }
 }
 
-// an `is` fact and a match compose, so the match counts the narrowed union
 fn composed(r: u32 | Timeout | none) u32 {
     if r is not none {
         return match r {

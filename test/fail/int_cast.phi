@@ -1,4 +1,3 @@
-// a test names its own type, because nothing lands the result
 fn no_landing(n: u32) u32 {
     if @int_cast(n) is u8 {
         return 1
@@ -6,13 +5,11 @@ fn no_landing(n: u32) u32 {
     return 0
 }
 
-// and a discard lands nothing at all
 fn discarded(n: u32) u32 {
     _ = @int_cast(n)
     return 0
 }
 
-// a landing that cannot be the destination says which one is wrong
 fn lands_on_a_float(n: u32) f64 {
     return @int_cast(n) or 0
 }
@@ -25,7 +22,6 @@ fn not_a_number(p: *u32) u32 {
     return @int_cast[u8](p) or 0
 }
 
-// a lossy landing with nothing written says which conversion is missing
 fn narrows(n: u64) u8 {
     return n
 }

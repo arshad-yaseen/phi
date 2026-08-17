@@ -1,6 +1,6 @@
 error[E0219]: 'wrapper' has no declaration named 'helper'
- --> test/fail/import_not_a_member/main.phi:5:20
+ --> test/fail/import_not_a_member/main.phi:4:20
   |
-5 |     return wrapper.helper.twice(seed)
+4 |     return wrapper.helper.twice(seed)
   |                    ^^^^^^ not found
 

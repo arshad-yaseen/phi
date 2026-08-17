@@ -1,5 +1,3 @@
-// an array embeds its elements, so a struct holding an array of itself has
-// no size, exactly as one holding itself by value has none
 type Grid = {
     label: i64
     cells: [4]Grid

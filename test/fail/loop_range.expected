@@ -31,15 +31,15 @@ error[E0244]: '_' is not a name, and only discards a value
    = help: write '_ = expression' to drop a value on purpose
 
 error[E0221]: 'i' was bound with 'let', so it cannot change
-  --> test/fail/loop_range.phi:28:9
+  --> test/fail/loop_range.phi:27:9
    |
-28 |         i = 3
+27 |         i = 3
    |         ^ immutable
    |
    = help: declare it 'var' if it needs to change
 note: bound here
-  --> test/fail/loop_range.phi:27:10
+  --> test/fail/loop_range.phi:26:10
    |
-27 |     loop i in 0..n {
+26 |     loop i in 0..n {
    |          ^
 

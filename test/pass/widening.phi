@@ -1,9 +1,7 @@
-// every value of a u8 is already a u32, so nothing is written to land it
 fn lands(small: u8) u32 {
     return small
 }
 
-// signedness may change, as long as no value is lost
 fn crosses(small: u8) i16 {
     return small
 }
@@ -12,7 +10,6 @@ fn keeps_the_sign(small: i8) i64 {
     return small
 }
 
-// a sealed constant widens where it lands, the way a runtime value does
 fn from_a_constant() u64 {
     let byte: u8 = 200
     return byte
@@ -22,7 +19,6 @@ type Pair = {
     wide: i64
 }
 
-// a field, an argument, and an element are landings like any other
 fn into_a_field(small: i32) Pair {
     return .{ wide: small }
 }
@@ -39,12 +35,10 @@ fn into_an_element(small: u8) [2]u32 {
     return [small, 1]
 }
 
-// a float widens on the same rule, because every f32 is exactly an f64
 fn floats(x: f32) f64 {
     return x
 }
 
-// the two ends of an operator meet the same way
 fn adds(a: i32, b: i64) i64 {
     return a + b
 }
@@ -53,7 +47,6 @@ fn shifts(value: u32, by: u8) u32 {
     return value << by
 }
 
-// so a narrow counter reaches a length with no conversion between them
 fn counted(xs: []u32) u32 {
     var total: u32 = 0
     var at: u32 = 0

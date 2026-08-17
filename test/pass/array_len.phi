@@ -2,33 +2,27 @@ type Window = {
     len: u32
 }
 
-// a length is in the type, so it is settled before anything runs
 fn count(a: [4]u32) u64 {
     return a.len
 }
 
-// two of them fold together
 fn total(a: [4]u32, b: [8]u32) u64 {
     return a.len + b.len
 }
 
-// the outer length is the one asked for
 fn rows(g: [2][3]u8) u64 {
     return g.len
 }
 
-// the member question follows one pointer, the way a field does
 fn through_a_pointer(p: *[4]u32) u64 {
     return p.len
 }
 
-// a length is known, so it may size another array
 fn same_size(a: [4]u32) [4]u32 {
     let copy: [a.len]u32 = a
     return copy
 }
 
-// a nearer declaration wins, so here 'len' is the field and reads as its type
 fn the_field_wins(w: Window) u32 {
     return w.len
 }

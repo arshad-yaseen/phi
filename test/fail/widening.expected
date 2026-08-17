@@ -1,31 +1,31 @@
 error[E0206]: expected f32, found f64
- --> test/fail/widening.phi:3:12
+ --> test/fail/widening.phi:2:12
   |
-3 |     return x
+2 |     return x
   |            ^ the wrong type
   |
   = help: nothing converts on its own
 
 error[E0206]: expected f64, found u32
- --> test/fail/widening.phi:8:12
+ --> test/fail/widening.phi:6:12
   |
-8 |     return n
+6 |     return n
   |            ^ the wrong type
   |
   = help: nothing converts on its own
 
 error[E0206]: expected u32, found f64
-  --> test/fail/widening.phi:12:12
+  --> test/fail/widening.phi:10:12
    |
-12 |     return x
+10 |     return x
    |            ^ the wrong type
    |
    = help: nothing converts on its own
 
 error[E0206]: expected i64, found u64
-  --> test/fail/widening.phi:17:12
+  --> test/fail/widening.phi:14:12
    |
-17 |     return n
+14 |     return n
    |            ^ the wrong type
    |
    = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not

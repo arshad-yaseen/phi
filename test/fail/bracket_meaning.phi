@@ -1,8 +1,3 @@
-// Brackets mean type arguments after a name that resolves to a generic
-// declaration, and subscript a value everywhere else. What the base
-// resolves to decides, never what it looks like, so a top-level binding
-// subscripts exactly as a local does.
-
 type Box[T] = { item: T }
 type Plain = { item: u32 }
 

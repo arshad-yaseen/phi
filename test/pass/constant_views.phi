@@ -4,13 +4,10 @@ fn takes(xs: []u32) u64 {
     return xs.len
 }
 
-// a constant that lands on a view needs bytes something can point at, and they
-// belong to the program rather than to the call that mentioned them
 fn returned() []u32 {
     return [2, 3, 5, 7]
 }
 
-// the same constant wherever it lands, and never an instruction
 fn argument() u64 {
     return takes([2, 3, 5, 7])
 }
@@ -20,28 +17,23 @@ fn bound() u64 {
     return xs.len
 }
 
-// a field, so a whole struct constant still folds
 fn field() Config {
     return .{ primes: [2, 3, 5, 7] }
 }
 
-// a view enters a union by membership, the way any member does
 fn optional() []u32 | none {
     return [2, 3, 5, 7]
 }
 
-// and is read the way any view is
 fn indexed() u32 {
     let xs: []u32 = [2, 3, 5, 7]
     return xs[1]
 }
 
-// nothing is not something, so a view of no elements is still a view
 fn empty() []u32 {
     return []
 }
 
-// landing on storage instead writes the bytes there and needs no address
 fn stored() [4]u32 {
     return [2, 3, 5, 7]
 }

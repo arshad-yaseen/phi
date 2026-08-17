@@ -15,17 +15,17 @@ error[E0211]: '@min_int' needs an integer type, and this is Point
    = help: the integer types are 'i8' through 'i64' and 'u8' through 'u64'
 
 error[E0208]: 18446744073709551615 does not fit in i64
-  --> test/fail/limits.phi:15:12
+  --> test/fail/limits.phi:14:12
    |
-15 |     return @max_int[u64]()
+14 |     return @max_int[u64]()
    |            ^^^^^^^^^^^^^^^ past the type's edge
    |
    = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
 error[E0208]: -128 does not fit in u32
-  --> test/fail/limits.phi:19:12
+  --> test/fail/limits.phi:18:12
    |
-19 |     return @min_int[i8]()
+18 |     return @min_int[i8]()
    |            ^^^^^^^^^^^^^^ past the type's edge
    |
    = help: an untyped constant takes any type its value fits, and this value does not fit this one

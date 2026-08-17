@@ -1,4 +1,3 @@
-// 'as' renames the binding, and nothing else, so both names reach one module
 import helper as first
 import helper as second
 

@@ -1,9 +1,5 @@
-import std/io
-
 fn main() {
-    io.print("before\n")
     var data: [3]u8 = @splat(0)
     var index: u64 = 3
     data[index] = 1
-    io.print("after\n")
 }

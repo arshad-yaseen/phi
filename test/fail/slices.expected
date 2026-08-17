@@ -1,93 +1,93 @@
 error[E0222]: this is []u32, and []var u32 is needed to write
-  --> test/fail/slices.phi:11:10
+  --> test/fail/slices.phi:10:10
    |
-11 |     fill(xs)
+10 |     fill(xs)
    |          ^^ read-only
    |
    = help: take '[]var' where the view is made
 
 error[E0222]: this writes through a '[]u32', which is read-only
-  --> test/fail/slices.phi:16:5
+  --> test/fail/slices.phi:14:5
    |
-16 |     xs[0] = 1
+14 |     xs[0] = 1
    |     ^^^^ read-only
    |
    = help: take '[]var u32' to write through it
 
 error[E0206]: expected []var u32, found []var u8
-  --> test/fail/slices.phi:21:10
+  --> test/fail/slices.phi:18:10
    |
-21 |     fill(xs)
+18 |     fill(xs)
    |          ^^ the wrong type
    |
    = help: nothing converts on its own
 
 error[E0206]: expected []u32, found [4]u32
-  --> test/fail/slices.phi:26:18
+  --> test/fail/slices.phi:22:18
    |
-26 |     return count(a)
+22 |     return count(a)
    |                  ^ the wrong type
    |
    = help: slice it to make a view of it, as in 'a[0..]'
 
 error[E0219]: []u32 has no field named 'first'
-  --> test/fail/slices.phi:31:15
+  --> test/fail/slices.phi:26:15
    |
-31 |     return xs.first
+26 |     return xs.first
    |               ^^^^^ no such field
 
 error[E0219]: []u32 has no field named 'ln'
-  --> test/fail/slices.phi:35:15
+  --> test/fail/slices.phi:30:15
    |
-35 |     return xs.ln
+30 |     return xs.ln
    |               ^^ no such field
    |
    = help: did you mean 'len'?
 
 error[E0221]: 'len' is a value and not a place
-  --> test/fail/slices.phi:40:8
+  --> test/fail/slices.phi:34:8
    |
-40 |     xs.len = 3
+34 |     xs.len = 3
    |        ^^^ nothing to write to or point at
    |
    = help: an array's length is in its type, and a view keeps its own
 
 error[E0214]: a view needs bytes the program owns, and part of this array is settled at run time
-  --> test/fail/slices.phi:45:12
+  --> test/fail/slices.phi:38:12
    |
-45 |     return [n, 3, 5, 7]
+38 |     return [n, 3, 5, 7]
    |            ^^^^^^^^^^^ not a constant
    |
    = help: bind it to storage first and slice that, as in 'var a: [4]u32 = ...' then 'a[0..]'
 
 error[E0206]: expected []var u32, found an untyped array
-  --> test/fail/slices.phi:50:12
+  --> test/fail/slices.phi:42:12
    |
-50 |     return [2, 3]
+42 |     return [2, 3]
    |            ^^^^^ the wrong type
    |
    = help: a constant makes '[]T' and never '[]var T', because the program's own bytes are read-only
 
 error[E0206]: expected []u32, found [4]u32
-  --> test/fail/slices.phi:56:12
+  --> test/fail/slices.phi:47:12
    |
-56 |     return a
+47 |     return a
    |            ^ the wrong type
    |
    = help: slice it to make a view of it, as in 'a[0..]'
 
 error[E0221]: 'ptr' is a value and not a place
-  --> test/fail/slices.phi:61:8
+  --> test/fail/slices.phi:51:8
    |
-61 |     xs.ptr = xs.ptr
+51 |     xs.ptr = xs.ptr
    |        ^^^ nothing to write to or point at
    |
    = help: a view keeps the address it holds, so write through the view itself
 
 error[E0219]: [4]u32 has no field named 'ptr'
-  --> test/fail/slices.phi:66:14
+  --> test/fail/slices.phi:55:14
    |
-66 |     return a.ptr
+55 |     return a.ptr
    |              ^^^ no such field
    |
    = help: slice it to make a view of it, as in 'a[0..].ptr'
