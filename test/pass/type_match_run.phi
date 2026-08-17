@@ -31,13 +31,13 @@ fn wide[T](value: T) u64 {
 }
 
 fn main() {
-    io.print_uint(tag[u32](0))
-    io.print_uint(tag[u64](0))
-    io.print_uint(tag[Point](.{ x: 0 }))
-    io.print_uint(tag[i8](0))
-    io.print_uint(parity[u64](7))
-    io.print_uint(wide[u64](0))
-    io.print_uint(wide[u32](0))
+    io.print(tag[u32](0))
+    io.print(tag[u64](0))
+    io.print(tag[Point](.{ x: 0 }))
+    io.print(tag[i8](0))
+    io.print(parity[u64](7))
+    io.print(wide[u64](0))
+    io.print(wide[u32](0))
     _ = parity[f64](1.5)
     io.print("\n")
 }

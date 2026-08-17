@@ -1,28 +1,21 @@
 import std/debug
 import std/math
 
-/// Round an address up to the next (or current) aligned address.
-/// The alignment must be a power of two.
-pub fn align_up[T: Integer](addr: T, alignment: T) T {
+/// `addr` rounded up to a multiple of `alignment`, which must be a power of two.
+pub fn align_up[T: Unsigned](addr: T, alignment: T) T {
     debug.assert(math.is_power_of_two(alignment))
-
-    // 11 + 8 - 1 =       18 = 00010010
-    // ~ (8 - 1)  =       ~7 = 11111000
-    // 18 & ~7    = 00010000 =       16
     return (addr + alignment - 1) & ~(alignment - 1)
 }
 
-/// Whether two views hold the same elements, in the same order.
+/// Whether two views hold the same elements in the same order.
 pub fn eql[T](a: []T, b: []T) bool {
     if a.len != b.len {
         return false
     }
-
     loop i in 0..a.len {
         if a[i] != b[i] {
             return false
         }
     }
-
     return true
 }

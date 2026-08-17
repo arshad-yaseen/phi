@@ -1,46 +1,75 @@
 import std/debug
 
+let stdout: i32 = 1
+
+/// The most bytes `format` writes, a sign and the twenty digits of the widest integer.
+pub let format_max: u64 = 21
+
+let digits: str = "0123456789"
+
 extern fn write(fd: i32, buf: *u8, len: u64) i64
 
-/// Write text to standard output.
-pub fn print(text: str) {
-    var rest = text
-    loop {
-        if rest.len == 0 {
-            return
-        }
-        let wrote = write(1, rest.ptr, rest.len)
-        if wrote <= 0 {
-            return
-        }
-        let count = @int_cast[u64](wrote) or return
-        rest = rest[count..]
+/// Text, or a number as decimal digits, written to standard output.
+pub fn print(value: str | u64 | i64) {
+    var buf: [format_max]u8 = @splat(0)
+    write_all(match value {
+        str => value
+        u64 => format(buf[0..], value)
+        i64 => format(buf[0..], value)
+    })
+}
+
+/// The decimal digits of `value`, a `-` ahead where it is negative, written into
+/// the end of `buf`, which must hold `format_max` bytes. What they filled.
+pub fn format[T: Integer](buf: []var u8, value: T) str {
+    debug.assert(buf.len >= format_max)
+    return match T {
+        Signed => format_signed(buf, value)
+        Unsigned => format_unsigned(buf, value)
     }
 }
 
-pub let uint_digits_max: u64 = 20
-
-pub fn format_uint(buf: []var u8, value: u64) []u8 {
-    debug.assert(buf.len >= uint_digits_max)
-
-    var i = buf.len
-    var n = value
-
+fn format_unsigned(buf: []var u8, value: u64) str {
+    var rest = value
+    var at = buf.len
     loop {
-        let digit = @int_cast[u8](n % 10) or return buf[i..]
-        i -= 1
-        buf[i] = '0' + digit
-        n /= 10
-        if n == 0 {
+        at -= 1
+        buf[at] = digits[rest % 10]
+        rest /= 10
+        if rest == 0 {
             break
         }
     }
-
-    return buf[i..]
+    return buf[at..]
 }
 
-/// Write an unsigned integer to standard output, as decimal digits.
-pub fn print_uint(value: u64) {
-    var buf: [uint_digits_max]u8 = @splat(0)
-    print(format_uint(buf[0..], value))
+fn format_signed(buf: []var u8, value: i64) str {
+    // on the negative side, which every value has and the lowest value only has
+    var rest = if value < 0 { value } else { 0 - value }
+    var at = buf.len
+    loop {
+        at -= 1
+        buf[at] = digits[0 - rest % 10]
+        rest /= 10
+        if rest == 0 {
+            break
+        }
+    }
+    if value < 0 {
+        at -= 1
+        buf[at] = '-'
+    }
+    return buf[at..]
+}
+
+fn write_all(bytes: str) {
+    var rest = bytes
+    loop rest.len > 0 {
+        // a write that failed answers below zero, which no count of bytes reaches
+        let wrote = @int_cast[u64](write(stdout, rest.ptr, rest.len)) or return
+        if wrote == 0 {
+            return
+        }
+        rest = rest[wrote..]
+    }
 }

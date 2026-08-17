@@ -1,4 +1,4 @@
-/// A programmer error. The condition must hold, or the program stops.
+/// A contract of the program's own. Where it does not hold, the program stops.
 pub fn assert(ok: bool) {
     if not ok {
         @trap()

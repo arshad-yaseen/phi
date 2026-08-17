@@ -27,12 +27,6 @@ b0:
   %5 = call Box[f64].doubled(%3) : f64
   return %5
 
-fn from_std(n: u32) true | false
-b0:
-  %0 = param n : u32
-  %1 = call is_power_of_two[u32](%0) : true | false
-  return %1
-
 fn drive(n: u32, x: f64, s: i8, w: u64, maybe: u32 | none) u64
 b0:
   %0 = param n : u32
@@ -51,9 +45,8 @@ b0:
   %13 = call hinted(%4) : u32
   %14 = call boxed(%0, %1) : f64
   %15 = call only_wide[u64](%3) : u64
-  %16 = call from_std(%0) : true | false
-  %17 = call parity[u64](%3) : u64
-  return %17
+  %16 = call parity[u64](%3) : u64
+  return %16
 
 fn describe[i64](value: i64) u32
 b0:
@@ -92,23 +85,6 @@ b0:
   %2 = field_val %0, .item : f64
   %3 = add %1, %2 : f64
   return %3
-
-fn is_power_of_two[u32](n: u32) true | false
-b0:
-  %0 = param n : u32
-  %1 = cmp_ne %0, 0:u32 : true | false
-  %2 = local : *var true | false
-  %3 = store %2, %1
-  branch %1, b1, b2
-b1:
-  %4 = sub %0, 1:u32 : u32
-  %5 = bit_and %0, %4 : u32
-  %6 = cmp_eq %5, 0:u32 : true | false
-  %7 = store %2, %6
-  jump b2
-b2:
-  %8 = load %2 : true | false
-  return %8
 
 fn describe[u32](value: u32) u32
 b0:

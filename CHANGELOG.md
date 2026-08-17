@@ -57,10 +57,10 @@
   its own, so `[]var T` reaches `[]T | none`, a `u32` reaches `u64 | none`, and
   an array literal lands on the member that holds it. Listing one more member
   used to refuse values the member itself took.
-- `std/io` opens with `print`, which writes text whole to standard output, and
-  `print_uint`, which writes an unsigned integer as decimal digits.
-  `format_uint` fills a caller's buffer with those digits instead of writing
-  them, sized by `uint_digits_max`.
+- `std/io` has `print`, which takes text or any integer and writes it to
+  standard output, and `format`, which writes an integer's decimal digits into
+  a caller's buffer sized by `format_max`. The prelude declares `Signed`,
+  `Unsigned`, `Integer`, `Float`, and `Number`, widest first.
 
 ### Compiler
 

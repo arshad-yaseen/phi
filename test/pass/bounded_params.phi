@@ -1,5 +1,3 @@
-import std/math
-
 type Point = {
     x: u32
 }
@@ -64,11 +62,6 @@ fn only_wide[T: u64](value: T) T {
     return value
 }
 
-/// The standard library's own bounded functions, pinned by a typed value.
-fn from_std(n: u32) bool {
-    return math.is_power_of_two(n)
-}
-
 fn drive(n: u32, x: f64, s: i8, w: u64, maybe: u32 | none) u64 {
     _ = describe(n)
     _ = describe(x)
@@ -81,6 +74,5 @@ fn drive(n: u32, x: f64, s: i8, w: u64, maybe: u32 | none) u64 {
     _ = hinted(maybe)
     _ = boxed(n, x)
     _ = only_wide(w)
-    _ = from_std(n)
     return parity(w)
 }
