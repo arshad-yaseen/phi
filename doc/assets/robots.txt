@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://phi-lang.org/sitemap.xml

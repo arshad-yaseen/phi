@@ -1,7 +1,0 @@
----
-.title = "Language Reference",
-.description = "The Phi language reference.",
-.author = "Arshad Yaseen",
-.date = @date("2026-08-14T00:00:00"),
-.layout = "page.shtml",
----
