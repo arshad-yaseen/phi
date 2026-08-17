@@ -75,6 +75,10 @@
 - An operator refused on a union says how to narrow it, which only `==` and
   `!=` used to, and only where narrowing could reach a member that takes the
   operator. An operator that mixes a union with a member of it says the same.
+- A type parameter written `[]T` is pinned by a literal, since an array that
+  has not landed still knows its elements, so `eql("a", "b")` reads `T` as
+  `u8`. A hint that is a union pins the member the bound admits and a literal
+  fits, so `-7` reaches an `i64` past a `u64` listed before it.
 - A report from inside a long chain of instantiations keeps both ends of it,
   the innermost frames and the caller's own, and counts what it leaves out
   between. It used to drop the caller's end, which is the half a reader can

@@ -463,12 +463,28 @@ fn withinBound(pool: *const Pool, bound: Pool.Index, type_index: Pool.Index) boo
     return bound == type_index;
 }
 
-/// The hint, or the first member of a union hint, that the bound admits. Null where none.
-fn admittedBy(pool: *const Pool, bound: Pool.Index, hinted: Pool.Index) ?Pool.Index {
+/// The hint where the bound admits it, else the first member of a union hint the
+/// bound admits and the literal fits. Null where none.
+fn admittedBy(
+    comp: *Compilation,
+    bound: Pool.Index,
+    hinted: Pool.Index,
+    literal: ?Pool.Index,
+) Allocator.Error!?Pool.Index {
+    const pool = &comp.pool;
     if (withinBound(pool, bound, hinted)) return hinted;
     if (pool.isUnion(hinted) == false) return null;
-    for (pool.unionMembers(hinted)) |member| {
-        if (withinBound(pool, bound, member)) return member;
+
+    // by position, since fitting a literal interns
+    const count = pool.unionMemberCount(hinted);
+    var at: u32 = 0;
+    while (at < count) : (at += 1) {
+        const member = pool.unionMemberAt(hinted, at);
+        if (withinBound(pool, bound, member) == false) continue;
+        if (literal) |constant| {
+            if (try pool.fit(comp.gpa, constant, member, .allowed) != .value) continue;
+        }
+        return member;
     }
     return null;
 }
@@ -5508,19 +5524,29 @@ fn inferTypeArguments(
         const wanted = owner_tree.tokenSlice(owner_tree.nodeMainToken(type_param));
         const bound = try callee.boundOf(decl_index, type_param);
 
-        var from_hint = hintFor(&comp.pool, owner_tree, fn_view, wanted, hint);
-        if (from_hint) |hinted| {
-            if (bound) |limit| from_hint = admittedBy(&comp.pool, limit, hinted);
-        }
-
-        const pin = switch (check.pinnedType(
+        const pinned = check.pinnedType(
             owner_tree,
             fn_view,
             wanted,
             receiver_rows,
             @intCast(args.len),
             early,
-        )) {
+        );
+
+        // an untyped argument has a say in which member of a union hint is taken
+        const literal: ?Pool.Index = literal: {
+            if (pinned != .unread) break :literal null;
+            if (pinned.unread.argument >= args.len) break :literal null;
+            const value = comp.operands.items[early + pinned.unread.argument].value;
+            if (value != .constant) break :literal null;
+            break :literal if (Pool.isUntyped(check.typeOf(value))) value.constant else null;
+        };
+        var from_hint = hintFor(&comp.pool, owner_tree, fn_view, wanted, hint);
+        if (from_hint) |hinted| {
+            if (bound) |limit| from_hint = try admittedBy(comp, limit, hinted, literal);
+        }
+
+        const pin = switch (pinned) {
             .type => |found| {
                 out[param_position] = found;
                 continue;
@@ -5633,9 +5659,14 @@ fn pinnedType(
         if (first == null) first = pin;
         if (pin.argument >= args_len) continue;
 
-        const found = check.typeOf(comp.operands.items[early + pin.argument].value);
+        const value = comp.operands.items[early + pin.argument].value;
+        const found = check.typeOf(value);
         if (found == .poison) return .poison;
-        if (Pool.isUntyped(found)) continue;
+        if (Pool.isUntyped(found)) {
+            // an unlanded array still knows its elements, so `[]T` reads through it
+            const inside = elementTypeInside(&comp.pool, tree, pin.written, value) orelse continue;
+            return .{ .type = inside };
+        }
 
         const peeled = peelToTypeParam(&comp.pool, tree, pin.written, found) orelse continue;
         return .{ .type = peeled };
@@ -5643,6 +5674,34 @@ fn pinnedType(
 
     const named = first orelse return .none;
     return .{ .unread = named };
+}
+
+/// The type an unlanded aggregate holds under the written wrappers, or null
+/// where the elements have not landed either, or where a wrapper is not one an
+/// aggregate has.
+fn elementTypeInside(
+    pool: *const Pool,
+    tree: *const AST,
+    written: Node.Index,
+    value: Value,
+) ?Pool.Index {
+    if (value != .constant) return null;
+    var node = written;
+    var current = value.constant;
+    var depth: u32 = 0;
+    while (depth < type_depth_max) : (depth += 1) {
+        const found = pool.typeOfValue(current);
+        const it = wrapperOf(tree, node) orelse {
+            return if (Pool.isUntyped(found)) null else found;
+        };
+        if (found != .untyped_aggregate_type) return null;
+        // storage and a view are read alike, since the literal is neither yet
+        if (it.kind == .pointer) return null;
+        if (pool.aggregateLen(current) == 0) return null;
+        node = it.child;
+        current = pool.aggregateAt(current, 0);
+    }
+    return null;
 }
 
 /// The hint, read through whatever the return type is written in, as an argument is.

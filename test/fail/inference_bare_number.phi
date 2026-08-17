@@ -6,3 +6,17 @@ fn drive() i64 {
     let planted = plant(5)
     return planted
 }
+
+fn counted[T](xs: []T) u64 {
+    return xs.len
+}
+
+/// Nothing inside an empty literal says what its elements are.
+fn empty_literal() u64 {
+    return counted("")
+}
+
+/// Elements that have not landed say nothing either.
+fn unlanded_elements() u64 {
+    return counted([1, 2, 3])
+}

@@ -44,3 +44,30 @@ fn pair[T](a: T, b: T) T {
 fn pinned_by_the_second(n: u32) u32 {
     return pair(1, n)
 }
+
+/// An unlanded array still knows its elements, so `[]T` reads through a literal.
+fn counted_bytes() u64 {
+    return counted("hello")
+}
+
+fn nested_view[T](rows: [][]T) u64 {
+    return rows.len
+}
+
+fn deep_literal() u64 {
+    return nested_view(["ab", "cd"])
+}
+
+/// A union hint pins the member the bound admits and the literal fits.
+fn narrow_or_wide[T: Integer](n: T) T {
+    return n
+}
+
+fn takes_either(value: u64 | i64) u64 {
+    _ = value
+    return 1
+}
+
+fn skips_the_member_it_cannot_fit() u64 {
+    return takes_either(narrow_or_wide(-7))
+}
