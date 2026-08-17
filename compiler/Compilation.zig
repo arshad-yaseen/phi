@@ -833,45 +833,55 @@ fn withTrail(
     comp: *Compilation,
     notes_in: []const Diagnostic.Note,
 ) Allocator.Error![]Diagnostic.Note {
-    const trail_cap = 8;
+    const head_max = 4;
+    const tail_max = 4;
 
-    var shown: [trail_cap]Pool.Instance = undefined;
-    var generic_count: u32 = 0;
+    var depth: u32 = 0;
     var current = comp.currentInstance();
     while (current.unwrap()) |instance| {
         const row = comp.instanceAt(instance);
-        if (row.args.len > 0) {
-            if (generic_count < trail_cap) shown[generic_count] = instance;
-            generic_count += 1;
-        }
+        if (row.args.len > 0) depth += 1;
         // a parent is created before its child, so the walk must descend
         if (row.parent.unwrap()) |above| assert(above.int() < instance.int());
         current = row.parent;
     }
 
-    const shown_count = @min(generic_count, trail_cap);
-    const extra: u32 = if (generic_count > trail_cap) 1 else 0;
-    const total = notes_in.len + shown_count + extra;
+    const elided: u32 = if (depth > head_max + tail_max) depth - head_max - tail_max else 0;
+    const total = notes_in.len + depth - elided + @intFromBool(elided > 0);
     if (total == 0) return &.{};
 
     const out = try comp.arena.allocator().alloc(Diagnostic.Note, total);
     @memcpy(out[0..notes_in.len], notes_in);
 
-    for (shown[0..shown_count], notes_in.len..) |instance, at| {
-        const origin = comp.instanceAt(instance).origin;
-        out[at] = comp.noteAt(
-            origin.module,
-            origin.node,
-            try comp.fmt("while checking '{s}', needed here", .{
-                try comp.instanceName(instance),
-            }),
-        );
+    var at = notes_in.len;
+    var position: u32 = 0;
+    current = comp.currentInstance();
+    while (current.unwrap()) |instance| {
+        const row = comp.instanceAt(instance);
+        if (row.args.len > 0) {
+            if (elided > 0 and position == head_max) {
+                out[at] = .{ .message = try comp.fmt("and {d} more instantiation level{s}", .{
+                    elided,
+                    Check.plural(elided),
+                }) };
+                at += 1;
+            }
+            if (elided == 0 or position < head_max or position >= head_max + elided) {
+                out[at] = comp.noteAt(
+                    row.origin.module,
+                    row.origin.node,
+                    try comp.fmt("while checking '{s}', needed here", .{
+                        try comp.instanceName(instance),
+                    }),
+                );
+                at += 1;
+            }
+            position += 1;
+        }
+        current = row.parent;
     }
-    if (extra == 1) {
-        out[total - 1] = .{ .message = try comp.fmt("and {d} more instantiation levels", .{
-            generic_count - trail_cap,
-        }) };
-    }
+
+    assert(at == total);
     return out;
 }
 

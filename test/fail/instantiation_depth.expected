@@ -1,96 +1,96 @@
 error[E0241]: this instantiates more than 64 levels deep
- --> test/fail/instantiation_depth.phi:1:5
-  |
-1 | pub type Box[T] = {
-  |     ^^^^^^^^^^^^^^^ the limit is here
-  |
-  = help: a type or function that instantiates itself never bottoms out
+  --> test/fail/instantiation_depth.phi:1:5
+   |
+ 1 | pub type Box[T] = {
+   |     ^^^^^^^^^^^^^^^ the limit is here
+   |
+   = help: a type or function that instantiates itself never bottoms out
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: and 56 more instantiation levels
+note: while checking 'dig[Box[*var Box[*var Box[*var i64]]]]', needed here
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
+note: while checking 'dig[Box[*var Box[*var i64]]]', needed here
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
+note: while checking 'dig[Box[*var i64]]', needed here
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
+note: while checking 'dig[i64]', needed here
+  --> test/fail/instantiation_depth.phi:12:12
+   |
+12 |     return dig(&seed)
+   |            ^^^^^^^^^
 
 error[E0219]: Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]] has no field named 'item'
- --> test/fail/instantiation_depth.phi:6:31
-  |
-6 |     var boxed = Box[*var T].{ item: value }
-  |                               ^^^^ no such field
+  --> test/fail/instantiation_depth.phi:6:31
+   |
+ 6 |     var boxed = Box[*var T].{ item: value }
+   |                               ^^^^ no such field
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
-note: while checking 'dig[Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var Box[*var i64]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]', needed here
- --> test/fail/instantiation_depth.phi:7:12
-  |
-7 |     return dig(&boxed)
-  |            ^^^^^^^^^^
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
 note: and 56 more instantiation levels
+note: while checking 'dig[Box[*var Box[*var Box[*var i64]]]]', needed here
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
+note: while checking 'dig[Box[*var Box[*var i64]]]', needed here
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
+note: while checking 'dig[Box[*var i64]]', needed here
+  --> test/fail/instantiation_depth.phi:7:12
+   |
+ 7 |     return dig(&boxed)
+   |            ^^^^^^^^^^
+note: while checking 'dig[i64]', needed here
+  --> test/fail/instantiation_depth.phi:12:12
+   |
+12 |     return dig(&seed)
+   |            ^^^^^^^^^
 

@@ -25,25 +25,25 @@ note: while checking 'Deep[*****************************************************
   |
 1 | type Deep[T] = Deep[*T]
   |                ^^^^^^^
-note: while checking 'Deep[***********************************************************u32]', needed here
- --> test/fail/alias_instantiation_depth.phi:1:16
-  |
-1 | type Deep[T] = Deep[*T]
-  |                ^^^^^^^
-note: while checking 'Deep[**********************************************************u32]', needed here
- --> test/fail/alias_instantiation_depth.phi:1:16
-  |
-1 | type Deep[T] = Deep[*T]
-  |                ^^^^^^^
-note: while checking 'Deep[*********************************************************u32]', needed here
- --> test/fail/alias_instantiation_depth.phi:1:16
-  |
-1 | type Deep[T] = Deep[*T]
-  |                ^^^^^^^
-note: while checking 'Deep[********************************************************u32]', needed here
- --> test/fail/alias_instantiation_depth.phi:1:16
-  |
-1 | type Deep[T] = Deep[*T]
-  |                ^^^^^^^
 note: and 56 more instantiation levels
+note: while checking 'Deep[***u32]', needed here
+ --> test/fail/alias_instantiation_depth.phi:1:16
+  |
+1 | type Deep[T] = Deep[*T]
+  |                ^^^^^^^
+note: while checking 'Deep[**u32]', needed here
+ --> test/fail/alias_instantiation_depth.phi:1:16
+  |
+1 | type Deep[T] = Deep[*T]
+  |                ^^^^^^^
+note: while checking 'Deep[*u32]', needed here
+ --> test/fail/alias_instantiation_depth.phi:1:16
+  |
+1 | type Deep[T] = Deep[*T]
+  |                ^^^^^^^
+note: while checking 'Deep[u32]', needed here
+ --> test/fail/alias_instantiation_depth.phi:3:14
+  |
+3 | fn use_it(v: Deep[u32]) u32 {
+  |              ^^^^^^^^
 

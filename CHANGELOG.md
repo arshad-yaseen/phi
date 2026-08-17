@@ -40,6 +40,10 @@
 
 - An operator refused on a union says how to narrow it, which only `==` and
   `!=` used to.
+- A report from inside a long chain of instantiations keeps both ends of it,
+  the innermost frames and the caller's own, and counts what it leaves out
+  between. It used to drop the caller's end, which is the half a reader can
+  act on.
 
 ### Command line
 
