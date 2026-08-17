@@ -4,7 +4,7 @@ type BadDigit = {
     at: u64
 }
 
-fn parse(text: str) u64 | BadDigit {
+fn parse(text: []u8) u64 | BadDigit {
     var value: u64 = 0
     loop i in 0..text.len {
         let digit = text[i]
@@ -16,7 +16,7 @@ fn parse(text: str) u64 | BadDigit {
     return value
 }
 
-fn check(text: str) {
+fn check(text: []u8) {
     let value = parse(text) or bad {
         point(text, bad.at)
         return
@@ -26,7 +26,7 @@ fn check(text: str) {
     }
 }
 
-fn point(text: str, at: u64) {
+fn point(text: []u8, at: u64) {
     io.print(text)
     io.print("\n")
     var margin: [64]u8 = @splat(' ')

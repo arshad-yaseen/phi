@@ -1,6 +1,6 @@
 import std/io
 
-fn usage() str {
+fn usage() []u8 {
     return
         \\phi build [options] <root.phi>
         \\

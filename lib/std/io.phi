@@ -5,21 +5,21 @@ let stdout: i32 = 1
 /// The most bytes `format` writes.
 pub let format_max: u64 = 21
 
-let digits: str = "0123456789"
+let digits: []u8 = "0123456789"
 
 extern fn write(fd: i32, buf: *u8, len: u64) i64
 
 /// Text, or a number as decimal digits, written to standard output.
-pub fn print(value: str | u64 | i64) {
+pub fn print(value: []u8 | u64 | i64) {
     var buf: [format_max]u8 = @splat(0)
     write_all(match value {
-        str => value
+        []u8 => value
         u64 => format_unsigned(buf[0..], value)
         i64 => format_signed(buf[0..], value)
     })
 }
 
-fn format_unsigned(buf: []var u8, value: u64) str {
+fn format_unsigned(buf: []var u8, value: u64) []u8 {
     var rest = value
     var at = buf.len
     loop {
@@ -33,7 +33,7 @@ fn format_unsigned(buf: []var u8, value: u64) str {
     return buf[at..]
 }
 
-fn format_signed(buf: []var u8, value: i64) str {
+fn format_signed(buf: []var u8, value: i64) []u8 {
     // on the negative side, which every value has and the lowest value only has
     var rest = if value < 0 { value } else { 0 - value }
     var at = buf.len
@@ -52,7 +52,7 @@ fn format_signed(buf: []var u8, value: i64) str {
     return buf[at..]
 }
 
-fn write_all(bytes: str) {
+fn write_all(bytes: []u8) {
     var rest = bytes
     loop rest.len > 0 {
         // a write that failed answers below zero, which no count of bytes reaches

@@ -44,7 +44,7 @@ fn twice_again() [3]u8 {
         \\b
 }
 
-fn greet(who: str) u64 {
+fn greet(who: []u8) u64 {
     return who.len
 }
 
