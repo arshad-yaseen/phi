@@ -1,107 +1,120 @@
-error[E0259]: a match on a type needs an 'else', because there is always another type
+error[E0259]: this match has no arm for 'u8'
   --> test/fail/type_match.phi:9:12
    |
  9 |     return match T {
-   |            ^^^^^ no 'else' here
+   |            ^^^^^ no arm names it
    |
-   = help: add 'else => ...' for the types the arms do not name
-note: while checking 'no_else[u32]', needed here
-  --> test/fail/type_match.phi:78:9
+   = help: add an arm naming it, or 'else =>' for the rest
+note: while checking 'no_arm[u8]', needed here
+  --> test/fail/type_match.phi:83:9
    |
-78 |     _ = no_else(n)
-   |         ^^^^^^^^^
+83 |     _ = no_arm[u8](0)
+   |         ^^^^^^^^^^^^
+
+error[E0259]: this match has no arm for 'u32'
+  --> test/fail/type_match.phi:17:12
+   |
+17 |     return match T { }
+   |            ^^^^^ no arm names it
+   |
+   = help: add an arm naming it, or 'else =>' for the rest
+note: while checking 'no_arm_at_all[u32]', needed here
+  --> test/fail/type_match.phi:84:9
+   |
+84 |     _ = no_arm_at_all(n)
+   |         ^^^^^^^^^^^^^^^
 
 error[E0260]: 'u32' is already handled by an earlier arm
-  --> test/fail/type_match.phi:19:9
+  --> test/fail/type_match.phi:24:9
    |
-19 |         u32 => 2
+24 |         u32 => 2
    |         ^^^ never runs
 note: while checking 'repeated[u32]', needed here
-  --> test/fail/type_match.phi:79:9
+  --> test/fail/type_match.phi:85:9
    |
-79 |     _ = repeated(n)
+85 |     _ = repeated(n)
    |         ^^^^^^^^^^
 
 error[E0260]: 'u8' is already handled by an earlier arm
-  --> test/fail/type_match.phi:28:9
+  --> test/fail/type_match.phi:33:9
    |
-28 |         Byte => 2
+33 |         Byte => 2
    |         ^^^^ never runs
 note: while checking 'aliased_repeat[u32]', needed here
-  --> test/fail/type_match.phi:80:9
+  --> test/fail/type_match.phi:86:9
    |
-80 |     _ = aliased_repeat(n)
+86 |     _ = aliased_repeat(n)
    |         ^^^^^^^^^^^^^^^^
 
 error[E0260]: 'else' already takes every type the arms do not name
-  --> test/fail/type_match.phi:37:9
+  --> test/fail/type_match.phi:42:9
    |
-37 |         u32 => 1
+42 |         u32 => 1
    |         ^^^ never runs
 note: while checking 'after_else[u32]', needed here
-  --> test/fail/type_match.phi:81:9
+  --> test/fail/type_match.phi:87:9
    |
-81 |     _ = after_else(n)
+87 |     _ = after_else(n)
    |         ^^^^^^^^^^^^
 
 error[E0260]: 'else' already takes every type the arms do not name
-  --> test/fail/type_match.phi:45:9
+  --> test/fail/type_match.phi:50:9
    |
-45 |         else => 1
+50 |         else => 1
    |         ^^^^^^^^^ never runs
 note: while checking 'two_elses[u32]', needed here
-  --> test/fail/type_match.phi:82:9
+  --> test/fail/type_match.phi:88:9
    |
-82 |     _ = two_elses(n)
+88 |     _ = two_elses(n)
    |         ^^^^^^^^^^^
 
 error[E0201]: nothing named 'Nonexistent' is in scope here
-  --> test/fail/type_match.phi:52:9
+  --> test/fail/type_match.phi:57:9
    |
-52 |         Nonexistent => 1
+57 |         Nonexistent => 1
    |         ^^^^^^^^^^^ unknown name
 note: while checking 'unknown_label[u32]', needed here
-  --> test/fail/type_match.phi:83:9
+  --> test/fail/type_match.phi:89:9
    |
-83 |     _ = unknown_label(n)
+89 |     _ = unknown_label(n)
    |         ^^^^^^^^^^^^^^^
 
 error[E0230]: this value goes nowhere
-  --> test/fail/type_match.phi:60:16
+  --> test/fail/type_match.phi:65:16
    |
-60 |         u32 => 1
+65 |         u32 => 1
    |                ^ unused value
    |
    = help: bind it, return it, or drop it with '_ ='
 note: while checking 'unused_arm[u32]', needed here
-  --> test/fail/type_match.phi:84:5
+  --> test/fail/type_match.phi:90:5
    |
-84 |     unused_arm(n)
+90 |     unused_arm(n)
    |     ^^^^^^^^^^^^
 
 error[E0246]: 'Box' is generic, so it needs its arguments
-  --> test/fail/type_match.phi:67:12
+  --> test/fail/type_match.phi:72:12
    |
-67 |     return Box is T
+72 |     return Box is T
    |            ^^^ no arguments here
    |
    = help: write 'Box[...]' with one type per parameter
 note: while checking 'generic_operand[u32]', needed here
-  --> test/fail/type_match.phi:85:9
+  --> test/fail/type_match.phi:91:9
    |
-85 |     _ = generic_operand(n)
+91 |     _ = generic_operand(n)
    |         ^^^^^^^^^^^^^^^^^
 
 error[E0246]: 'Box' is generic, so it needs its arguments
-  --> test/fail/type_match.phi:72:18
+  --> test/fail/type_match.phi:77:18
    |
-72 |     return match Box {
+77 |     return match Box {
    |                  ^^^ no arguments here
    |
    = help: write 'Box[...]' with one type per parameter
 note: while checking 'generic_scrutinee[u32]', needed here
-  --> test/fail/type_match.phi:86:12
+  --> test/fail/type_match.phi:92:12
    |
-86 |     return generic_scrutinee(n)
+92 |     return generic_scrutinee(n)
    |            ^^^^^^^^^^^^^^^^^^^
 

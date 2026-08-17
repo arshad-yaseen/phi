@@ -4,12 +4,17 @@ type Box[T] = {
     item: T
 }
 
-fn no_else[T](value: T) u32 {
+fn no_arm[T](value: T) u32 {
     _ = value
     return match T {
         u32 => 1
         f64 => 2
     }
+}
+
+fn no_arm_at_all[T](value: T) u32 {
+    _ = value
+    return match T { }
 }
 
 fn repeated[T](value: T) u32 {
@@ -75,7 +80,8 @@ fn generic_scrutinee[T](value: T) u32 {
 }
 
 fn drive(n: u32) u32 {
-    _ = no_else(n)
+    _ = no_arm[u8](0)
+    _ = no_arm_at_all(n)
     _ = repeated(n)
     _ = aliased_repeat(n)
     _ = after_else(n)

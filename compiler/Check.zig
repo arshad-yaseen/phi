@@ -2196,16 +2196,18 @@ fn checkMatchType(
         if (label == scrutinee and chosen == .none) chosen = arm_node.toOptional();
     }
 
-    if (otherwise == .none) {
+    // a generic body is checked per instantiation, so the type it is names the arm
+    const arm = chosen.unwrap() orelse otherwise.unwrap() orelse {
         try check.failToken(check.tree.nodeMainToken(node), .{
             .code = .missing_arm,
-            .message = "a match on a type needs an 'else', because there is always another type",
-            .label = "no 'else' here",
-            .help = "add 'else => ...' for the types the arms do not name",
+            .message = try comp.fmt("this match has no arm for '{s}'", .{
+                try comp.typeName(scrutinee),
+            }),
+            .label = "no arm names it",
+            .help = "add an arm naming it, or 'else =>' for the rest",
         });
-    }
-
-    const arm = chosen.unwrap() orelse otherwise.unwrap() orelse return .poison;
+        return .poison;
+    };
     const arm_body = check.tree.viewOf(arm).match_arm.body;
 
     const value = try check.checkExpr(arm_body, hint);

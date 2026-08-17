@@ -46,6 +46,15 @@ fn a_union_label[T](value: T) u32 {
     }
 }
 
+/// No 'else', because every type this is instantiated with has an arm.
+fn closed[T](value: T) u32 {
+    _ = value
+    return match T {
+        u32 => 1
+        u64 => 2
+    }
+}
+
 fn a_block_arm[T](value: T) u32 {
     _ = value
     return match T {
@@ -119,6 +128,8 @@ fn a_concrete_type_matches() u32 {
 fn drive(n: u32, x: f64, p: Point, maybe: u32 | none, b: u8) u32 {
     _ = nested(n, b)
     _ = a_concrete_type_matches()
+    _ = closed(n)
+    _ = closed[u64](0)
     _ = names(n)
     _ = names(x)
     _ = rejects(p)

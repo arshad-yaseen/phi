@@ -27,27 +27,39 @@ b0:
   %4 = param b : u8
   %5 = call nested[u32, u8](%0, %4) : u32
   %6 = call a_concrete_type_matches() : u32
-  %7 = call names[u32](%0) : true | false
-  %8 = call names[f64](%1) : true | false
-  %9 = call rejects[Point](%2) : true | false
-  %10 = call parity[f64](%1) : f64
-  %11 = call ranked[Point](%2) : u32
-  %12 = call a_union_label[u32 | none](%3) : u32
-  %13 = call a_block_arm[u32](%0) : u32
-  %14 = call only_numbers[f64](%1) : f64
-  %15 = call only_numbers[Point](%2) : Point
-  %16 = call branched[f64](%1) : u32
-  %17 = call statement_form[u32](%0)
-  %18 = call parity[u32](%0) : u32
-  %19 = call ranked[u32](%0) : u32
-  %20 = add %18, %19 : u32
-  return %20
+  %7 = call closed[u32](%0) : u32
+  %8 = call closed[u64](0:u64) : u32
+  %9 = call names[u32](%0) : true | false
+  %10 = call names[f64](%1) : true | false
+  %11 = call rejects[Point](%2) : true | false
+  %12 = call parity[f64](%1) : f64
+  %13 = call ranked[Point](%2) : u32
+  %14 = call a_union_label[u32 | none](%3) : u32
+  %15 = call a_block_arm[u32](%0) : u32
+  %16 = call only_numbers[f64](%1) : f64
+  %17 = call only_numbers[Point](%2) : Point
+  %18 = call branched[f64](%1) : u32
+  %19 = call statement_form[u32](%0)
+  %20 = call parity[u32](%0) : u32
+  %21 = call ranked[u32](%0) : u32
+  %22 = add %20, %21 : u32
+  return %22
 
 fn nested[u32, u8](a: u32, b: u8) u32
 b0:
   %0 = param a : u32
   %1 = param b : u8
   return 1:u32
+
+fn closed[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 1:u32
+
+fn closed[u64](value: u64) u32
+b0:
+  %0 = param value : u64
+  return 2:u32
 
 fn names[u32](value: u32) true | false
 b0:
