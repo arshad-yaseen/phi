@@ -27,6 +27,10 @@
   picks its `if` edge before anything runs, so the arm that cannot run is
   never entered, the way a settled `and` never enters its dead side. Testing
   a constant optional used to crash the compiler.
+- `T is u32` asks whether two types are the same, and `match T` picks the arm
+  labeled with the type it is, so a generic specializes on its own type
+  argument. Only the chosen arm is checked, and an `else` is always written
+  because there is always another type.
 - A value enters a union through whatever edge its member would have taken on
   its own, so `[]var T` reaches `[]T | none`, a `u32` reaches `u64 | none`, and
   an array literal lands on the member that holds it. Listing one more member

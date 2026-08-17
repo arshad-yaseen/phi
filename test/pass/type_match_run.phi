@@ -1,0 +1,43 @@
+import std/io
+
+type Point = {
+    x: u32
+}
+
+fn tag[T](value: T) u64 {
+    _ = value
+    return match T {
+        u32 => 1
+        u64 => 2
+        Point => 3
+        else => 0
+    }
+}
+
+/// The arm that is not chosen never has to make sense for this T.
+fn parity[T](value: T) T {
+    return match T {
+        f64 => value
+        else => value % 2
+    }
+}
+
+fn wide[T](value: T) u64 {
+    _ = value
+    if T is u64 {
+        return 1
+    }
+    return 0
+}
+
+fn main() {
+    io.print_uint(tag[u32](0))
+    io.print_uint(tag[u64](0))
+    io.print_uint(tag[Point](.{ x: 0 }))
+    io.print_uint(tag[i8](0))
+    io.print_uint(parity[u64](7))
+    io.print_uint(wide[u64](0))
+    io.print_uint(wide[u32](0))
+    _ = parity[f64](1.5)
+    io.print("\n")
+}

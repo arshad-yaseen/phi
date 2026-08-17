@@ -1,0 +1,134 @@
+type Point = {
+    x: u32
+}
+
+type Byte = u8
+type Optional = u32 | none
+type Maybe[T] = T | none
+
+type Box[T] = {
+    item: T
+}
+
+fn names[T](value: T) bool {
+    _ = value
+    return T is u32
+}
+
+fn rejects[T](value: T) bool {
+    _ = value
+    return T is not u32
+}
+
+/// The arm that is not chosen never has to make sense for this T.
+fn parity[T](value: T) T {
+    return match T {
+        f64 => value
+        else => value % 2
+    }
+}
+
+fn ranked[T](value: T) u32 {
+    _ = value
+    return match T {
+        u32 => 1
+        f64 => 2
+        Point => 3
+        else => 0
+    }
+}
+
+fn a_union_label[T](value: T) u32 {
+    _ = value
+    return match T {
+        u32 | none => 1
+        else => 0
+    }
+}
+
+fn a_block_arm[T](value: T) u32 {
+    _ = value
+    return match T {
+        u32 => {
+            let base: u32 = 10
+            base + 1
+        }
+        else => 0
+    }
+}
+
+fn only_numbers[T](value: T) T {
+    return match T {
+        u32 => value
+        f64 => value
+        else => @trap()
+    }
+}
+
+fn statement_form[T](value: T) {
+    match T {
+        u32 => {}
+        else => {}
+    }
+    _ = value
+}
+
+fn branched[T](value: T) u32 {
+    _ = value
+    if T is u32 {
+        return 1
+    }
+    return 0
+}
+
+fn nested[T, U](a: T, b: U) u32 {
+    _ = a
+    _ = b
+    return match T {
+        u32 => match U {
+            u8 => 1
+            else => 2
+        }
+        else => 0
+    }
+}
+
+fn aliases_are_one_type() bool {
+    return Byte is u8
+}
+
+fn a_union_is_its_alias() bool {
+    return Maybe[u32] is Optional
+}
+
+fn arguments_are_part_of_it() bool {
+    return Box[u32] is Box[u64]
+}
+
+fn a_struct_is_itself() bool {
+    return Point is Point
+}
+
+fn a_concrete_type_matches() u32 {
+    return match Box[u8] {
+        Box[u8] => 1
+        else => 0
+    }
+}
+
+fn drive(n: u32, x: f64, p: Point, maybe: u32 | none, b: u8) u32 {
+    _ = nested(n, b)
+    _ = a_concrete_type_matches()
+    _ = names(n)
+    _ = names(x)
+    _ = rejects(p)
+    _ = parity(x)
+    _ = ranked(p)
+    _ = a_union_label(maybe)
+    _ = a_block_arm(n)
+    _ = only_numbers(x)
+    _ = only_numbers(p)
+    _ = branched(x)
+    statement_form(n)
+    return parity(n) + ranked(n)
+}

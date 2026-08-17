@@ -1,0 +1,87 @@
+type Byte = u8
+
+type Box[T] = {
+    item: T
+}
+
+fn no_else[T](value: T) u32 {
+    _ = value
+    return match T {
+        u32 => 1
+        f64 => 2
+    }
+}
+
+fn repeated[T](value: T) u32 {
+    _ = value
+    return match T {
+        u32 => 1
+        u32 => 2
+        else => 0
+    }
+}
+
+fn aliased_repeat[T](value: T) u32 {
+    _ = value
+    return match T {
+        u8 => 1
+        Byte => 2
+        else => 0
+    }
+}
+
+fn after_else[T](value: T) u32 {
+    _ = value
+    return match T {
+        else => 0
+        u32 => 1
+    }
+}
+
+fn two_elses[T](value: T) u32 {
+    _ = value
+    return match T {
+        else => 0
+        else => 1
+    }
+}
+
+fn unknown_label[T](value: T) u32 {
+    _ = value
+    return match T {
+        Nonexistent => 1
+        else => 0
+    }
+}
+
+fn unused_arm[T](value: T) {
+    _ = value
+    match T {
+        u32 => 1
+        else => 0
+    }
+}
+
+fn generic_operand[T](value: T) bool {
+    _ = value
+    return Box is T
+}
+
+fn generic_scrutinee[T](value: T) u32 {
+    _ = value
+    return match Box {
+        else => 0
+    }
+}
+
+fn drive(n: u32) u32 {
+    _ = no_else(n)
+    _ = repeated(n)
+    _ = aliased_repeat(n)
+    _ = after_else(n)
+    _ = two_elses(n)
+    _ = unknown_label(n)
+    unused_arm(n)
+    _ = generic_operand(n)
+    return generic_scrutinee(n)
+}

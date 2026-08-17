@@ -1,0 +1,120 @@
+fn aliases_are_one_type() true | false
+b0:
+  return true
+
+fn a_union_is_its_alias() true | false
+b0:
+  return true
+
+fn arguments_are_part_of_it() true | false
+b0:
+  return false
+
+fn a_struct_is_itself() true | false
+b0:
+  return true
+
+fn a_concrete_type_matches() u32
+b0:
+  return 1:u32
+
+fn drive(n: u32, x: f64, p: Point, maybe: u32 | none, b: u8) u32
+b0:
+  %0 = param n : u32
+  %1 = param x : f64
+  %2 = param p : Point
+  %3 = param maybe : u32 | none
+  %4 = param b : u8
+  %5 = call nested[u32, u8](%0, %4) : u32
+  %6 = call a_concrete_type_matches() : u32
+  %7 = call names[u32](%0) : true | false
+  %8 = call names[f64](%1) : true | false
+  %9 = call rejects[Point](%2) : true | false
+  %10 = call parity[f64](%1) : f64
+  %11 = call ranked[Point](%2) : u32
+  %12 = call a_union_label[u32 | none](%3) : u32
+  %13 = call a_block_arm[u32](%0) : u32
+  %14 = call only_numbers[f64](%1) : f64
+  %15 = call only_numbers[Point](%2) : Point
+  %16 = call branched[f64](%1) : u32
+  %17 = call statement_form[u32](%0)
+  %18 = call parity[u32](%0) : u32
+  %19 = call ranked[u32](%0) : u32
+  %20 = add %18, %19 : u32
+  return %20
+
+fn nested[u32, u8](a: u32, b: u8) u32
+b0:
+  %0 = param a : u32
+  %1 = param b : u8
+  return 1:u32
+
+fn names[u32](value: u32) true | false
+b0:
+  %0 = param value : u32
+  return true
+
+fn names[f64](value: f64) true | false
+b0:
+  %0 = param value : f64
+  return false
+
+fn rejects[Point](value: Point) true | false
+b0:
+  %0 = param value : Point
+  return true
+
+fn parity[f64](value: f64) f64
+b0:
+  %0 = param value : f64
+  return %0
+
+fn ranked[Point](value: Point) u32
+b0:
+  %0 = param value : Point
+  return 3:u32
+
+fn a_union_label[u32 | none](value: u32 | none) u32
+b0:
+  %0 = param value : u32 | none
+  return 1:u32
+
+fn a_block_arm[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 11:u32
+
+fn only_numbers[f64](value: f64) f64
+b0:
+  %0 = param value : f64
+  return %0
+
+fn only_numbers[Point](value: Point) Point
+b0:
+  %0 = param value : Point
+  trap
+
+fn branched[f64](value: f64) u32
+b0:
+  %0 = param value : f64
+  jump b1
+b1:
+  jump b2
+b2:
+  return 0:u32
+
+fn statement_form[u32](value: u32)
+b0:
+  %0 = param value : u32
+  return
+
+fn parity[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  %1 = mod %0, 2:u32 : u32
+  return %1
+
+fn ranked[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 1:u32

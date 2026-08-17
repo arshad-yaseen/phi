@@ -16,7 +16,7 @@ bytes: std.ArrayList(u8),
 /// Item lookup, so one (tag, payload) is one index forever.
 map: std.HashMapUnmanaged(Index, void, IndexContext, load_percentage),
 string_map: std.HashMapUnmanaged(String, void, StringContext, load_percentage),
-/// Marked and restored. Gathers an aggregate's elements, which nests.
+/// Marked and restored. Gathers indexes a walk holds on to, which nests.
 scratch: std.ArrayList(Index),
 /// Small integer constants, so they skip the map. `.poison`, never a value, marks unfilled.
 small_ints: [statics * small_int_range]Index,

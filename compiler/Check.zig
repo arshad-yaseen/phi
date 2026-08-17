@@ -1985,6 +1985,12 @@ fn checkMatch(
     const scrutinee = try check.checkExpr(view.scrutinee, null);
     try check.reopenDead();
 
+    // a type is settled, so the match chooses its arm rather than branching
+    if (try check.namedType(view.scrutinee, scrutinee)) |named| {
+        if (named == .poison) return .poison;
+        return check.checkMatchType(node, view, named, hint);
+    }
+
     // broken scrutinee poisons quietly, the arms still get checked
     var scrutinee_type: Pool.Index = .poison;
     if (try check.valueOnly(view.scrutinee, scrutinee)) {
@@ -2140,6 +2146,83 @@ fn checkMatch(
 
     const value = try join.close(check, all_diverged);
     return if (join.carries and broken) .poison else value;
+}
+
+/// `match T { u32 => ..., else => ... }`
+fn checkMatchType(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Match,
+    scrutinee: Pool.Index,
+    hint: ?Pool.Index,
+) Allocator.Error!Value {
+    const comp = check.comp;
+
+    // resolving a label can intern, so the labels already seen are read by mark
+    const mark = comp.pool.scratch.items.len;
+    defer comp.pool.scratch.shrinkRetainingCapacity(mark);
+
+    var chosen: Node.OptionalIndex = .none;
+    var otherwise: Node.OptionalIndex = .none;
+
+    for (view.arms) |arm_node| {
+        // recovery can leave a hole where an arm was, already reported
+        if (check.tree.nodeTag(arm_node) != .match_arm) continue;
+
+        const label_node = check.tree.viewOf(arm_node).match_arm.label.unwrap() orelse {
+            if (otherwise == .none) {
+                otherwise = arm_node.toOptional();
+            } else {
+                try check.failArmNeverRuns(arm_node, else_takes_the_rest);
+            }
+            continue;
+        };
+
+        const label = try check.resolveType(label_node);
+        if (label == .poison) continue;
+        if (otherwise != .none) {
+            try check.failArmNeverRuns(label_node, else_takes_the_rest);
+            continue;
+        }
+        if (std.mem.indexOfScalar(Pool.Index, comp.pool.scratch.items[mark..], label)) |_| {
+            try check.failArmNeverRuns(label_node, try comp.fmt(
+                "'{s}' is already handled by an earlier arm",
+                .{try comp.typeName(label)},
+            ));
+            continue;
+        }
+
+        try comp.pool.scratch.append(comp.gpa, label);
+        if (label == scrutinee and chosen == .none) chosen = arm_node.toOptional();
+    }
+
+    if (otherwise == .none) {
+        try check.failToken(check.tree.nodeMainToken(node), .{
+            .code = .missing_arm,
+            .message = "a match on a type needs an 'else', because there is always another type",
+            .label = "no 'else' here",
+            .help = "add 'else => ...' for the types the arms do not name",
+        });
+    }
+
+    const arm = chosen.unwrap() orelse otherwise.unwrap() orelse return .poison;
+    const arm_body = check.tree.viewOf(arm).match_arm.body;
+
+    const value = try check.checkExpr(arm_body, hint);
+    if (wantsValue(hint)) return value;
+    try check.expectNothing(arm_body, value);
+    return if (value == .diverged) .diverged else .void_value;
+}
+
+const else_takes_the_rest = "'else' already takes every type the arms do not name";
+
+fn failArmNeverRuns(check: *Check, node: Node.Index, message: []const u8) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .duplicate_arm,
+        .message = message,
+        .label = "never runs",
+    });
 }
 
 /// Marks what the label covers, reports repeats and strays. Poison once anything misfired.
@@ -2422,6 +2505,18 @@ fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
     });
 }
 
+fn namedType(check: *Check, node: Node.Index, value: Value) Allocator.Error!?Pool.Index {
+    switch (value) {
+        .named_type => |type_index| return type_index,
+        .named_generic => |decl_index| {
+            const decl = check.comp.declAt(decl_index);
+            try check.failGenericBare(node, check.comp.pool.stringText(decl.name));
+            return .poison;
+        },
+        else => return null,
+    }
+}
+
 fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!Value {
     const comp = check.comp;
     const operand = try check.checkExpr(view.operand, null);
@@ -2430,6 +2525,14 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
     if (operand == .diverged) return .diverged;
     if (operand == .poison) return .poison;
     if (member == .poison) return .poison;
+
+    // two types, both settled by the checker, so the answer is a constant
+    if (try check.namedType(view.operand, operand)) |named| {
+        if (named == .poison) return .poison;
+        const bools = try check.boolType(node);
+        return .{ .constant = try check.truthValue(bools, (named == member) != view.negated) };
+    }
+
     if (try check.valueOnly(view.operand, operand) == false) return .poison;
 
     const found = check.typeOf(operand);
