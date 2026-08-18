@@ -1,0 +1,3 @@
+type Box = {
+    pub 3: i64
+}

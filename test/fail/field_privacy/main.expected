@@ -1,0 +1,52 @@
+error[E0220]: 'item' is private to its file
+  --> test/fail/field_privacy/main.phi:12:14
+   |
+12 |     return b.item
+   |              ^^^^ not public
+   |
+   = help: mark it 'pub' to reach it from another file
+note: declared here
+  --> test/fail/field_privacy/shape.phi:2:5
+   |
+ 2 |     item: i64
+   |     ^^^^^^^^^
+
+error[E0220]: 'item' is private to its file
+  --> test/fail/field_privacy/main.phi:16:7
+   |
+16 |     b.item = 9
+   |       ^^^^ not public
+   |
+   = help: mark it 'pub' to reach it from another file
+note: declared here
+  --> test/fail/field_privacy/shape.phi:2:5
+   |
+ 2 |     item: i64
+   |     ^^^^^^^^^
+
+error[E0220]: Box keeps 'item' private to its file, so only that file builds one
+  --> test/fail/field_privacy/main.phi:20:12
+   |
+20 |     return .{ item: 1, tag: 0 }
+   |            ^^^^^^^^^^^^^^^^^^ private fields
+   |
+   = help: mark every field 'pub', or have that file build it through a function
+note: declared here
+  --> test/fail/field_privacy/shape.phi:2:5
+   |
+ 2 |     item: i64
+   |     ^^^^^^^^^
+
+error[E0220]: Box keeps 'item' private to its file, so only that file builds one
+  --> test/fail/field_privacy/main.phi:24:12
+   |
+24 |     return .{ tag: 0 }
+   |            ^^^^^^^^^ private fields
+   |
+   = help: mark every field 'pub', or have that file build it through a function
+note: declared here
+  --> test/fail/field_privacy/shape.phi:2:5
+   |
+ 2 |     item: i64
+   |     ^^^^^^^^^
+

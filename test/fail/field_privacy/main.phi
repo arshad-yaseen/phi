@@ -1,0 +1,25 @@
+import shape
+
+fn reach_public(b: *shape.Box) u8 {
+    return b.tag
+}
+
+fn build_through(item: i64) shape.Box {
+    return shape.Box.new(item)
+}
+
+fn reach_private(b: *shape.Box) i64 {
+    return b.item
+}
+
+fn write_private(b: *var shape.Box) {
+    b.item = 9
+}
+
+fn build_here() shape.Box {
+    return .{ item: 1, tag: 0 }
+}
+
+fn build_public_only() shape.Box {
+    return .{ tag: 0 }
+}

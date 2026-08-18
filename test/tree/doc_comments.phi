@@ -11,7 +11,7 @@ pub type Count = i64
 /// A point in the plane.
 pub type Point = {
     /// How far across.
-    x: i64
+    pub x: i64
     /// How far up.
     y: i64
 

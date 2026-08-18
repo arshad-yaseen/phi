@@ -311,7 +311,7 @@ pub const View = union(enum) {
     var_decl: VarDecl,
     type_param: TypeParam,
     param: TypedName,
-    field: TypedName,
+    field: Field,
 
     block: []const Node.Index,
     assign: Assign,
@@ -391,6 +391,7 @@ pub const View = union(enum) {
     pub const LoopRange = struct { name: Node.Index, over: Node.Index };
     pub const TypeParam = struct { name_token: Token.Index, bound: Node.OptionalIndex };
     pub const TypedName = struct { name_token: Token.Index, type_expr: Node.Index };
+    pub const Field = struct { name_token: Token.Index, is_pub: bool, type_expr: Node.Index };
     pub const NamedValue = struct { name_token: Token.Index, value: Node.Index };
     pub const Assign = struct {
         op: ?BinaryOp,
@@ -506,7 +507,11 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         } },
         .type_param => .{ .type_param = .{ .name_token = main, .bound = data.opt_node } },
         .param => .{ .param = .{ .name_token = main, .type_expr = data.node } },
-        .field => .{ .field = .{ .name_token = main, .type_expr = data.node } },
+        .field => .{ .field = .{
+            .name_token = main,
+            .is_pub = tree.isPub(main),
+            .type_expr = data.node,
+        } },
 
         .block => .{ .block = tree.listAt(data.extra) },
         .assign => .{
@@ -817,7 +822,7 @@ fn leftStep(tree: AST, node: Node.Index) Step {
     const main = tree.nodeMainToken(node);
     return switch (tree.viewOf(node)) {
         .root => .{ .at = .first },
-        .param, .field => |it| .{ .at = it.name_token },
+        .param, .field => .{ .at = main },
         .unary => |it| .{ .at = it.op_token },
         .loop_expr => |it| .{ .at = it.label orelse main },
         .err, .type_param, .builtin, .ident, .number_literal => .{ .at = main },
@@ -864,7 +869,8 @@ fn rightStep(tree: AST, node: Node.Index) Step {
             break :step lastOf(it.params, .{ .at = main.after(1) });
         },
         .var_decl => |it| .{ .down = it.init_expr },
-        .param, .field => |it| .{ .down = it.type_expr },
+        .param => |it| .{ .down = it.type_expr },
+        .field => |it| .{ .down = it.type_expr },
         .assign => |it| .{ .down = it.rhs },
         .binary => |it| .{ .down = it.rhs },
         .defer_stmt => |child| .{ .down = child },

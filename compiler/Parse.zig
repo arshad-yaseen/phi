@@ -851,11 +851,10 @@ fn parseTypedName(self: *Parse, node_tag: Node.Tag) Allocator.Error!Node.Index {
 
 fn parseMember(self: *Parse) Allocator.Error!Node.Index {
     assert(starts_member.contains(self.current()));
-    if (self.at(.ident)) return self.parseTypedName(.field);
-
     _ = self.eatToken(.kw_pub);
+    if (self.at(.ident)) return self.parseTypedName(.field);
     if (self.at(.kw_fn)) return self.parseFnDecl(.written);
-    try self.errExpected(.expected_struct_member, "a function after 'pub'", null);
+    try self.errExpected(.expected_struct_member, "a field or a function after 'pub'", null);
     return self.hole();
 }
 

@@ -1,0 +1,8 @@
+pub type Box = {
+    item: i64
+    pub tag: u8
+
+    pub fn new(item: i64) Box {
+        return .{ item: item, tag: 0 }
+    }
+}

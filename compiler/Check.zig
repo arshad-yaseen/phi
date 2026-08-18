@@ -3440,6 +3440,10 @@ const Reach = struct { pointer: ?Pool.Key.Pointer, owner: Pool.Index, member: Me
 fn reachField(check: *Check, from: Pool.Index, name_token: Token.Index) Allocator.Error!?Reach {
     const peeled = peelPointer(&check.comp.pool, from);
     if (try check.memberOf(peeled.owner, check.tree.tokenSlice(name_token))) |member| {
+        if (member == .field) {
+            const owner = check.comp.pool.structOf(peeled.owner);
+            if (try check.fieldIsVisible(owner, member.field, name_token) == false) return null;
+        }
         if (member != .method) return .{
             .pointer = peeled.pointer,
             .owner = peeled.owner,
@@ -3582,16 +3586,49 @@ fn memberIsVisible(check: *Check, member: Decl.Index, at: Token.Index) Allocator
     if (decl.module == check.module_index) return true;
     if (Module.declIsPub(check.comp, member)) return true;
 
+    try check.failPrivate(at, decl.module, decl.node);
+    return false;
+}
+
+/// A field without `pub` is reached only in its own file, the way a method is.
+fn fieldIsVisible(
+    check: *Check,
+    owner: Pool.Instance,
+    row: Compilation.Row.Index,
+    at: Token.Index,
+) Allocator.Error!bool {
+    const comp = check.comp;
+    const rows = comp.instanceAt(owner).rows;
+    assert(row.int() >= rows.start);
+    assert(row.int() < rows.end());
+
+    const decl = comp.declAt(comp.instanceDecl(owner));
+    if (decl.module == check.module_index) return true;
+    const node = comp.rowAt(row).node;
+    if (comp.treeOf(decl.module).viewOf(node).field.is_pub) return true;
+
+    try check.failPrivate(at, decl.module, node);
+    return false;
+}
+
+fn failPrivate(
+    check: *Check,
+    at: Token.Index,
+    module: Module.Index,
+    node: Node.Index,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    assert(module != check.module_index);
+    assert(check.tree.tokenTag(at) == .ident);
     try check.failToken(at, .{
         .code = .private,
         .message = try check.comp.fmt("'{s}' is private to its file", .{
-            check.comp.pool.stringText(decl.name),
+            check.tree.tokenSlice(at),
         }),
         .label = "not public",
         .help = "mark it 'pub' to reach it from another file",
-        .notes = try check.comp.noteOne(decl.module, decl.node, "declared here"),
+        .notes = try check.comp.noteOne(module, node, "declared here"),
     });
-    return false;
 }
 
 fn checkDeref(check: *Check, node: Node.Index) Allocator.Error!Value {
@@ -4007,6 +4044,7 @@ fn checkStructLiteral(
 
     try comp.ensureRows(instance);
     const rows = comp.instanceAt(instance).rows;
+    const buildable = try check.structIsBuildable(node, wanted, instance);
 
     const start: u32 = @intCast(comp.operands.items.len);
     defer comp.operands.shrinkRetainingCapacity(start);
@@ -4053,6 +4091,8 @@ fn checkStructLiteral(
         if (met == .poison) clean = false;
         comp.operands.items[start + position].value = met;
     }
+    // the values above are checked either way, so their own reports still land
+    if (buildable == false) return .poison;
 
     var missing: []const u8 = "";
     for (0..rows.len) |position| {
@@ -4107,6 +4147,39 @@ fn structLiteralType(
         });
     }
     return null;
+}
+
+/// A literal gives every field, so one it cannot reach keeps the whole literal in that file.
+fn structIsBuildable(
+    check: *Check,
+    node: Node.Index,
+    wanted: Pool.Index,
+    instance: Pool.Instance,
+) Allocator.Error!bool {
+    const comp = check.comp;
+    assert(check.tree.nodeTag(node) == .struct_literal);
+    assert(comp.pool.structOf(wanted) == instance);
+    const decl = comp.declAt(comp.instanceDecl(instance));
+    if (decl.module == check.module_index) return true;
+
+    const tree = comp.treeOf(decl.module);
+    const rows = comp.instanceAt(instance).rows;
+    for (rows.start..rows.end()) |raw| {
+        const row = comp.rowAt(.from(raw));
+        if (tree.viewOf(row.node).field.is_pub) continue;
+        try check.fail(node, .{
+            .code = .private,
+            .message = try comp.fmt(
+                "{s} keeps '{s}' private to its file, so only that file builds one",
+                .{ try comp.typeName(wanted), comp.pool.stringText(row.name) },
+            ),
+            .label = "private fields",
+            .help = "mark every field 'pub', or have that file build it through a function",
+            .notes = try comp.noteOne(decl.module, row.node, "declared here"),
+        });
+        return false;
+    }
+    return true;
 }
 
 fn allConstant(operands: []const Operand) bool {

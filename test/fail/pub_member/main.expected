@@ -1,0 +1,14 @@
+error[E0106]: expected a field or a function after 'pub', found a number
+ --> test/fail/pub_member/main.phi:2:9
+  |
+2 |     pub 3: i64
+  |         ^ expected a field or a function after 'pub'
+
+error[E0101]: expected ',' or the end of the line, found a number
+ --> test/fail/pub_member/main.phi:2:9
+  |
+2 |     pub 3: i64
+  |         ^ unexpected here
+  |
+  = help: one per line, or a ',' between them
+

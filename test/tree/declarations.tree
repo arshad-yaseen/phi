@@ -16,7 +16,7 @@ root
     fn_decl nothing
       body: block
   struct_decl Point
-    field x
+    field x pub
       type: ident i64
     field y
       type: ident i64

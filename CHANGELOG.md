@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Language
+
+- A field without `pub` is private to its file, the way a method already is,
+  so another file can neither reach it nor build the struct that holds it. A
+  struct built elsewhere marks each field `pub`, or has its own file build it
+  through a function.
+
 ## [0.4.0] - 2026-08-18
 
 0.3.0 gave a program something to hold. This release runs it: `phi build`

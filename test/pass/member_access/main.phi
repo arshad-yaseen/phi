@@ -2,5 +2,5 @@ import shapes
 
 fn drive() i64 {
     let point = shapes.Point.{ x: 3, y: 4 }
-    return shapes.taxicab(point) + shapes.origin_x
+    return shapes.taxicab(point) + shapes.origin_x + point.x
 }

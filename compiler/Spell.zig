@@ -265,9 +265,13 @@ fn node(
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
             if (it.bound.unwrap()) |bound| try node(ast, writer, bound, below, "bound");
         },
-        .param, .field => |it| {
+        .param => |it| {
             try writer.print(" {s}\n", .{ast.tokenSlice(it.name_token)});
             try docs(ast, writer, index, below);
+            try node(ast, writer, it.type_expr, below, "type");
+        },
+        .field => |it| {
+            try declHead(ast, writer, index, below, it.name_token, it.is_pub);
             try node(ast, writer, it.type_expr, below, "type");
         },
 

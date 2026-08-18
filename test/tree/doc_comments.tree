@@ -10,7 +10,7 @@ root
     type: ident i64
   struct_decl Point pub
     doc /// A point in the plane.
-    field x
+    field x pub
       doc /// How far across.
       type: ident i64
     field y
