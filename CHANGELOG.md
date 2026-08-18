@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0] - 2026-08-18
+
+0.3.0 gave a program something to hold. This release runs it: `phi build`
+compiles a program through C to a native binary, `phi run` builds and then runs
+it, and it starts at `fn main()`. `import` names the modules a file reaches,
+`extern fn` reaches past the program itself, and `std/io` writes to standard
+output. A generic now asks what its type argument is, with `match T` and
+`T is u32`, and a bound holds it to a set of types, so one function covers
+every number.
 
 ### Language
 
@@ -297,7 +305,8 @@ Initial release. `phi` checks a program and prints its typed IR. Nothing runs ye
 - `phi check <entry>` and `phi ir <entry>`.
 - `--std <dir>`, `--color auto|on|off`, and `--version`.
 
-[Unreleased]: https://github.com/arshad-yaseen/phi/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/arshad-yaseen/phi/compare/0.4.0...HEAD
+[0.4.0]: https://github.com/arshad-yaseen/phi/compare/0.3.0...0.4.0
 [0.3.0]: https://github.com/arshad-yaseen/phi/compare/0.2.0...0.3.0
 [0.2.0]: https://github.com/arshad-yaseen/phi/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/arshad-yaseen/phi/releases/tag/0.1.0
