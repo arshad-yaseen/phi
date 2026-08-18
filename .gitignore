@@ -13,10 +13,4 @@ zig-out/
 /main.c
 *.dSYM/
 
-# what 'zine release' leaves in doc/
-/doc/public/
-
-# where doc/check_snippets.zig assembles what it checks
-/doc/.snippets/
-
 .DS_Store

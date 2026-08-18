@@ -33,4 +33,4 @@ jobs:
         run: zig build test --summary all
 
       - name: Check formatting
-        run: zig fmt --check build.zig compiler tools test doc
+        run: zig fmt --check build.zig compiler tools test

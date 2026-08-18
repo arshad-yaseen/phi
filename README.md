@@ -23,7 +23,4 @@ Hello, world!
 
 Builds for macOS, Linux, and Windows are on the [releases page][releases].
 
-[docs]: https://phi-lang.org
-[llms]: https://phi-lang.org/llms.txt
-[full]: https://phi-lang.org/llms-full.txt
 [releases]: https://github.com/arshad-yaseen/phi/releases
