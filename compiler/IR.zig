@@ -130,6 +130,8 @@ pub const Inst = struct {
         slice_len,
         slice_ptr,
         slice_make,
+        /// A view over a count of elements at a pointer, on the caller's word alone.
+        slice_from,
 
         add,
         sub,
@@ -158,6 +160,8 @@ pub const Inst = struct {
         bit_not,
 
         ptr_cast,
+        /// The address a pointer holds, as a `u64`.
+        int_from_ptr,
         /// Converts into a type holding every value of the old one, so nothing is lost.
         widen,
         /// The value when the type holds it, the union's other member when not.
@@ -179,9 +183,9 @@ pub const Inst = struct {
                 .union_is, .union_init => .probe,
                 .call, .slice_make, .aggregate_init => .payload,
                 .load, .slice_len, .slice_ptr, .negate, .not, .bit_not => .un,
-                .ptr_cast, .widen, .int_cast => .un,
+                .ptr_cast, .int_from_ptr, .widen, .int_cast => .un,
                 .union_narrow => .un,
-                .store, .elem_ptr, .bounds_check, .order_check => .bin,
+                .store, .elem_ptr, .slice_from, .bounds_check, .order_check => .bin,
                 .add, .sub, .mul, .div, .mod => .bin,
                 .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => .bin,
                 .cmp_eq, .cmp_ne, .cmp_lt, .cmp_le, .cmp_gt, .cmp_ge => .bin,

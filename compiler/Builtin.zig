@@ -15,6 +15,8 @@ const Value = Check.Value;
 
 pub const Builtin = enum {
     ptr_cast,
+    view,
+    int_from_ptr,
     int_cast,
     size_of,
     align_of,
@@ -32,6 +34,8 @@ pub const Builtin = enum {
     pub fn shape(builtin: Builtin) Shape {
         return switch (builtin) {
             .ptr_cast => .{ .types_min = 1, .types_max = 1, .args = 1 },
+            .view => .{ .types_min = 0, .types_max = 0, .args = 2 },
+            .int_from_ptr => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .int_cast => .{ .types_min = 0, .types_max = 1, .args = 1 },
             .splat => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .size_of, .align_of, .min_int, .max_int => .{
@@ -46,14 +50,14 @@ pub const Builtin = enum {
     /// Std-only is the price of being able to break a guarantee the checker made.
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
-            .ptr_cast => true,
+            .ptr_cast, .view, .int_from_ptr => true,
             .int_cast, .size_of, .align_of, .min_int, .max_int, .splat, .trap => false,
         };
     }
 
     pub fn needsBody(builtin: Builtin) bool {
         return switch (builtin) {
-            .ptr_cast, .trap => true,
+            .ptr_cast, .view, .int_from_ptr, .trap => true,
             .int_cast, .size_of, .align_of, .min_int, .max_int, .splat => false,
         };
     }
@@ -145,6 +149,8 @@ pub const Builtin = enum {
 
         switch (builtin) {
             .ptr_cast => return ptrCast(check, args[0], types[0], values[0]),
+            .view => return view(check, node, args, values[0..2]),
+            .int_from_ptr => return intFromPtr(check, node, args[0], values[0]),
             .int_cast => {
                 const written: ?Pool.Index = if (type_args.len == 1) types[0] else null;
                 const wanted = try destination(check, node, written, hint, int_cast_wants) orelse
@@ -455,6 +461,51 @@ fn ptrCast(
     const pointer = try check.pointerAt(node, found, "@ptr_cast", null) orelse return .poison;
     const result = try check.pointerTo(wanted, pointer.mutable);
     return check.emitOneValue(node, .ptr_cast, result, Check.refOf(operand));
+}
+
+/// A view of `count` elements at a pointer, as writable as the pointer.
+fn view(
+    check: *Check,
+    node: Node.Index,
+    args: []const Node.Index,
+    values: []const Value,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(args.len == 2);
+    assert(values.len == 2);
+
+    const found = check.typeOf(values[0]);
+    const pointer = try check.pointerAt(args[0], found, "@view", null) orelse return .poison;
+
+    const count_type = check.typeOf(values[1]);
+    if (Pool.isInteger(count_type) == false) {
+        return check.refuse(args[1], .{
+            .code = .bad_operand,
+            .message = try comp.fmt("'@view' takes a count, and this is {s}", .{
+                try comp.typeName(count_type),
+            }),
+            .label = "not a count",
+            .help = "a count is a 'u64', the way a view's own '.len' is",
+        });
+    }
+    const count = try check.coerce(values[1], .u64_type, args[1]);
+    if (count == .poison) return .poison;
+
+    const result = try check.sliceOf(pointer.child, pointer.mutable);
+    return check.emitValue(node, .slice_from, result, .{
+        .bin = .{ .lhs = Check.refOf(values[0]), .rhs = Check.refOf(count) },
+    });
+}
+
+fn intFromPtr(
+    check: *Check,
+    node: Node.Index,
+    operand_node: Node.Index,
+    operand: Value,
+) Allocator.Error!Value {
+    const found = check.typeOf(operand);
+    _ = try check.pointerAt(operand_node, found, "@int_from_ptr", null) orelse return .poison;
+    return check.emitOneValue(node, .int_from_ptr, .u64_type, Check.refOf(operand));
 }
 
 comptime {

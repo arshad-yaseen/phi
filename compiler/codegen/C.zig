@@ -910,6 +910,10 @@ fn writeInst(backend: *C, local: Position) Fail!void {
         .ptr_cast, .widen => try backend.put(.{
             assign(local), "(", inst.type, ")", inst.data.un, ";\n",
         }),
+        .int_from_ptr => {
+            assert(inst.type == .u64_type);
+            try backend.put(.{ assign(local), "(uint64_t)", inst.data.un, ";\n" });
+        },
         .int_cast => try backend.writeIntCast(local, inst),
 
         .union_init => try backend.writeUnionInit(local, inst),
@@ -934,6 +938,9 @@ fn writeInst(backend: *C, local: Position) Fail!void {
             try backend.put(.{ " + ", made.start, ", (uint64_t)(", made.end, " - ", made.start });
             try backend.put(.{") };\n"});
         },
+        .slice_from => try backend.put(.{
+            assign(local), "(", inst.type, "){ ", inst.data.bin.lhs, ", ", inst.data.bin.rhs, " };\n",
+        }),
         .elem_ptr => try backend.put(.{
             assign(local), base(inst.data.bin.lhs), " + ", inst.data.bin.rhs, ";\n",
         }),

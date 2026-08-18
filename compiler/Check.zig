@@ -536,7 +536,7 @@ pub fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Erro
     return comp.pool.intern(comp.gpa, .{ .type_pointer = .{ .child = child, .mutable = mutable } });
 }
 
-fn sliceOf(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
+pub fn sliceOf(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
     const comp = check.comp;
     return comp.pool.intern(comp.gpa, .{ .type_slice = .{ .child = child, .mutable = mutable } });
 }
@@ -980,7 +980,7 @@ pub fn emitOne(
     return check.emit(node, tag, type_index, .{ .un = operand });
 }
 
-fn emitValue(
+pub fn emitValue(
     check: *Check,
     node: Node.Index,
     tag: IR.Inst.Tag,
@@ -5415,7 +5415,7 @@ fn tagIsStatement(tag: Node.Tag) bool {
 }
 
 /// By value for constants, `*var T` where `*T` is asked, membership for unions.
-fn coerce(
+pub fn coerce(
     check: *Check,
     value: Value,
     wanted: Pool.Index,

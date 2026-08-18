@@ -1,0 +1,39 @@
+fn writable(p: *var u32, count: u64) []var u32
+b0:
+  %0 = param p : *var u32
+  %1 = param count : u64
+  %2 = slice_from %0, %1 : []var u32
+  return %2
+
+fn read_only(p: *u32, count: u64) []u32
+b0:
+  %0 = param p : *u32
+  %1 = param count : u64
+  %2 = slice_from %0, %1 : []u32
+  return %2
+
+fn a_narrower_count(p: *var Cell, count: u32) []var Cell
+b0:
+  %0 = param p : *var Cell
+  %1 = param count : u32
+  %2 = widen %1 : u64
+  %3 = slice_from %0, %2 : []var Cell
+  return %3
+
+fn a_written_count(p: *u8) []u8
+b0:
+  %0 = param p : *u8
+  %1 = slice_from %0, 4:u64 : []u8
+  return %1
+
+fn address(p: *Cell) u64
+b0:
+  %0 = param p : *Cell
+  %1 = int_from_ptr %0 : u64
+  return %1
+
+fn writable_address(p: *var u8) u64
+b0:
+  %0 = param p : *var u8
+  %1 = int_from_ptr %0 : u64
+  return %1

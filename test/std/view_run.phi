@@ -1,0 +1,20 @@
+//! A view made from a pointer reaches the elements the pointer stands before,
+//! and an address reads as the number it is.
+
+fn main() {
+    var storage: [4]u32 = @splat(0)
+    let made = @view(&storage[0], 4)
+    made[3] = 9
+    if storage[3] != 9 { @trap() }
+    if made.len != 4 { @trap() }
+
+    let held: []u32 = @view(&storage[2], 2)
+    if held[0] != 0 { @trap() }
+    if held[1] != 9 { @trap() }
+
+    let first = @int_from_ptr(&storage[0])
+    let second = @int_from_ptr(&storage[1])
+    if second - first != 4 { @trap() }
+    if first % 4 != 0 { @trap() }
+    if @int_from_ptr(made.ptr) != first { @trap() }
+}

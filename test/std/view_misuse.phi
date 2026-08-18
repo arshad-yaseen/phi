@@ -1,0 +1,23 @@
+type Cell = {
+    value: i64
+}
+
+fn from_a_number(n: u64) []u8 {
+    return @view(n, 4)
+}
+
+fn counted_by_a_float(p: *u8) []u8 {
+    return @view(p, 1.5)
+}
+
+fn counted_by_a_signed(p: *u8, count: i64) []u8 {
+    return @view(p, count)
+}
+
+fn address_of_a_number(n: u64) u64 {
+    return @int_from_ptr(n)
+}
+
+fn one_argument(p: *u8) []u8 {
+    return @view(p)
+}

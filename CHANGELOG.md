@@ -8,6 +8,10 @@
   so another file can neither reach it nor build the struct that holds it. A
   struct built elsewhere marks each field `pub`, or has its own file build it
   through a function.
+- `@view(p, n)` is a view of `n` elements at a pointer, as writable as the
+  pointer, and `@int_from_ptr(p)` is its address as a `u64`. Both are the
+  standard library's alone, the way `@ptr_cast` is, because each takes the
+  caller's word for what the checker cannot see.
 
 ### Compiler
 

@@ -1,0 +1,27 @@
+type Cell = {
+    value: i64
+}
+
+fn writable(p: *var u32, count: u64) []var u32 {
+    return @view(p, count)
+}
+
+fn read_only(p: *u32, count: u64) []u32 {
+    return @view(p, count)
+}
+
+fn a_narrower_count(p: *var Cell, count: u32) []var Cell {
+    return @view(p, count)
+}
+
+fn a_written_count(p: *u8) []u8 {
+    return @view(p, 4)
+}
+
+fn address(p: *Cell) u64 {
+    return @int_from_ptr(p)
+}
+
+fn writable_address(p: *var u8) u64 {
+    return @int_from_ptr(p)
+}

@@ -1,0 +1,34 @@
+error[E0206]: '@view' needs a pointer, and this is u64
+ --> test/std/view_misuse.phi:6:18
+  |
+6 |     return @view(n, 4)
+  |                  ^ not a pointer
+
+error[E0211]: '@view' takes a count, and this is an untyped float
+  --> test/std/view_misuse.phi:10:21
+   |
+10 |     return @view(p, 1.5)
+   |                     ^^^ not a count
+   |
+   = help: a count is a 'u64', the way a view's own '.len' is
+
+error[E0206]: expected u64, found i64
+  --> test/std/view_misuse.phi:14:21
+   |
+14 |     return @view(p, count)
+   |                     ^^^^^ the wrong type
+   |
+   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+
+error[E0206]: '@int_from_ptr' needs a pointer, and this is u64
+  --> test/std/view_misuse.phi:18:26
+   |
+18 |     return @int_from_ptr(n)
+   |                          ^ not a pointer
+
+error[E0213]: '@view' takes 2 arguments, and this call has 1
+  --> test/std/view_misuse.phi:22:12
+   |
+22 |     return @view(p)
+   |            ^^^^^^^ wrong number of arguments
+

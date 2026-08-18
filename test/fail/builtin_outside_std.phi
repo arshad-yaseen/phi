@@ -5,3 +5,11 @@ type Cell = {
 fn reinterpret(cell: *var Cell) *var Cell {
     return @ptr_cast[Cell](cell)
 }
+
+fn many(cell: *var Cell) []var Cell {
+    return @view(cell, 1)
+}
+
+fn address(cell: *Cell) u64 {
+    return @int_from_ptr(cell)
+}

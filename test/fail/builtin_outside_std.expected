@@ -6,3 +6,19 @@ error[E0251]: only the standard library reaches '@ptr_cast'
   |
   = help: std wraps it in an ordinary declaration, so call that instead
 
+error[E0251]: only the standard library reaches '@view'
+  --> test/fail/builtin_outside_std.phi:10:12
+   |
+10 |     return @view(cell, 1)
+   |            ^^^^^ not available here
+   |
+   = help: std wraps it in an ordinary declaration, so call that instead
+
+error[E0251]: only the standard library reaches '@int_from_ptr'
+  --> test/fail/builtin_outside_std.phi:14:12
+   |
+14 |     return @int_from_ptr(cell)
+   |            ^^^^^^^^^^^^^ not available here
+   |
+   = help: std wraps it in an ordinary declaration, so call that instead
+
