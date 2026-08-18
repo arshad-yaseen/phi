@@ -48,7 +48,7 @@ pub const Index = enum(u32) {
 
     pub fn from(raw: usize) Index {
         assert(raw < std.math.maxInt(u32));
-        return @enumFromInt(@as(u32, @intCast(raw)));
+        return @enumFromInt(raw);
     }
 
     pub fn int(index: Index) u32 {
@@ -66,7 +66,7 @@ pub const String = enum(u32) {
 
     pub fn from(raw: usize) String {
         assert(raw < std.math.maxInt(u32));
-        return @enumFromInt(@as(u32, @intCast(raw)));
+        return @enumFromInt(raw);
     }
 
     pub fn int(index: String) u32 {
@@ -95,16 +95,6 @@ pub const SimpleType = enum(u32) {
     pub fn index(simple: SimpleType) Index {
         return @enumFromInt(@intFromEnum(simple));
     }
-
-    fn isSpellable(simple: SimpleType) bool {
-        return switch (simple) {
-            .i8, .i16, .i32, .i64 => true,
-            .u8, .u16, .u32, .u64 => true,
-            .f32, .f64 => true,
-            .poison, .void => false,
-            .untyped_int, .untyped_float, .untyped_aggregate => false,
-        };
-    }
 };
 
 pub fn primitiveType(text: []const u8) ?Index {
@@ -131,7 +121,7 @@ const primitives = build: {
     var entries: [simples.len]struct { []const u8, Index } = undefined;
     var count: usize = 0;
     for (simples) |simple| {
-        if (simple.isSpellable() == false) continue;
+        if (isNumeric(simple.index()) == false or isUntyped(simple.index())) continue;
         entries[count] = .{ @tagName(simple), simple.index() };
         count += 1;
     }
@@ -183,7 +173,7 @@ pub const Key = union(enum) {
             // by bits, because floats have no hash of their own
             .value_float => |it| {
                 std.hash.autoHash(&hasher, it.type);
-                std.hash.autoHash(&hasher, @as(u64, @bitCast(it.value)));
+                std.hash.autoHash(&hasher, bitsOf(it.value));
             },
             inline else => |payload| std.hash.autoHash(&hasher, payload),
         }
@@ -265,7 +255,8 @@ comptime {
     assert(fold_bits == @bitSizeOf(i128));
     // every integer a program can write folds without truncating
     assert(@bitSizeOf(u64) < fold_bits);
-    assert(@bitSizeOf(i64) < fold_bits);
+    assert(std.math.maxInt(u64) < std.math.maxInt(i128));
+    assert(std.math.minInt(i64) > std.math.minInt(i128));
 }
 
 pub fn init(pool: *Pool, gpa: Allocator) Allocator.Error!void {
@@ -349,9 +340,9 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .type_union => |members| item: {
             assert(members.len >= 2);
             assert(members.len <= union_members_max);
-            for (members) |member| assert(pool.isUnion(member) == false);
             for (members, 0..) |member, at| {
                 assert(pool.isType(member));
+                assert(pool.isUnion(member) == false);
                 for (members[0..at]) |earlier| assert(member != earlier);
             }
             break :item .{
@@ -360,8 +351,6 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
             };
         },
         .value_union => |it| item: {
-            assert(pool.isUnion(it.type));
-            assert(pool.isType(it.value) == false);
             assert(pool.keyOf(it.value) != .value_union);
             assert(pool.unionHas(it.type, pool.typeOfValue(it.value)));
             break :item .{
@@ -399,7 +388,7 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
             };
         },
         .value_unit => |unit_type| item: {
-            assert(pool.items.items(.tag)[unit_type.int()] == .type_unit);
+            assert(pool.keyOf(unit_type) == .type_unit);
             break :item .{ .tag = .value_unit, .data = unit_type.int() };
         },
         .value_int => |it| .{
@@ -424,11 +413,8 @@ fn smallIntSlot(key: Key) ?u32 {
     if (key != .value_int) return null;
     const it = key.value_int;
     if (it.type.int() >= statics) return null;
-    if (it.value < 0) return null;
-    if (it.value >= small_int_range) return null;
-    const slot = it.type.int() * small_int_range + @as(u32, @intCast(it.value));
-    assert(slot < statics * small_int_range);
-    return slot;
+    if (it.value < 0 or it.value >= small_int_range) return null;
+    return it.type.int() * small_int_range + @as(u32, @intCast(it.value));
 }
 
 pub fn typeKey(pool: *const Pool, index: Index) TypeKey {
@@ -466,12 +452,13 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
     assert(index.int() < pool.items.len);
 
     const data = pool.items.items(.data)[index.int()];
+    const extra = pool.extra.items;
     return switch (pool.items.items(.tag)[index.int()]) {
         .type_simple => .{ .type_simple = @enumFromInt(data) },
         .type_pointer => .{ .type_pointer = .{ .child = @enumFromInt(data), .mutable = false } },
         .type_pointer_var => .{ .type_pointer = .{ .child = @enumFromInt(data), .mutable = true } },
         .type_array => .{ .type_array = .{
-            .child = @enumFromInt(pool.extra.items[data]),
+            .child = @enumFromInt(extra[data]),
             .len = @bitCast(pool.extraWords(data + 1, 2).*),
         } },
         .type_slice => .{ .type_slice = .{ .child = @enumFromInt(data), .mutable = false } },
@@ -480,28 +467,28 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
         .type_unit => .{ .type_unit = @enumFromInt(data) },
         .type_union => .{ .type_union = pool.unionMembers(index) },
         .value_aggregate => .{ .value_aggregate = .{
-            .type = @enumFromInt(pool.extra.items[data]),
-            .elems = @ptrCast(pool.extra.items[data + 2 ..][0..pool.extra.items[data + 1]]),
+            .type = @enumFromInt(extra[data]),
+            .elems = @ptrCast(extra[data + 2 ..][0..extra[data + 1]]),
         } },
         .value_unit => .{ .value_unit = @enumFromInt(data) },
         .value_union => .{ .value_union = .{
-            .type = @enumFromInt(pool.extra.items[data]),
-            .value = @enumFromInt(pool.extra.items[data + 1]),
+            .type = @enumFromInt(extra[data]),
+            .value = @enumFromInt(extra[data + 1]),
         } },
         .value_slice => .{ .value_slice = .{
-            .type = @enumFromInt(pool.extra.items[data]),
-            .data = @enumFromInt(pool.extra.items[data + 1]),
+            .type = @enumFromInt(extra[data]),
+            .data = @enumFromInt(extra[data + 1]),
         } },
         .value_splat => .{ .value_splat = .{
-            .type = @enumFromInt(pool.extra.items[data]),
-            .element = @enumFromInt(pool.extra.items[data + 1]),
+            .type = @enumFromInt(extra[data]),
+            .element = @enumFromInt(extra[data + 1]),
         } },
         .value_int => .{ .value_int = .{
-            .type = @enumFromInt(pool.extra.items[data]),
+            .type = @enumFromInt(extra[data]),
             .value = @bitCast(pool.extraWords(data + 1, 4).*),
         } },
         .value_float => .{ .value_float = .{
-            .type = @enumFromInt(pool.extra.items[data]),
+            .type = @enumFromInt(extra[data]),
             .value = @bitCast(@as(u64, @bitCast(pool.extraWords(data + 1, 2).*))),
         } },
     };
@@ -557,27 +544,28 @@ pub fn isUnion(pool: *const Pool, index: Index) bool {
 }
 
 pub fn unionHas(pool: *const Pool, union_index: Index, member: Index) bool {
-    return pool.unionMemberPosition(union_index, member) != null;
-}
-
-pub fn unionMemberPosition(pool: *const Pool, union_index: Index, member: Index) ?u32 {
-    if (pool.isUnion(member)) return null;
-    for (pool.unionMembers(union_index), 0..) |candidate, at| {
-        if (candidate == member) return @intCast(at);
-    }
-    return null;
+    if (pool.isUnion(member)) return false;
+    return std.mem.indexOfScalar(Index, pool.unionMembers(union_index), member) != null;
 }
 
 pub fn memberPosition(pool: *const Pool, union_index: Index, member: Index) u32 {
-    for (pool.unionMembers(union_index), 0..) |candidate, at| {
-        if (candidate == member) return @intCast(at);
-    }
-    unreachable;
+    const at = std.mem.indexOfScalar(Index, pool.unionMembers(union_index), member);
+    return @intCast(at orelse unreachable); // callers ask only about a member
 }
 
-pub fn covers(pool: *const Pool, set: Index, member: Index) bool {
-    if (set == member) return true;
-    return pool.isUnion(set) and pool.unionHas(set, member);
+/// `part` is `set` itself or one member of it. A union is never a member.
+pub fn covers(pool: *const Pool, set: Index, part: Index) bool {
+    if (set == part) return true;
+    return pool.isUnion(set) and pool.unionHas(set, part);
+}
+
+/// Every alternative of `narrow` is one of `wide`.
+pub fn subsumes(pool: *const Pool, wide: Index, narrow: Index) bool {
+    if (pool.isUnion(narrow) == false) return pool.covers(wide, narrow);
+    for (pool.unionMembers(narrow)) |member| {
+        if (pool.covers(wide, member) == false) return false;
+    }
+    return true;
 }
 
 pub fn unionWithout(
@@ -601,22 +589,8 @@ pub fn unionWithout(
 }
 
 pub fn unionTail(pool: *Pool, gpa: Allocator, union_index: Index) Allocator.Error!Index {
-    const members = pool.unionMembers(union_index);
-    assert(members.len >= 2);
-    if (members.len == 2) return members[1];
-
-    var rest: [union_members_max]Index = undefined;
-    @memcpy(rest[0 .. members.len - 1], members[1..]);
-    return pool.intern(gpa, .{ .type_union = rest[0 .. members.len - 1] });
-}
-
-pub fn unionCovers(pool: *const Pool, wide: Index, narrow: Index) bool {
-    assert(pool.isUnion(wide));
-    if (pool.isUnion(narrow) == false) return pool.unionHas(wide, narrow);
-    for (pool.unionMembers(narrow)) |member| {
-        if (pool.unionHas(wide, member) == false) return false;
-    }
-    return true;
+    const rest = try pool.unionWithout(gpa, union_index, pool.unionMemberAt(union_index, 0));
+    return rest orelse unreachable; // a union holds two members or more
 }
 
 /// Borrowed from `extra`, stale at the next intern. A walk that interns reads
@@ -708,13 +682,8 @@ pub fn stringText(pool: *const Pool, index: String) []const u8 {
 pub fn typeOfValue(pool: *const Pool, value: Index) Index {
     return switch (pool.valueKey(value)) {
         .poison => .poison,
-        .value_int => |it| it.type,
-        .value_float => |it| it.type,
-        .value_aggregate => |it| it.type,
         .value_unit => |unit_type| unit_type,
-        .value_union => |it| it.type,
-        .value_slice => |it| it.type,
-        .value_splat => |it| it.type,
+        inline else => |it| it.type,
     };
 }
 
@@ -726,17 +695,11 @@ pub fn memberOfValue(pool: *const Pool, value: Index) Index {
 }
 
 pub fn heldValue(pool: *const Pool, value: Index) Index {
-    return switch (pool.valueKey(value)) {
-        .value_union => |it| it.value,
-        else => unreachable,
-    };
+    return pool.keyOf(value).value_union.value;
 }
 
 pub fn structOf(pool: *const Pool, index: Index) Instance {
-    return switch (pool.typeKey(index)) {
-        .type_struct => |instance| instance,
-        else => unreachable,
-    };
+    return pool.keyOf(index).type_struct;
 }
 
 pub fn isType(pool: *const Pool, index: Index) bool {
@@ -751,54 +714,62 @@ pub fn isType(pool: *const Pool, index: Index) bool {
 
 /// With `aggregateAt`, for walks that intern. `keyOf` only borrows.
 pub fn aggregateLen(pool: *const Pool, index: Index) u64 {
-    const data = pool.items.items(.data)[index.int()];
-    return switch (pool.items.items(.tag)[index.int()]) {
-        .value_aggregate => pool.extra.items[data + 1],
-        .value_splat => pool.keyOf(@enumFromInt(pool.extra.items[data])).type_array.len,
+    return switch (pool.keyOf(index)) {
+        .value_aggregate => |it| it.elems.len,
+        .value_splat => |it| pool.keyOf(it.type).type_array.len,
         else => unreachable,
     };
 }
 
 pub fn aggregateAt(pool: *const Pool, index: Index, at: u64) Index {
     assert(at < pool.aggregateLen(index));
-    const data = pool.items.items(.data)[index.int()];
-    return switch (pool.items.items(.tag)[index.int()]) {
-        .value_aggregate => @enumFromInt(pool.extra.items[data + 2 + at]),
-        .value_splat => @enumFromInt(pool.extra.items[data + 1]),
+    return switch (pool.keyOf(index)) {
+        .value_aggregate => |it| it.elems[@intCast(at)],
+        .value_splat => |it| it.element,
         else => unreachable,
     };
 }
 
 pub fn isInteger(index: Index) bool {
+    return isSizedInt(index) or index == .untyped_int_type;
+}
+
+pub fn isSizedInt(index: Index) bool {
     return switch (index) {
         .i8_type, .i16_type, .i32_type, .i64_type => true,
         .u8_type, .u16_type, .u32_type, .u64_type => true,
-        .untyped_int_type => true,
+        else => false,
+    };
+}
+
+pub fn isSignedInt(index: Index) bool {
+    return switch (index) {
+        .i8_type, .i16_type, .i32_type, .i64_type => true,
         else => false,
     };
 }
 
 pub fn isFloat(index: Index) bool {
-    return switch (index) {
-        .f32_type, .f64_type, .untyped_float_type => true,
-        else => false,
-    };
+    return isSizedFloat(index) or index == .untyped_float_type;
 }
 
-pub fn isUntyped(index: Index) bool {
-    if (index == .untyped_int_type) return true;
-    if (index == .untyped_float_type) return true;
-    return index == .untyped_aggregate_type;
+pub fn isSizedFloat(index: Index) bool {
+    return index == .f32_type or index == .f64_type;
 }
 
 pub fn isNumeric(index: Index) bool {
-    if (isInteger(index)) return true;
-    return isFloat(index);
+    return isInteger(index) or isFloat(index);
 }
 
-pub fn isSizedInt(index: Index) bool {
-    if (isInteger(index) == false) return false;
-    return index != .untyped_int_type;
+pub fn isSignedNumber(index: Index) bool {
+    return isSignedInt(index) or isSizedFloat(index);
+}
+
+pub fn isUntyped(index: Index) bool {
+    return switch (index) {
+        .untyped_int_type, .untyped_float_type, .untyped_aggregate_type => true,
+        else => false,
+    };
 }
 
 pub fn widens(from: Index, into: Index) bool {
@@ -808,12 +779,7 @@ pub fn widens(from: Index, into: Index) bool {
         return minInt(from) >= -exactIntMax(into) and maxInt(from) <= exactIntMax(into);
     }
     if (isSizedInt(into) == false) return false;
-    if (minInt(into) > minInt(from)) return false;
-    return maxInt(from) <= maxInt(into);
-}
-
-fn isSizedFloat(index: Index) bool {
-    return index == .f32_type or index == .f64_type;
+    return minInt(into) <= minInt(from) and maxInt(from) <= maxInt(into);
 }
 
 fn exactIntMax(float_type: Index) i128 {
@@ -832,17 +798,6 @@ fn exactFloat(value: i128, type_index: Index) ?f64 {
     return wide;
 }
 
-pub fn isSignedInt(index: Index) bool {
-    return switch (index) {
-        .i8_type, .i16_type, .i32_type, .i64_type => true,
-        else => false,
-    };
-}
-
-pub fn isSignedNumber(index: Index) bool {
-    return isSignedInt(index) or isSizedFloat(index);
-}
-
 /// The lowest value an integer type holds. Exact, because every width folds in 128 bits.
 pub fn minInt(type_index: Index) i128 {
     assert(isSizedInt(type_index));
@@ -856,16 +811,21 @@ pub fn maxInt(type_index: Index) i128 {
     return (@as(i128, 1) << @intCast(value_bits)) - 1;
 }
 
-comptime {
-    assert(std.math.maxInt(u64) < std.math.maxInt(i128));
-    assert(std.math.minInt(i64) > std.math.minInt(i128));
+pub fn fitsInt(value: i128, type_index: Index) bool {
+    assert(isNumeric(type_index));
+    if (isSizedInt(type_index) == false) return true;
+    return minInt(type_index) <= value and value <= maxInt(type_index);
 }
 
-pub fn fitsInt(value: i128, type_index: Index) bool {
-    assert(isInteger(type_index) or isFloat(type_index));
-    if (isSizedInt(type_index) == false) return true;
-    if (value < minInt(type_index)) return false;
-    return value <= maxInt(type_index);
+pub fn widthOf(type_index: Index) u16 {
+    return switch (type_index) {
+        .i8_type, .u8_type => 8,
+        .i16_type, .u16_type => 16,
+        .i32_type, .u32_type => 32,
+        .i64_type, .u64_type => 64,
+        .untyped_int_type => fold_bits,
+        else => unreachable,
+    };
 }
 
 pub const Fold = union(enum) {
@@ -889,15 +849,12 @@ pub fn fold(
     lhs: Index,
     rhs: Index,
 ) Allocator.Error!Fold {
-    if (lhs == .poison) return .{ .value = .poison };
-    if (rhs == .poison) return .{ .value = .poison };
-
+    if (lhs == .poison or rhs == .poison) return .{ .value = .poison };
     assert(op != .bool_and);
     assert(op != .bool_or);
 
     const left = numberOf(pool.keyOf(lhs)) orelse return .{ .bad_operand = pool.typeOfValue(lhs) };
     const right = numberOf(pool.keyOf(rhs)) orelse return .{ .bad_operand = pool.typeOfValue(rhs) };
-
     const result_type = sharedType(left.type, right.type) orelse {
         return .{ .mismatch = .{ .left = left.type, .right = right.type } };
     };
@@ -910,8 +867,60 @@ pub fn fold(
         return .{ .does_not_fit = .{ .value = rhs, .type = result_type } };
     };
 
-    if (isFloat(result_type)) return pool.foldFloat(gpa, op, a.float, b.float, result_type);
-    return pool.foldInt(gpa, op, a.int, b.int, result_type);
+    if (isFloat(result_type)) {
+        if (compared(op, a.float, b.float)) |holds| return .{ .truth = holds };
+        const value: f64 = switch (op) {
+            .add => a.float + b.float,
+            .sub => a.float - b.float,
+            .mul => a.float * b.float,
+            .div => if (b.float == 0) return .division_by_zero else a.float / b.float,
+            else => return .{ .bad_operand = result_type },
+        };
+        return pool.internFloat(gpa, value, result_type);
+    }
+
+    if (compared(op, a.int, b.int)) |holds| return .{ .truth = holds };
+    const value: i128 = switch (op) {
+        .add => std.math.add(i128, a.int, b.int) catch return .overflow,
+        .sub => std.math.sub(i128, a.int, b.int) catch return .overflow,
+        .mul => std.math.mul(i128, a.int, b.int) catch return .overflow,
+        .div => if (b.int == 0)
+            return .division_by_zero
+        else
+            std.math.divTrunc(i128, a.int, b.int) catch return .overflow,
+        .mod => if (b.int == 0)
+            return .division_by_zero
+        else if (b.int == -1)
+            0
+        else
+            @rem(a.int, b.int),
+        .bit_and => a.int & b.int,
+        .bit_or => a.int | b.int,
+        .bit_xor => a.int ^ b.int,
+        .shift_left, .shift_right => shifted: {
+            if (b.int < 0 or b.int >= widthOf(result_type)) {
+                return .{ .bad_shift = .{ .count = b.int, .type = result_type } };
+            }
+            const amount: std.math.Log2Int(i128) = @intCast(b.int);
+            if (op == .shift_right) break :shifted a.int >> amount;
+            break :shifted std.math.shlExact(i128, a.int, amount) catch return .overflow;
+        },
+        // comparisons returned above, `and` and `or` never fold
+        else => unreachable,
+    };
+    return pool.internInt(gpa, value, result_type);
+}
+
+fn compared(op: AST.BinaryOp, a: anytype, b: @TypeOf(a)) ?bool {
+    return switch (op) {
+        .equal => a == b,
+        .not_equal => a != b,
+        .less_than => a < b,
+        .less_or_equal => a <= b,
+        .greater_than => a > b,
+        .greater_or_equal => a >= b,
+        else => null,
+    };
 }
 
 fn fitNumber(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocator.Error!?Number {
@@ -923,52 +932,27 @@ fn fitNumber(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Alloc
 
 pub fn foldNegate(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!Fold {
     if (operand == .poison) return .{ .value = .poison };
-
     const number = numberOf(pool.keyOf(operand)) orelse {
         return .{ .bad_operand = pool.typeOfValue(operand) };
     };
-    if (isFloat(number.type)) {
-        return pool.internFloat(gpa, -number.float, number.type);
-    }
+    if (isFloat(number.type)) return pool.internFloat(gpa, -number.float, number.type);
     const negated = std.math.negate(number.int) catch return .overflow;
     return pool.internInt(gpa, negated, number.type);
 }
 
 pub fn foldBitNot(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!Fold {
     if (operand == .poison) return .{ .value = .poison };
-
     const number = numberOf(pool.keyOf(operand)) orelse {
         return .{ .bad_operand = pool.typeOfValue(operand) };
     };
     if (isInteger(number.type) == false) return .{ .bad_operand = number.type };
-    return pool.internInt(gpa, complementOf(number.int, number.type), number.type);
-}
+    assert(fitsInt(number.int, number.type));
 
-pub fn widthOf(type_index: Index) u16 {
-    assert(isInteger(type_index));
-    return switch (type_index) {
-        .i8_type, .u8_type => 8,
-        .i16_type, .u16_type => 16,
-        .i32_type, .u32_type => 32,
-        .i64_type, .u64_type => 64,
-        .untyped_int_type => fold_bits,
-        else => unreachable,
-    };
-}
-
-/// Unsigned complements inside the width, everything else in two's complement.
-fn complementOf(value: i128, type_index: Index) i128 {
-    assert(isInteger(type_index));
-    assert(fitsInt(value, type_index));
-
-    if (isSignedInt(type_index) or type_index == .untyped_int_type) return ~value;
-    return ~value & ((@as(i128, 1) << @intCast(widthOf(type_index))) - 1);
-}
-
-fn shiftAmount(count: i128, type_index: Index) ?std.math.Log2Int(i128) {
-    if (count < 0) return null;
-    if (count >= widthOf(type_index)) return null;
-    return @intCast(count);
+    var complement = ~number.int;
+    if (isSizedInt(number.type) and isSignedInt(number.type) == false) {
+        complement &= (@as(i128, 1) << @intCast(widthOf(number.type))) - 1;
+    }
+    return pool.internInt(gpa, complement, number.type);
 }
 
 pub const Fit = union(enum) {
@@ -988,8 +972,7 @@ pub fn fit(
     type_index: Index,
     widen: Widen,
 ) Allocator.Error!Fit {
-    if (value == .poison) return .{ .value = .poison };
-    if (type_index == .poison) return .{ .value = .poison };
+    if (value == .poison or type_index == .poison) return .{ .value = .poison };
     assert(pool.isType(type_index));
 
     // the first fitting member decides
@@ -997,7 +980,6 @@ pub fn fit(
         var wrong_size = false;
         var members = pool.membersOf(type_index);
         while (members.next()) |member| {
-            assert(pool.isUnion(member) == false);
             switch (try pool.fit(gpa, value, member, widen)) {
                 .value => |fitted| return .{ .value = try pool.intern(gpa, .{
                     .value_union = .{ .type = type_index, .value = fitted },
@@ -1015,7 +997,7 @@ pub fn fit(
         if (widen == .allowed and widens(found, type_index)) {
             switch (pool.keyOf(value)) {
                 .value_int => |it| return .{
-                    .value = try pool.intern(gpa, widenedInt(it.value, type_index)),
+                    .value = try pool.internNumber(gpa, it.value, type_index),
                 },
                 .value_float => |it| return .{ .value = try pool.intern(gpa, .{
                     .value_float = .{ .type = type_index, .value = it.value },
@@ -1033,14 +1015,12 @@ pub fn fit(
         .value_int => |it| {
             if (isInteger(type_index)) {
                 if (fitsInt(it.value, type_index) == false) return .does_not_fit;
-                return .{ .value = try pool.internWith(gpa, it.value, type_index) };
+                return .{ .value = try pool.internNumber(gpa, it.value, type_index) };
             }
             if (isFloat(type_index)) {
                 // an integer is exact, so a float that would round it loses a value
-                const exact = exactFloat(it.value, type_index) orelse return .does_not_fit;
-                return .{ .value = try pool.intern(gpa, .{
-                    .value_float = .{ .type = type_index, .value = exact },
-                }) };
+                if (exactFloat(it.value, type_index) == null) return .does_not_fit;
+                return .{ .value = try pool.internNumber(gpa, it.value, type_index) };
             }
             return .wrong_kind;
         },
@@ -1055,12 +1035,11 @@ pub fn fit(
                 }) };
             }
             if (isInteger(type_index)) {
-                const truncated = @trunc(it.value);
-                if (truncated != it.value) return .does_not_fit;
+                if (@trunc(it.value) != it.value) return .does_not_fit;
                 if (it.value < -0x1p127 or it.value >= 0x1p127) return .does_not_fit;
-                const as_int: i128 = @intFromFloat(truncated);
+                const as_int: i128 = @intFromFloat(it.value);
                 if (fitsInt(as_int, type_index) == false) return .does_not_fit;
-                return .{ .value = try pool.internWith(gpa, as_int, type_index) };
+                return .{ .value = try pool.internNumber(gpa, as_int, type_index) };
             }
             return .wrong_kind;
         },
@@ -1148,111 +1127,15 @@ pub fn sharedType(left: Index, right: Index) ?Index {
     return null;
 }
 
-fn foldInt(
-    pool: *Pool,
-    gpa: Allocator,
-    op: AST.BinaryOp,
-    a: i128,
-    b: i128,
-    result_type: Index,
-) Allocator.Error!Fold {
-    assert(isInteger(result_type));
-    switch (op) {
-        .add => {
-            const wide = std.math.add(i128, a, b) catch return .overflow;
-            return pool.internInt(gpa, wide, result_type);
-        },
-        .sub => {
-            const wide = std.math.sub(i128, a, b) catch return .overflow;
-            return pool.internInt(gpa, wide, result_type);
-        },
-        .mul => {
-            const wide = std.math.mul(i128, a, b) catch return .overflow;
-            return pool.internInt(gpa, wide, result_type);
-        },
-        .div => {
-            if (b == 0) return .division_by_zero;
-            const wide = std.math.divTrunc(i128, a, b) catch return .overflow;
-            return pool.internInt(gpa, wide, result_type);
-        },
-        .mod => {
-            if (b == 0) return .division_by_zero;
-            const wide = if (b == -1) 0 else @rem(a, b);
-            return pool.internInt(gpa, wide, result_type);
-        },
-        .bit_and => return pool.internInt(gpa, a & b, result_type),
-        .bit_or => return pool.internInt(gpa, a | b, result_type),
-        .bit_xor => return pool.internInt(gpa, a ^ b, result_type),
-        .shift_left => {
-            const amount = shiftAmount(b, result_type) orelse {
-                return .{ .bad_shift = .{ .count = b, .type = result_type } };
-            };
-            const wide = std.math.shlExact(i128, a, amount) catch return .overflow;
-            return pool.internInt(gpa, wide, result_type);
-        },
-        .shift_right => {
-            const amount = shiftAmount(b, result_type) orelse {
-                return .{ .bad_shift = .{ .count = b, .type = result_type } };
-            };
-            return pool.internInt(gpa, a >> amount, result_type);
-        },
-        .equal => return .{ .truth = a == b },
-        .not_equal => return .{ .truth = a != b },
-        .less_than => return .{ .truth = a < b },
-        .less_or_equal => return .{ .truth = a <= b },
-        .greater_than => return .{ .truth = a > b },
-        .greater_or_equal => return .{ .truth = a >= b },
-        // control flow, which the checker lowers as branches
-        .bool_and, .bool_or => unreachable,
-    }
-}
-
-fn foldFloat(
-    pool: *Pool,
-    gpa: Allocator,
-    op: AST.BinaryOp,
-    a: f64,
-    b: f64,
-    result_type: Index,
-) Allocator.Error!Fold {
-    assert(isFloat(result_type));
-    switch (op) {
-        .add => return pool.internFloat(gpa, a + b, result_type),
-        .sub => return pool.internFloat(gpa, a - b, result_type),
-        .mul => return pool.internFloat(gpa, a * b, result_type),
-        .div => {
-            if (b == 0) return .division_by_zero;
-            return pool.internFloat(gpa, a / b, result_type);
-        },
-        .mod, .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => {
-            return .{ .bad_operand = result_type };
-        },
-        .equal => return .{ .truth = a == b },
-        .not_equal => return .{ .truth = a != b },
-        .less_than => return .{ .truth = a < b },
-        .less_or_equal => return .{ .truth = a <= b },
-        .greater_than => return .{ .truth = a > b },
-        .greater_or_equal => return .{ .truth = a >= b },
-        // control flow, which the checker lowers as branches
-        .bool_and, .bool_or => unreachable,
-    }
-}
-
-fn internInt(
-    pool: *Pool,
-    gpa: Allocator,
-    value: i128,
-    type_index: Index,
-) Allocator.Error!Fold {
+fn internInt(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Fold {
     assert(isInteger(type_index));
-    if (fitsInt(value, type_index) == false) {
-        // interned untyped, so the report can spell it
-        return .{ .does_not_fit = .{
-            .value = try pool.internWith(gpa, value, .untyped_int_type),
-            .type = type_index,
-        } };
+    if (fitsInt(value, type_index)) {
+        return .{ .value = try pool.internNumber(gpa, value, type_index) };
     }
-    return .{ .value = try pool.internWith(gpa, value, type_index) };
+    return .{ .does_not_fit = .{
+        .value = try pool.internNumber(gpa, value, .untyped_int_type),
+        .type = type_index,
+    } };
 }
 
 fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Allocator.Error!Fold {
@@ -1262,18 +1145,13 @@ fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Alloc
     }) };
 }
 
-fn internWith(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Index {
-    assert(isInteger(type_index));
+fn internNumber(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Index {
+    if (isFloat(type_index)) {
+        const exact = exactFloat(value, type_index) orelse unreachable; // callers checked the fit
+        return pool.intern(gpa, .{ .value_float = .{ .type = type_index, .value = exact } });
+    }
     assert(fitsInt(value, type_index));
     return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
-}
-
-fn widenedInt(value: i128, into: Index) Key {
-    if (isFloat(into)) {
-        assert(exactFloat(value, into) != null);
-        return .{ .value_float = .{ .type = into, .value = @floatFromInt(value) } };
-    }
-    return .{ .value_int = .{ .type = into, .value = value } };
 }
 
 /// Constants fold at 64 bits, so landing on an `f32` rounds to what it can hold.

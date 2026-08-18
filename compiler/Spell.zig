@@ -138,32 +138,33 @@ fn writeConstant(
                 try writeType(comp, writer, it.type);
             }
         },
-        .value_aggregate => |it| {
-            const fields: ?[]const Compilation.Row = switch (comp.pool.keyOf(it.type)) {
+        .value_aggregate, .value_splat => {
+            const type_index = comp.pool.typeOfValue(value);
+            const fields: ?[]const Compilation.Row = switch (comp.pool.keyOf(type_index)) {
                 .type_struct => |instance| comp.instanceRows(instance),
                 else => null,
             };
             if (fields != null) {
-                try writeType(comp, writer, it.type);
+                try writeType(comp, writer, type_index);
                 try writer.writeAll(".{ ");
             } else {
                 try writer.writeByte('[');
             }
 
-            for (it.elems, 0..) |element, position| {
-                if (position == aggregate_shown_max) {
-                    try writer.print(", +{d} more", .{it.elems.len - position});
-                    break;
-                }
-                if (position > 0) try writer.writeAll(", ");
+            const count = comp.pool.aggregateLen(value);
+            var at: u64 = 0;
+            while (at < @min(count, aggregate_shown_max)) : (at += 1) {
+                if (at > 0) try writer.writeAll(", ");
                 if (fields) |rows| {
-                    if (position < rows.len) {
-                        try writer.print("{s}: ", .{comp.pool.stringText(rows[position].name)});
+                    if (at < rows.len) {
+                        try writer.print("{s}: ", .{comp.pool.stringText(rows[at].name)});
                     }
                 }
-                try writeConstant(comp, writer, element);
+                try writeConstant(comp, writer, comp.pool.aggregateAt(value, at));
             }
-
+            if (count > aggregate_shown_max) {
+                try writer.print(", +{d} more", .{count - aggregate_shown_max});
+            }
             if (fields != null) try writer.writeAll(" }") else try writer.writeByte(']');
         },
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
@@ -173,19 +174,6 @@ fn writeConstant(
             try writeConstant(comp, writer, it.data);
             try writer.writeByte(':');
             try writeType(comp, writer, it.type);
-        },
-        .value_splat => |it| {
-            const len = comp.pool.keyOf(it.type).type_array.len;
-            try writer.writeByte('[');
-            var at: u64 = 0;
-            while (at < @min(len, aggregate_shown_max)) : (at += 1) {
-                if (at > 0) try writer.writeAll(", ");
-                try writeConstant(comp, writer, it.element);
-            }
-            if (len > aggregate_shown_max) try writer.print(", +{d} more", .{
-                len - aggregate_shown_max,
-            });
-            try writer.writeByte(']');
         },
     }
 }
@@ -233,7 +221,7 @@ fn node(
 
     const below = depth + 1;
     switch (view) {
-        .root, .block => |children| {
+        .root, .block, .array_literal, .union_type => |children| {
             try writer.writeByte('\n');
             for (children) |child| try node(ast, writer, child, below, "");
         },
@@ -329,9 +317,7 @@ fn node(
             if (it.label.unwrap()) |label| try node(ast, writer, label, below, "label");
             try node(ast, writer, it.body, below, "body");
         },
-        .err => {
-            try writer.writeByte('\n');
-        },
+        .err => try writer.writeByte('\n'),
         .return_expr => |operand| {
             try writer.writeByte('\n');
             if (operand.unwrap()) |value| try node(ast, writer, value, below, "value");
@@ -369,10 +355,6 @@ fn node(
             try writer.writeByte('\n');
             if (it.type_expr.unwrap()) |written| try node(ast, writer, written, below, "type");
             for (it.fields) |field| try node(ast, writer, field, below, "");
-        },
-        .array_literal => |elements| {
-            try writer.writeByte('\n');
-            for (elements) |element| try node(ast, writer, element, below, "");
         },
         .range_expr => |it| {
             try writer.writeByte('\n');
@@ -413,10 +395,6 @@ fn node(
             try flag(writer, it.is_mutable, "var");
             try writer.writeByte('\n');
             try node(ast, writer, it.child, below, "child");
-        },
-        .union_type => |members| {
-            try writer.writeByte('\n');
-            for (members) |member| try node(ast, writer, member, below, "");
         },
         .deref, .defer_stmt => |child| {
             try writer.writeByte('\n');

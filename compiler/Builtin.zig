@@ -109,13 +109,12 @@ pub const Builtin = enum {
     }
 
     pub fn notAValue(check: *Check, node: Node.Index) Allocator.Error!Value {
-        try check.fail(node, .{
+        return check.refuse(node, .{
             .code = .not_a_function,
             .message = "a builtin is not a value, so call it",
             .label = "missing the call",
             .help = "write '@name(...)', with its type arguments if it takes any",
         });
-        return .poison;
     }
 
     pub fn call(
@@ -130,13 +129,8 @@ pub const Builtin = enum {
         const form = builtin.shape();
 
         if (args.len != form.args) {
-            try check.fail(node, .{
-                .code = .wrong_arity,
-                .message = try comp.fmt("'@{s}' takes {d} argument{s}, and this call has {d}", .{
-                    @tagName(builtin), form.args, Check.plural(form.args), args.len,
-                }),
-                .label = "wrong number of arguments",
-            });
+            const name = try comp.fmt("@{s}", .{@tagName(builtin)});
+            try check.failArity(node, name, form.args, args.len, &.{});
             return .poison;
         }
 
@@ -305,14 +299,13 @@ fn intCast(
     assert(Pool.isSizedInt(wanted));
     const found = check.typeOf(operand);
     if (Pool.isInteger(found) == false) {
-        try check.fail(operand_node, .{
+        return check.refuse(operand_node, .{
             .code = .bad_operand,
             .message = try comp.fmt("'@int_cast' converts a number, and this is {s}", .{
                 try comp.typeName(found),
             }),
             .label = "not a number",
         });
-        return .poison;
     }
 
     const absent = try check.noneType(node);
@@ -346,13 +339,12 @@ fn splat(
     operand: Value,
 ) Allocator.Error!Value {
     if (operand != .constant) {
-        try check.fail(operand_node, .{
+        return check.refuse(operand_node, .{
             .code = .not_constant,
             .message = "'@splat' repeats a constant, and this is settled at run time",
             .label = "not a constant",
             .help = "write a loop to fill storage with something worked out as it runs",
         });
-        return .poison;
     }
 
     const repeated = try splatArray(check, node, wanted, operand.constant, 0) orelse
@@ -417,14 +409,13 @@ fn layoutOf(
         error.OutOfMemory => return error.OutOfMemory,
         error.Poison => return .poison,
         error.TooLarge => {
-            try check.fail(node, .{
+            return check.refuse(node, .{
                 .code = .type_too_large,
                 .message = try comp.fmt("'{s}' is larger than the 4 GiB a type may hold", .{
                     try comp.typeName(wanted),
                 }),
                 .label = "too large",
             });
-            return .poison;
         },
     };
 
@@ -441,7 +432,7 @@ fn limitOf(
     assert(builtin == .min_int or builtin == .max_int);
 
     if (Pool.isInteger(wanted) == false) {
-        try check.fail(node, .{
+        return check.refuse(node, .{
             .code = .bad_operand,
             .message = try comp.fmt("'@{s}' needs an integer type, and this is {s}", .{
                 @tagName(builtin), try comp.typeName(wanted),
@@ -449,7 +440,6 @@ fn limitOf(
             .label = "not an integer type",
             .help = "the integer types are 'i8' through 'i64' and 'u8' through 'u64'",
         });
-        return .poison;
     }
 
     return check.untypedInt(if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted));

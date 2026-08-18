@@ -72,24 +72,23 @@ pub const Value = union(enum) {
 
 pub fn typeAlias(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     var check = context(comp, decl_index);
-    const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
-    const resolved = try check.resolveWrittenType(view.aliased);
+    const resolved = try check.aliasTarget(decl_index);
     comp.declPtr(decl_index).result = resolved.int();
     return resolved != .poison;
 }
 
 pub fn aliasInstance(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
-    const decl_index = comp.instanceDecl(instance);
-    assert(comp.declAt(decl_index).kind == .type_alias);
-
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index);
+    var check = context(comp, comp.instanceDecl(instance));
     try check.bindTypeParams(instance, &buffer);
-
-    const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
-    const resolved = try check.resolveWrittenType(view.aliased);
+    const resolved = try check.aliasTarget(comp.instanceDecl(instance));
     comp.instancePtr(instance).type = resolved;
     return resolved != .poison;
+}
+
+fn aliasTarget(check: *Check, decl_index: Decl.Index) Allocator.Error!Pool.Index {
+    const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
+    return check.resolveWrittenType(view.aliased);
 }
 
 pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
@@ -102,18 +101,13 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
     else
         null;
 
-    const value = try check.checkValue(view.init_expr, annotation);
+    var value = try check.checkValue(view.init_expr, annotation);
     // constants-only mode never emits, and nothing there can leave
     assert(value != .runtime);
     assert(value != .diverged);
+    if (annotation) |wanted| value = try check.coerce(value, wanted, view.init_expr);
 
-    var met: Pool.Index = if (value == .constant) value.constant else .poison;
-    if (annotation) |wanted| {
-        met = switch (try check.fitValue(met, wanted, view.init_expr)) {
-            .constant => |final| final,
-            else => .poison,
-        };
-    }
+    const met: Pool.Index = if (value == .constant) value.constant else .poison;
     comp.declPtr(decl_index).result = met.int();
     return met != .poison;
 }
@@ -135,14 +129,24 @@ pub fn structRows(comp: *Compilation, instance: Pool.Instance) Allocator.Error!b
         const field = check.tree.viewOf(member).field;
         const field_type = try check.resolveType(field.type_expr);
         if (field_type == .poison) clean = false;
-        try comp.rows_scratch.append(comp.gpa, .{
-            .name = try comp.pool.string(comp.gpa, check.tree.tokenSlice(field.name_token)),
-            .type = field_type,
-            .node = member,
-        });
+        try check.stageRow(field.name_token, field_type, member);
     }
     try commitRows(comp, instance, mark);
     return clean;
+}
+
+fn stageRow(
+    check: *Check,
+    name_token: Token.Index,
+    type_index: Pool.Index,
+    node: Node.Index,
+) Allocator.Error!void {
+    const comp = check.comp;
+    try comp.rows_scratch.append(comp.gpa, .{
+        .name = try comp.pool.string(comp.gpa, check.tree.tokenSlice(name_token)),
+        .type = type_index,
+        .node = node,
+    });
 }
 
 fn commitRows(comp: *Compilation, instance: Pool.Instance, mark: usize) Allocator.Error!void {
@@ -294,28 +298,20 @@ pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!
             const crosses = try check.externCrosses(param_node, param_type, "parameter");
             if (crosses == false) clean = false;
         }
-        try comp.rows_scratch.append(comp.gpa, .{
-            .name = try comp.pool.string(comp.gpa, name_text),
-            .type = param_type,
-            .node = param_node,
-        });
+        try check.stageRow(param.name_token, param_type, param_node);
     }
     try commitRows(comp, instance, mark);
 
-    const return_type: Pool.Index = if (view.return_type.unwrap()) |type_expr|
-        try check.resolveWrittenType(type_expr)
-    else
-        .void_type;
-    comp.instancePtr(instance).type = return_type;
-    if (return_type == .poison) clean = false;
-
-    if (view.is_extern) {
-        if (view.return_type.unwrap()) |type_expr| {
+    var return_type: Pool.Index = .void_type;
+    if (view.return_type.unwrap()) |type_expr| {
+        return_type = try check.resolveWrittenType(type_expr);
+        if (view.is_extern) {
             const crosses = try check.externCrosses(type_expr, return_type, "return type");
             if (crosses == false) clean = false;
         }
     }
-    return clean;
+    comp.instancePtr(instance).type = return_type;
+    return clean and return_type != .poison;
 }
 
 fn typeParamNodes(comp: *const Compilation, decl_index: Decl.Index) [2][]const Node.Index {
@@ -496,12 +492,8 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
         .ident => return check.resolveTypeName(node),
         .field_access => |access| switch (try check.checkExpr(access.lhs, null)) {
             .named_module => |target| {
-                const member = try Module.findExported(
-                    check.comp,
-                    target,
-                    check.origin(node),
-                    access.name_token,
-                ) orelse return .poison;
+                const member = try check.exported(target, node, access.name_token) orelse
+                    return .poison;
                 return check.declAsType(member, node);
             },
             .poison => return .poison,
@@ -688,6 +680,15 @@ fn visibleDecl(check: *const Check, text: []const u8) ?Decl.Index {
     return found;
 }
 
+fn exported(
+    check: *Check,
+    target: Module.Index,
+    node: Node.Index,
+    name_token: Token.Index,
+) Allocator.Error!?Decl.Index {
+    return Module.findExported(check.comp, target, check.origin(node), name_token);
+}
+
 fn ensured(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocator.Error!?u32 {
     try check.comp.ensure(.forDecl(decl_index), check.origin(node));
     const decl = check.comp.declAt(decl_index);
@@ -770,16 +771,8 @@ fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.Inde
 
     const wanted = comp.typeParamCount(decl_index);
     if (view.args.len != wanted) {
-        try check.fail(node, .{
-            .code = .generic_arguments,
-            .message = try comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
-                comp.pool.stringText(comp.declAt(decl_index).name),
-                wanted,
-                plural(wanted),
-                view.args.len,
-            }),
-            .label = "wrong number of arguments",
-        });
+        const name = comp.pool.stringText(comp.declAt(decl_index).name);
+        try check.failTypeArity(node, name, wanted, view.args.len, &.{});
         return .poison;
     }
 
@@ -838,20 +831,13 @@ pub const Builder = struct {
         name: Pool.String,
         node: Node.Index,
         kind: Kind,
-        /// Reinterpreted by `kind`, the way `Node.Data` is by its tag.
-        payload: Payload,
+        ref: Ref,
         /// A `var_slot` ref is a pointer to this.
         type: Pool.Index,
 
-        const Kind = enum(u8) { let_constant, let_value, var_slot, param };
-
-        const Payload = union { ref: Ref, constant: Pool.Index };
+        const Kind = enum(u8) { let, var_slot, param };
 
         const Index = Handle.Index("local");
-
-        comptime {
-            if (std.debug.runtime_safety == false) assert(@sizeOf(Payload) == 4);
-        }
     };
 
     const Scope = struct { locals_start: u32, defers_start: u32 };
@@ -935,13 +921,7 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     try builder.locals.ensureTotalCapacity(comp.gpa, rows.len + 8);
     for (rows) |row| {
         const param_ref = try check.emit(row.node, .param, row.type, .{ .name = row.name });
-        try check.declareLocal(.{
-            .name = row.name,
-            .node = row.node,
-            .kind = .param,
-            .payload = .{ .ref = param_ref },
-            .type = row.type,
-        }, row.node);
+        try check.declareLocal(row.name, row.node, .param, param_ref, row.type);
     }
 
     _ = try check.checkBlockValue(body_node, .void_type);
@@ -1134,14 +1114,21 @@ fn emitDefer(check: *Check, node: Node.Index) Allocator.Error!void {
     try check.checkStatement(node);
 }
 
-fn declareLocal(check: *Check, local: Builder.Local, node: Node.Index) Allocator.Error!void {
+fn declareLocal(
+    check: *Check,
+    name: Pool.String,
+    node: Node.Index,
+    kind: Builder.Local.Kind,
+    ref: Ref,
+    type_index: Pool.Index,
+) Allocator.Error!void {
     const builder = check.body();
     const comp = check.comp;
-    const text = comp.pool.stringText(local.name);
+    const text = comp.pool.stringText(name);
 
     const clash: ?Diagnostic.Report = clash: {
         for (builder.locals.items) |other| {
-            if (other.name != local.name) continue;
+            if (other.name != name) continue;
             break :clash .{
                 .code = .shadows,
                 .message = try comp.fmt("'{s}' is already in scope", .{text}),
@@ -1150,14 +1137,14 @@ fn declareLocal(check: *Check, local: Builder.Local, node: Node.Index) Allocator
             };
         }
         for (check.bindings) |binding| {
-            if (binding.name != local.name) continue;
+            if (binding.name != name) continue;
             break :clash .{
                 .code = .shadows,
                 .message = try comp.fmt("'{s}' is a type parameter here", .{text}),
                 .label = "shadows it",
             };
         }
-        if (Pool.isPrimitiveName(local.name)) break :clash .{
+        if (Pool.isPrimitiveName(name)) break :clash .{
             .code = .shadows,
             .message = try comp.fmt("'{s}' is the name of a type every file can see", .{text}),
             .label = "shadows it",
@@ -1171,7 +1158,13 @@ fn declareLocal(check: *Check, local: Builder.Local, node: Node.Index) Allocator
         break :clash null;
     };
     if (clash) |report| try check.fail(node, report);
-    try builder.locals.append(comp.gpa, local);
+    try builder.locals.append(comp.gpa, .{
+        .name = name,
+        .node = node,
+        .kind = kind,
+        .ref = ref,
+        .type = type_index,
+    });
 }
 
 fn findLocalIndex(check: *const Check, name: []const u8) ?Builder.Local.Index {
@@ -1327,22 +1320,12 @@ fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
         }
     }
 
-    var local: Builder.Local = .{
-        .name = name,
-        .node = node,
-        .kind = .let_value,
-        .payload = .{ .ref = refOf(value) },
-        .type = value_type,
-    };
     if (view.is_mutable) {
-        local.kind = .var_slot;
-        local.payload = .{ .ref = try check.emitSlot(node, name, value_type) };
-        try check.emitStore(node, local.payload.ref, refOf(value));
-    } else if (value == .constant) {
-        local.kind = .let_constant;
-        local.payload = .{ .constant = value.constant };
+        const slot = try check.emitSlot(node, name, value_type);
+        try check.emitStore(node, slot, refOf(value));
+        return check.declareLocal(name, node, .var_slot, slot, value_type);
     }
-    try check.declareLocal(local, node);
+    try check.declareLocal(name, node, .let, refOf(value), value_type);
 }
 
 fn elementExample(check: *Check, aggregate: Pool.Key.Aggregate) Allocator.Error![]const u8 {
@@ -1353,13 +1336,7 @@ fn elementExample(check: *Check, aggregate: Pool.Key.Aggregate) Allocator.Error!
 }
 
 fn declarePoisoned(check: *Check, name: Pool.String, node: Node.Index) Allocator.Error!void {
-    try check.declareLocal(.{
-        .name = name,
-        .node = node,
-        .kind = .let_constant,
-        .payload = .{ .constant = .poison },
-        .type = .poison,
-    }, node);
+    try check.declareLocal(name, node, .let, .fromConstant(.poison), .poison);
 }
 
 fn checkAssign(check: *Check, node: Node.Index, assign: AST.View.Assign) Allocator.Error!void {
@@ -1796,13 +1773,8 @@ fn bindCounter(check: *Check, name: Node.Index, counter: ?Counter) Allocator.Err
     const named = try check.comp.pool.string(check.comp.gpa, text);
 
     const it = counter orelse return check.declarePoisoned(named, name);
-    try check.declareLocal(.{
-        .name = named,
-        .node = name,
-        .kind = .let_value,
-        .payload = .{ .ref = try check.emitOne(name, .load, it.type, it.slot) },
-        .type = it.type,
-    }, name);
+    const current = try check.emitOne(name, .load, it.type, it.slot);
+    try check.declareLocal(named, name, .let, current, it.type);
 }
 
 fn countOn(check: *Check, counter: Counter) Allocator.Error!void {
@@ -1889,7 +1861,7 @@ fn nameType(check: *const Check, name: Name) Pool.Index {
 
 fn nameRef(check: *const Check, name: Name) Ref {
     return switch (name) {
-        .local => |index| localRef(check.localAt(index)),
+        .local => |index| check.localAt(index).ref,
         .decl => |index| .fromConstant(check.declConstant(index)),
     };
 }
@@ -2232,17 +2204,13 @@ fn gatherFacts(check: *Check, node: Node.Index) Allocator.Error!Facts {
         },
         .binary => |it| {
             if (it.op != .bool_and) return .nothing;
-            return .{ .when_true = try check.gatherSpine(node), .when_false = .empty };
+            const start: u32 = @intCast(builder.facts.items.len);
+            try check.gatherWhenTrue(node);
+            const len: u32 = @intCast(builder.facts.items.len - start);
+            return .{ .when_true = .{ .start = start, .len = len }, .when_false = .empty };
         },
         else => return .nothing,
     }
-}
-
-fn gatherSpine(check: *Check, node: Node.Index) Allocator.Error!Compilation.Range {
-    const builder = check.body();
-    const start: u32 = @intCast(builder.facts.items.len);
-    try check.gatherWhenTrue(node);
-    return .{ .start = start, .len = @intCast(builder.facts.items.len - start) };
 }
 
 fn gatherWhenTrue(check: *Check, node: Node.Index) Allocator.Error!void {
@@ -2273,7 +2241,7 @@ fn factsOfIs(
 
     const label = try check.resolveType(view.type_expr);
     if (label == .poison) return null;
-    if (comp.pool.unionCovers(found, label) == false) return null;
+    if (comp.pool.subsumes(found, label) == false) return null;
     const rest = try comp.pool.unionWithout(comp.gpa, found, label) orelse return null;
 
     const holds: Fact = .{ .name = name, .type = label, .node = node };
@@ -2315,13 +2283,6 @@ fn narrowConstant(
     return switch (try comp.pool.fit(comp.gpa, held, proved, .refused)) {
         .value => |fitted| fitted,
         .does_not_fit, .wrong_kind => .poison,
-    };
-}
-
-fn localRef(local: Builder.Local) Ref {
-    return switch (local.kind) {
-        .let_constant => .fromConstant(local.payload.constant),
-        .let_value, .param, .var_slot => local.payload.ref,
     };
 }
 
@@ -2395,7 +2356,7 @@ fn labelWithin(
     union_type: Pool.Index,
 ) Allocator.Error!bool {
     const pool = &check.comp.pool;
-    if (pool.unionCovers(union_type, label)) return true;
+    if (pool.subsumes(union_type, label)) return true;
 
     var stray = label;
     if (pool.isUnion(label)) {
@@ -2411,50 +2372,53 @@ fn labelWithin(
 
 /// Two unit members, the first meaning yes. `bool` is declared, never built in.
 fn boolType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    const comp = check.comp;
-    if (check.bool_type != .poison) return check.bool_type;
+    if (check.bool_type == .poison) check.bool_type = try check.preludeType(node, .bool);
+    return check.bool_type;
+}
 
+pub fn noneType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
+    if (check.none_type == .poison) check.none_type = try check.preludeType(node, .none);
+    return check.none_type;
+}
+
+fn preludeType(
+    check: *Check,
+    node: Node.Index,
+    which: enum { bool, none },
+) Allocator.Error!Pool.Index {
+    const pool = &check.comp.pool;
+    const name = switch (which) {
+        .bool => Module.bool_name,
+        .none => Module.none_name,
+    };
     const shaped: Pool.Index = shaped: {
-        const decl_index = check.visibleDecl(Module.bool_name) orelse break :shaped .poison;
+        const decl_index = check.visibleDecl(name) orelse break :shaped .poison;
         const found = try check.declAsType(decl_index, node);
-        if (comp.pool.isUnion(found) == false) break :shaped .poison;
-        if (comp.pool.unionMemberCount(found) != 2) break :shaped .poison;
-        if (comp.pool.keyOf(comp.pool.unionMemberAt(found, 0)) != .type_unit) break :shaped .poison;
-        if (comp.pool.keyOf(comp.pool.unionMemberAt(found, 1)) != .type_unit) break :shaped .poison;
+        switch (which) {
+            .bool => {
+                if (pool.isUnion(found) == false) break :shaped .poison;
+                if (pool.unionMemberCount(found) != 2) break :shaped .poison;
+                if (pool.keyOf(pool.unionMemberAt(found, 0)) != .type_unit) break :shaped .poison;
+                if (pool.keyOf(pool.unionMemberAt(found, 1)) != .type_unit) break :shaped .poison;
+            },
+            .none => if (pool.keyOf(found) != .type_unit) break :shaped .poison,
+        }
         break :shaped found;
     };
-    if (shaped == .poison) {
-        // failure stays unmemoized, so every site that needs `bool` reports
-        try check.fail(node, .{
+    if (shaped == .poison) try check.fail(node, switch (which) {
+        .bool => .{
             .code = .no_prelude_type,
             .message = "this needs 'bool', a union of two unit types",
             .label = "no such 'bool' in scope",
             .help = "declare 'type true', 'type false', and 'type bool = true | false'",
-        });
-    }
-    check.bool_type = shaped;
-    return shaped;
-}
-
-pub fn noneType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    const comp = check.comp;
-    if (check.none_type != .poison) return check.none_type;
-
-    const shaped: Pool.Index = shaped: {
-        const decl_index = check.visibleDecl(Module.none_name) orelse break :shaped .poison;
-        const found = try check.declAsType(decl_index, node);
-        if (comp.pool.keyOf(found) != .type_unit) break :shaped .poison;
-        break :shaped found;
-    };
-    if (shaped == .poison) {
-        try check.fail(node, .{
+        },
+        .none => .{
             .code = .no_prelude_type,
             .message = "this needs 'none', a unit type",
             .label = "no such 'none' in scope",
             .help = "declare 'type none'",
-        });
-    }
-    check.none_type = shaped;
+        },
+    });
     return shaped;
 }
 
@@ -2724,15 +2688,11 @@ fn checkIdent(check: *Check, node: Node.Index) Allocator.Error!Value {
 
     if (check.findLocalIndex(text)) |index| {
         const local = check.localAt(index);
-        switch (local.kind) {
-            .let_constant, .let_value, .param => {
-                if (check.activeNarrow(.{ .local = index })) |narrow| {
-                    return valueOfRef(narrow.ref, narrow.type);
-                }
-                return valueOfRef(localRef(local), local.type);
-            },
-            .var_slot => return check.emitOneValue(node, .load, local.type, local.payload.ref),
+        if (local.kind == .var_slot) return check.emitOneValue(node, .load, local.type, local.ref);
+        if (check.activeNarrow(.{ .local = index })) |narrow| {
+            return valueOfRef(narrow.ref, narrow.type);
         }
+        return valueOfRef(local.ref, local.type);
     }
 
     for (check.bindings) |binding| {
@@ -2792,10 +2752,7 @@ fn checkNumber(check: *Check, node: Node.Index) Allocator.Error!Value {
         .float => |value| return .{ .constant = try comp.pool.intern(comp.gpa, .{
             .value_float = .{ .type = .untyped_float_type, .value = value },
         }) },
-        .refused => |refusal| {
-            try check.fail(node, refusal);
-            return .poison;
-        },
+        .refused => |refusal| return check.refuse(node, refusal),
     }
 }
 
@@ -2807,10 +2764,7 @@ fn checkString(check: *Check, node: Node.Index) Allocator.Error!Value {
     var reading = Literal.bytesOf(check.mainTokenText(node));
     while (reading.next()) |piece| switch (piece) {
         .bytes => |run| try check.appendText(run),
-        .refused => |refusal| {
-            try check.fail(node, refusal);
-            return .poison;
-        },
+        .refused => |refusal| return check.refuse(node, refusal),
     };
     return check.textValue(mark);
 }
@@ -2856,10 +2810,7 @@ fn textValue(check: *Check, mark: usize) Allocator.Error!Value {
 fn checkChar(check: *Check, node: Node.Index) Allocator.Error!Value {
     switch (Literal.decodeChar(check.mainTokenText(node))) {
         .codepoint => |value| return check.untypedInt(value),
-        .refused => |refusal| {
-            try check.fail(node, refusal);
-            return .poison;
-        },
+        .refused => |refusal| return check.refuse(node, refusal),
     }
 }
 
@@ -2948,8 +2899,7 @@ fn settleFold(
             return .poison;
         },
     };
-    try check.failToken(op_token, report);
-    return .poison;
+    return check.refuseToken(op_token, report);
 }
 
 const operand_help = "nothing converts on its own, so give both sides one type";
@@ -3088,7 +3038,7 @@ fn checkShortCircuit(
     defer check.body().facts.shrinkRetainingCapacity(facts_mark);
 
     const narrows_mark = check.body().narrows.items.len;
-    try check.applyFacts(try check.gatherSpine(view.lhs));
+    try check.applyFacts((try check.gatherFacts(view.lhs)).when_true);
     const rhs = try check.checkExpr(view.rhs, null);
     const rhs_met = try check.coerce(rhs, bools, view.rhs);
     if (rhs_met != .diverged) try check.emitStore(view.rhs, slot, refOf(rhs_met));
@@ -3241,62 +3191,54 @@ fn bindRest(
 ) Allocator.Error!void {
     const text = check.mainTokenText(binder_node);
     if (Module.isDiscard(text)) return check.failDiscard(binder_node);
-    try check.declareLocal(.{
-        .name = try check.comp.pool.string(check.comp.gpa, text),
-        .node = binder_node,
-        .kind = .let_value,
-        .payload = .{ .ref = try check.emitOne(binder_node, .union_narrow, rest, lhs) },
-        .type = rest,
-    }, binder_node);
+    const name = try check.comp.pool.string(check.comp.gpa, text);
+    const narrowed = try check.emitOne(binder_node, .union_narrow, rest, lhs);
+    try check.declareLocal(name, binder_node, .let, narrowed, rest);
 }
 
 fn checkUnary(check: *Check, node: Node.Index, view: AST.View.Unary) Allocator.Error!Value {
     const comp = check.comp;
+    if (view.op == .address_of) return check.checkAddressOf(node, view);
+
+    const operand = try check.checkValue(view.operand, null);
+    if (operand.stops()) return operand;
+    const bools = if (view.op == .bool_not) try check.boolType(view.operand) else .poison;
+
+    if (operand == .constant) {
+        const folded: Pool.Fold = switch (view.op) {
+            .negate => try comp.pool.foldNegate(comp.gpa, operand.constant),
+            .bit_not => try comp.pool.foldBitNot(comp.gpa, operand.constant),
+            .bool_not => not: {
+                if (bools == .poison) break :not .{ .value = .poison };
+                const truth = check.truthOf(bools, operand.constant) orelse
+                    break :not .{ .bad_operand = check.typeOf(operand) };
+                break :not .{ .truth = !truth };
+            },
+            .address_of => unreachable,
+        };
+        return check.settleFold(view.operand, view.op_token, folded);
+    }
+
+    const found = check.typeOf(operand);
     switch (view.op) {
-        .address_of => return check.checkAddressOf(node, view),
         .negate => {
-            const operand = try check.checkValue(view.operand, null);
-            if (operand.stops()) return operand;
-            if (operand == .constant) {
-                const folded = try comp.pool.foldNegate(comp.gpa, operand.constant);
-                return check.settleFold(view.operand, view.op_token, folded);
-            }
-            const found = check.typeOf(operand);
             if (Pool.isSignedNumber(found) == false) {
                 return check.reportBadUnary(view, found, "needs a signed number");
             }
             return check.emitOneValue(node, .negate, found, refOf(operand));
         },
-        .bool_not => {
-            const operand = try check.checkValue(view.operand, null);
-            if (operand.stops()) return operand;
-            const bools = try check.boolType(view.operand);
-            if (operand == .constant) {
-                const folded: Pool.Fold = not: {
-                    if (bools == .poison) break :not .{ .value = .poison };
-                    const truth = check.truthOf(bools, operand.constant) orelse
-                        break :not .{ .bad_operand = check.typeOf(operand) };
-                    break :not .{ .truth = !truth };
-                };
-                return check.settleFold(view.operand, view.op_token, folded);
-            }
-            const met = try check.coerce(operand, bools, view.operand);
-            if (met == .poison) return .poison;
-            return check.emitOneValue(node, .not, bools, refOf(met));
-        },
         .bit_not => {
-            const operand = try check.checkValue(view.operand, null);
-            if (operand.stops()) return operand;
-            if (operand == .constant) {
-                const folded = try comp.pool.foldBitNot(comp.gpa, operand.constant);
-                return check.settleFold(view.operand, view.op_token, folded);
-            }
-            const found = check.typeOf(operand);
             if (Pool.isInteger(found) == false) {
                 return check.reportBadUnary(view, found, "needs an integer");
             }
             return check.emitOneValue(node, .bit_not, found, refOf(operand));
         },
+        .bool_not => {
+            const met = try check.coerce(operand, bools, view.operand);
+            if (met == .poison) return .poison;
+            return check.emitOneValue(node, .not, bools, refOf(met));
+        },
+        .address_of => unreachable,
     }
 }
 
@@ -3306,7 +3248,7 @@ fn reportBadUnary(
     found: Pool.Index,
     wants: []const u8,
 ) Allocator.Error!Value {
-    try check.failToken(view.op_token, .{
+    return check.refuseToken(view.op_token, .{
         .code = .bad_operand,
         .message = try check.comp.fmt("'{s}' {s}, and this is {s}", .{
             check.tree.tokenSlice(view.op_token),
@@ -3315,7 +3257,6 @@ fn reportBadUnary(
         }),
         .label = "wrong operand type",
     });
-    return .poison;
 }
 
 fn checkAddressOf(check: *Check, node: Node.Index, view: AST.View.Unary) Allocator.Error!Value {
@@ -3324,7 +3265,7 @@ fn checkAddressOf(check: *Check, node: Node.Index, view: AST.View.Unary) Allocat
 
     const place = try check.checkPlace(view.operand) orelse return .poison;
     if (check.typeCanHold(place.type) == false) {
-        try check.failToken(view.op_token, .{
+        return check.refuseToken(view.op_token, .{
             .code = .type_mismatch,
             .message = try comp.fmt("'&' needs a value with a type, and this is {s}", .{
                 try comp.typeName(place.type),
@@ -3332,7 +3273,6 @@ fn checkAddressOf(check: *Check, node: Node.Index, view: AST.View.Unary) Allocat
             .label = "nothing to point at",
             .help = "give the value a type first, as in 'let n: i64 = 10'",
         });
-        return .poison;
     }
     const addressed = try check.placeAddress(place) orelse return .poison;
     return runtimeValue(addressed.ref, try check.pointerTo(addressed.type, addressed.mutable()));
@@ -3349,22 +3289,16 @@ fn checkFieldAccess(
         .poison => return .poison,
         .diverged => return .diverged,
         .named_module => |target| {
-            const member = try Module.findExported(
-                comp,
-                target,
-                check.origin(node),
-                view.name_token,
-            ) orelse return .poison;
+            const member = try check.exported(target, node, view.name_token) orelse return .poison;
             return check.declAsValue(member, node);
         },
         .named_type, .named_generic => {
-            try check.fail(node, .{
+            return check.refuse(node, .{
                 .code = .not_a_function,
                 .message = try comp.fmt("'{s}' is reached through a value or called, " ++
                     "and cannot be read", .{check.tree.tokenSlice(view.name_token)}),
                 .label = "not a value",
             });
-            return .poison;
         },
         .named_fn => {
             try check.failFieldOnFunction(view.name_token);
@@ -3384,14 +3318,15 @@ fn valueField(
     const reached = try check.reachField(check.typeOf(base), view.name_token) orelse return .poison;
     const row = switch (reached.member) {
         .field => |row| row,
-        .length => |length| switch (length) {
-            .known => |count| return .{ .constant = try comp.pool.intern(comp.gpa, .{
-                .value_int = .{ .type = .u64_type, .value = count },
-            }) },
-            .read => {
+        .method => unreachable,
+        .length => |length| {
+            const count = length orelse {
                 const held = try check.viewValue(node, base, reached);
                 return check.emitOneValue(node, .slice_len, .u64_type, held);
-            },
+            };
+            return .{ .constant = try comp.pool.intern(comp.gpa, .{
+                .value_int = .{ .type = .u64_type, .value = count },
+            }) };
         },
         .address => |slice| {
             const held = try check.viewValue(node, base, reached);
@@ -3423,25 +3358,13 @@ fn viewValue(check: *Check, node: Node.Index, base: Value, reached: Reach) Alloc
 }
 
 const Member = union(enum) {
-    /// Something a `.name` reads.
-    reached: Reached,
+    field: Compilation.Row.Index,
     method: Decl.Index,
+    length: ?u64,
+    address: Pool.Key.Slice,
 
     const Kind = enum { field, method };
 };
-
-const Reached = union(enum) {
-    /// A field, by its absolute row.
-    field: Compilation.Row.Index,
-    length: Length,
-    address: Pool.Key.Slice,
-
-    /// An array's is in its type, a view's is data, and both read as `u64`.
-    const Length = union(enum) { known: u64, read };
-};
-
-/// A struct declares fields and functions, and nothing else has a name on it.
-const StructMember = union(enum) { field: Compilation.Row.Index, method: Decl.Index };
 
 const length_name = "len";
 const address_name = "ptr";
@@ -3449,30 +3372,20 @@ const address_name = "ptr";
 fn memberOf(check: *Check, owner: Pool.Index, name: []const u8) Allocator.Error!?Member {
     switch (check.comp.pool.keyOf(owner)) {
         .type_array => |array| {
-            if (std.mem.eql(u8, name, length_name) == false) return null;
-            return .{ .reached = .{ .length = .{ .known = array.len } } };
-        },
-        .type_slice => |view| {
-            if (std.mem.eql(u8, name, length_name)) return .{ .reached = .{ .length = .read } };
-            if (std.mem.eql(u8, name, address_name)) return .{ .reached = .{ .address = view } };
+            if (std.mem.eql(u8, name, length_name)) return .{ .length = array.len };
             return null;
         },
-        .type_struct => |instance| {
-            const member = try check.structMember(instance, name) orelse return null;
-            return switch (member) {
-                .field => |row| .{ .reached = .{ .field = row } },
-                .method => |decl_index| .{ .method = decl_index },
-            };
+        .type_slice => |view| {
+            if (std.mem.eql(u8, name, length_name)) return .{ .length = null };
+            if (std.mem.eql(u8, name, address_name)) return .{ .address = view };
+            return null;
         },
+        .type_struct => |instance| return check.structMember(instance, name),
         else => return null,
     }
 }
 
-fn structMember(
-    check: *Check,
-    instance: Pool.Instance,
-    name: []const u8,
-) Allocator.Error!?StructMember {
+fn structMember(check: *Check, instance: Pool.Instance, name: []const u8) Allocator.Error!?Member {
     const comp = check.comp;
     try comp.ensureRows(instance);
     const rows = comp.instanceAt(instance).rows;
@@ -3513,12 +3426,7 @@ pub fn pointerAt(
     return null;
 }
 
-const Peeled = struct {
-    /// The pointer that was followed, where there was one.
-    pointer: ?Pool.Key.Pointer,
-    /// The type the question is then asked of.
-    owner: Pool.Index,
-};
+const Peeled = struct { pointer: ?Pool.Key.Pointer, owner: Pool.Index };
 
 fn peelPointer(pool: *const Pool, from: Pool.Index) Peeled {
     switch (pool.keyOf(from)) {
@@ -3527,34 +3435,24 @@ fn peelPointer(pool: *const Pool, from: Pool.Index) Peeled {
     }
 }
 
-const Reach = struct { pointer: ?Pool.Key.Pointer, owner: Pool.Index, member: Reached };
+const Reach = struct { pointer: ?Pool.Key.Pointer, owner: Pool.Index, member: Member };
 
 fn reachField(check: *Check, from: Pool.Index, name_token: Token.Index) Allocator.Error!?Reach {
     const peeled = peelPointer(&check.comp.pool, from);
     if (try check.memberOf(peeled.owner, check.tree.tokenSlice(name_token))) |member| {
-        switch (member) {
-            .reached => |it| return .{
-                .pointer = peeled.pointer,
-                .owner = peeled.owner,
-                .member = it,
-            },
-            .method => {},
-        }
+        if (member != .method) return .{
+            .pointer = peeled.pointer,
+            .owner = peeled.owner,
+            .member = member,
+        };
     }
     try check.reportNoMember(peeled.owner, name_token, .field);
     return null;
 }
 
-fn methodOf(
-    check: *Check,
-    owner: Pool.Index,
-    name_token: Token.Index,
-) Allocator.Error!?Decl.Index {
+fn methodOf(check: *Check, owner: Pool.Index, name_token: Token.Index) Allocator.Error!?Decl.Index {
     if (try check.memberOf(owner, check.tree.tokenSlice(name_token))) |member| {
-        switch (member) {
-            .method => |decl_index| return decl_index,
-            .reached => {},
-        }
+        if (member == .method) return member.method;
     }
     try check.reportNoMember(owner, name_token, .method);
     return null;
@@ -3568,7 +3466,6 @@ fn reportNoMember(
 ) Allocator.Error!void {
     const comp = check.comp;
     const name_text = check.tree.tokenSlice(name_token);
-
     if (owner == .poison) return;
 
     if (owner == .untyped_aggregate_type) {
@@ -3581,29 +3478,17 @@ fn reportNoMember(
     }
 
     if (try check.memberOf(owner, name_text)) |other| {
-        try check.failToken(name_token, .{
+        const what: []const u8 = switch (other) {
+            .method => try comp.fmt("a function, so call it with '.{s}(...)'", .{name_text}),
+            .field => "a field, so it is read rather than called",
+            .length => "a length, so it is read rather than called",
+            .address => "the address a view holds, so it is read rather than called",
+        };
+        return check.failToken(name_token, .{
             .code = .no_such_member,
-            .message = switch (other) {
-                .method => try comp.fmt("'{s}' is a function, so call it with '.{s}(...)'", .{
-                    name_text, name_text,
-                }),
-                .reached => |it| switch (it) {
-                    .field => try comp.fmt("'{s}' is a field, so it is read rather than called", .{
-                        name_text,
-                    }),
-                    .length => try comp.fmt(
-                        "'{s}' is a length, so it is read rather than called",
-                        .{name_text},
-                    ),
-                    .address => try comp.fmt(
-                        "'{s}' is the address a view holds, so it is read rather than called",
-                        .{name_text},
-                    ),
-                },
-            },
+            .message = try comp.fmt("'{s}' is {s}", .{ name_text, what }),
             .label = try comp.fmt("not a {t}", .{wanted}),
         });
-        return;
     }
 
     try check.failToken(name_token, .{
@@ -3729,23 +3614,21 @@ fn checkBracketExpr(
             return .{ .named_type = resolved };
         },
         .named_fn => {
-            try check.fail(node, .{
+            return check.refuse(node, .{
                 .code = .not_a_function,
                 .message = "a function with its type arguments is still not a value, so call it",
                 .label = "missing the call",
             });
-            return .poison;
         },
         .diverged => return .diverged,
         .poison => return .poison,
         .constant, .runtime => return check.checkIndexExpr(node, view),
         else => {
-            try check.fail(node, .{
+            return check.refuse(node, .{
                 .code = .generic_arguments,
                 .message = "only a generic struct or function takes type arguments",
                 .label = "arguments on the wrong thing",
             });
-            return .poison;
         },
     }
 }
@@ -3756,28 +3639,17 @@ const Elements = struct {
     base: Place,
     pointer: ?Pool.Key.Pointer,
     owner: Pool.Index,
-    holds: Holds,
+    child: Pool.Index,
+    len: ?u64,
+    mutable: bool,
 };
 
-/// What a base holds. Storage settles its length in its type, a view carries
-/// both its count and its own permission as data.
-const Holds = struct { child: Pool.Index, len: ?u64, mutable: bool };
-
-fn holdsOf(pool: *const Pool, owner: Pool.Index) ?Holds {
-    return switch (pool.keyOf(owner)) {
-        .type_array => |it| .{ .child = it.child, .len = it.len, .mutable = false },
-        .type_slice => |it| .{ .child = it.child, .len = null, .mutable = it.mutable },
-        else => null,
-    };
-}
-
-const IndexOperand = struct {
+const Indexed = struct {
+    elements: Elements,
     ref: Ref,
     /// The element it names, where the index is known before anything runs.
     at: ?u64,
 };
-
-const Indexed = struct { elements: Elements, index: IndexOperand };
 
 fn checkIndexExpr(
     check: *Check,
@@ -3788,18 +3660,17 @@ fn checkIndexExpr(
     if (check.rangeIn(view)) |range| return check.checkSlice(node, view, range);
 
     const indexed = try check.checkIndex(node, view) orelse return .poison;
-    if (indexed.index.at) |at| {
+    if (indexed.at) |at| {
         if (indexed.elements.pointer == null) {
             if (check.placeConstant(indexed.elements.base)) |aggregate| {
-                return .{ .constant = comp.pool.aggregateAt(aggregate, @intCast(at)) };
+                return .{ .constant = comp.pool.aggregateAt(aggregate, at) };
             }
         }
     }
 
     // the fold above is the only way past here with no body to build in
     assert(check.builder != null);
-    const place = try check.elementPlace(indexed.elements, indexed.index.ref) orelse
-        return .poison;
+    const place = try check.elementPlace(indexed.elements, indexed.ref) orelse return .poison;
     return runtimeValue(try check.placeValue(place), place.type);
 }
 
@@ -3816,9 +3687,16 @@ fn checkSlice(
     const through = try check.elementsThrough(elements) orelse return .poison;
     const bounds = try check.checkRange(view.args[0], range, elements, through) orelse
         return .poison;
-    try check.emitRangeCheck(elements, through, range, bounds);
 
-    const made = try check.sliceOf(elements.holds.child, through.mutable());
+    if (refIsConstant(bounds.start) == false or refIsConstant(bounds.end) == false) {
+        try check.emitCheck(elements.node, .order_check, bounds.start, bounds.end);
+    }
+    if (range.end != .none and settledAgainstBase(elements, bounds.end) == false) {
+        const length = try check.baseLengthRef(elements, through);
+        try check.emitCheck(elements.node, .order_check, bounds.end, length);
+    }
+
+    const made = try check.sliceOf(elements.child, through.mutable());
     const payload = try check.emitExtra(&.{
         @intFromEnum(through.ref),
         @intFromEnum(bounds.start),
@@ -3837,19 +3715,40 @@ fn checkRange(
     through: Place,
 ) Allocator.Error!?Bounds {
     const start = try check.checkRangeEnd(range.start) orelse return null;
-    const end_node = range.end.unwrap();
-    const end = if (end_node) |written|
-        try check.checkRangeEnd(written) orelse return null
+    const end_node = range.end.unwrap() orelse range_node;
+    const end = if (range.end != .none)
+        try check.checkRangeEnd(end_node) orelse return null
+    else if (elements.len) |count|
+        try check.untypedInt(count)
     else
-        try check.baseLength(elements, through);
+        try check.emitOneValue(elements.node, .slice_len, .u64_type, through.ref);
 
     const ends = try check.settleEnds(
         range_node,
         .{ .value = start, .node = range.start },
-        .{ .value = end, .node = end_node orelse range_node },
+        .{ .value = end, .node = end_node },
     ) orelse return null;
-    if (try check.checkRangeKnown(range_node, range, elements, ends.start, ends.end) == false) {
-        return null;
+
+    if (check.countOf(ends.start)) |at| {
+        if (at < 0) {
+            try check.failBeforeFirst(range.start, "an end of a range", at);
+            return null;
+        }
+    }
+    if (check.countOf(ends.end)) |at| {
+        if (at < 0) {
+            try check.failBeforeFirst(end_node, "an end of a range", at);
+            return null;
+        }
+    }
+    if (try check.rangeRunsBackwards(range_node, ends.start, ends.end)) return null;
+    if (check.countOf(ends.end)) |at| {
+        if (elements.len) |count| {
+            if (at > count) {
+                try check.failPastLast(end_node, "this range ends at", at, elements, count);
+                return null;
+            }
+        }
     }
     return .{ .start = refOf(ends.start), .end = refOf(ends.end) };
 }
@@ -3874,45 +3773,6 @@ fn settleEnds(check: *Check, range_node: Node.Index, start: End, end: End) Alloc
     const second = try check.coerce(end.value, settled, end.node);
     if (first == .poison or second == .poison) return null;
     return .{ .start = first, .end = second, .type = settled };
-}
-
-fn checkRangeKnown(
-    check: *Check,
-    range_node: Node.Index,
-    range: AST.View.Range,
-    elements: Elements,
-    start: Value,
-    end: Value,
-) Allocator.Error!bool {
-    const comp = check.comp;
-    const end_node = range.end.unwrap() orelse range_node;
-
-    const from = check.countOf(start);
-    const to = check.countOf(end);
-    if (from) |at| {
-        if (at < 0) return check.failRangeNegative(range.start, at);
-    }
-    if (to) |at| {
-        if (at < 0) return check.failRangeNegative(end_node, at);
-    }
-    if (try check.rangeRunsBackwards(range_node, start, end)) return false;
-
-    if (to) |high| {
-        if (elements.holds.len) |count| {
-            if (high > @as(i128, count)) {
-                try check.fail(end_node, .{
-                    .code = .out_of_range,
-                    .message = try comp.fmt(
-                        "this range ends at {d}, and {s} holds {d} element{s}",
-                        .{ high, try comp.typeName(elements.owner), count, plural(count) },
-                    ),
-                    .label = "past the last element",
-                });
-                return false;
-            }
-        }
-    }
-    return true;
 }
 
 fn rangeRunsBackwards(
@@ -3945,40 +3805,52 @@ fn countOf(check: *const Check, value: Value) ?i128 {
     };
 }
 
-fn failRangeNegative(check: *Check, node: Node.Index, at: i128) Allocator.Error!bool {
+fn failBeforeFirst(
+    check: *Check,
+    node: Node.Index,
+    what: []const u8,
+    at: i128,
+) Allocator.Error!void {
     @branchHint(.cold);
     try check.fail(node, .{
         .code = .out_of_range,
-        .message = try check.comp.fmt(
-            "an end of a range counts from zero, and this one is {d}",
-            .{at},
-        ),
+        .message = try check.comp.fmt("{s} counts from zero, and this one is {d}", .{ what, at }),
         .label = "before the first element",
     });
-    return false;
+}
+
+fn failPastLast(
+    check: *Check,
+    node: Node.Index,
+    lead: []const u8,
+    at: i128,
+    elements: Elements,
+    count: u64,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .out_of_range,
+        .message = try check.comp.fmt("{s} {d}, and {s} holds {d} element{s}", .{
+            lead, at, try check.comp.typeName(elements.owner), count, plural(count),
+        }),
+        .label = "past the last element",
+    });
 }
 
 fn checkRangeEnd(check: *Check, node: Node.Index) Allocator.Error!?Value {
     const value = try check.checkValue(node, null);
     const found = check.typeOf(value);
     if (found == .poison) return null;
-    if (Pool.isInteger(found) == false) {
-        try check.fail(node, .{
-            .code = .bad_operand,
-            .message = try check.comp.fmt("an end of a range is a count, and this is {s}", .{
-                try check.comp.typeName(found),
-            }),
-            .label = "not a count",
-            .help = "any integer counts, and nothing else does",
-        });
-        return null;
-    }
-    return value;
-}
-
-fn baseLength(check: *Check, elements: Elements, through: Place) Allocator.Error!Value {
-    if (elements.holds.len) |count| return check.untypedInt(count);
-    return check.emitOneValue(elements.node, .slice_len, .u64_type, through.ref);
+    if (Pool.isInteger(found)) return value;
+    try check.fail(node, .{
+        .code = .bad_operand,
+        .message = try check.comp.fmt("an end of a range is a count, and this is {s}", .{
+            try check.comp.typeName(found),
+        }),
+        .label = "not a count",
+        .help = "any integer counts, and nothing else does",
+    });
+    return null;
 }
 
 fn rangeIn(check: *const Check, view: AST.View.Bracket) ?AST.View.Range {
@@ -3999,50 +3871,9 @@ fn checkBracketArgs(check: *Check, view: AST.View.Bracket) Allocator.Error!void 
     }
 }
 
-fn checkIndex(
-    check: *Check,
-    node: Node.Index,
-    view: AST.View.Bracket,
-) Allocator.Error!?Indexed {
+fn checkIndex(check: *Check, node: Node.Index, view: AST.View.Bracket) Allocator.Error!?Indexed {
+    const comp = check.comp;
     const elements = try check.checkElements(node, view) orelse return null;
-    const index = try check.checkIndexOperand(node, view, elements) orelse return null;
-    return .{ .elements = elements, .index = index };
-}
-
-fn checkElements(
-    check: *Check,
-    node: Node.Index,
-    view: AST.View.Bracket,
-) Allocator.Error!?Elements {
-    const comp = check.comp;
-    assert(check.tree.nodeTag(node) == .bracket);
-
-    const base = try check.checkPlace(view.base) orelse return null;
-    const peeled = peelPointer(&comp.pool, base.type);
-    if (peeled.owner == .poison) return null;
-
-    const holds = holdsOf(&comp.pool, peeled.owner) orelse {
-        try check.checkBracketArgs(view);
-        try check.failNotIndexable(node, peeled.owner);
-        return null;
-    };
-    return .{
-        .node = node,
-        .base = base,
-        .pointer = peeled.pointer,
-        .owner = peeled.owner,
-        .holds = holds,
-    };
-}
-
-fn checkIndexOperand(
-    check: *Check,
-    node: Node.Index,
-    view: AST.View.Bracket,
-    elements: Elements,
-) Allocator.Error!?IndexOperand {
-    const comp = check.comp;
-    const length = elements.holds.len;
 
     if (view.args.len != 1) {
         try check.checkBracketArgs(view);
@@ -4072,29 +3903,16 @@ fn checkIndexOperand(
         });
         return null;
     }
-    if (value != .constant) return .{ .ref = refOf(value), .at = null };
+    if (value != .constant) return .{ .elements = elements, .ref = refOf(value), .at = null };
 
     const written = comp.pool.keyOf(value.constant).value_int.value;
     if (written < 0) {
-        try check.fail(argument, .{
-            .code = .out_of_range,
-            .message = try comp.fmt("an index counts from zero, and this one is {d}", .{written}),
-            .label = "before the first element",
-        });
+        try check.failBeforeFirst(argument, "an index", written);
         return null;
     }
-    if (length) |count| {
+    if (elements.len) |count| {
         if (written >= count) {
-            try check.fail(argument, .{
-                .code = .out_of_range,
-                .message = try comp.fmt("this index is {d}, and {s} holds {d} element{s}", .{
-                    written,
-                    try comp.typeName(elements.owner),
-                    count,
-                    plural(count),
-                }),
-                .label = "past the last element",
-            });
+            try check.failPastLast(argument, "this index is", written, elements, count);
             return null;
         }
     }
@@ -4106,11 +3924,40 @@ fn checkIndexOperand(
         assert(met == .constant);
         ref = refOf(met);
     }
+    return .{ .elements = elements, .ref = ref, .at = @intCast(written) };
+}
 
-    const at: u64 = @intCast(written);
-    // the pair of the bounds assertion `Pool.aggregateAt` makes on the way out
-    if (length) |count| assert(at < count);
-    return .{ .ref = ref, .at = at };
+fn checkElements(
+    check: *Check,
+    node: Node.Index,
+    view: AST.View.Bracket,
+) Allocator.Error!?Elements {
+    const comp = check.comp;
+    assert(check.tree.nodeTag(node) == .bracket);
+
+    const base = try check.checkPlace(view.base) orelse return null;
+    const peeled = peelPointer(&comp.pool, base.type);
+    if (peeled.owner == .poison) return null;
+
+    const key = comp.pool.keyOf(peeled.owner);
+    const child: Pool.Index, const len: ?u64, const mutable: bool = switch (key) {
+        .type_array => |it| .{ it.child, it.len, false },
+        .type_slice => |it| .{ it.child, null, it.mutable },
+        else => {
+            try check.checkBracketArgs(view);
+            try check.failNotIndexable(node, peeled.owner);
+            return null;
+        },
+    };
+    return .{
+        .node = node,
+        .base = base,
+        .pointer = peeled.pointer,
+        .owner = peeled.owner,
+        .child = child,
+        .len = len,
+        .mutable = mutable,
+    };
 }
 
 const not_landed_help = "give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and " ++
@@ -4148,14 +3995,13 @@ fn checkStructLiteral(
     const instance = switch (comp.pool.keyOf(wanted)) {
         .type_struct => |instance| instance,
         else => {
-            try check.fail(view.type_expr.unwrap() orelse node, .{
+            return check.refuse(view.type_expr.unwrap() orelse node, .{
                 .code = .not_a_type,
                 .message = try comp.fmt("{s} has no fields to give", .{
                     try comp.typeName(wanted),
                 }),
                 .label = "not a struct",
             });
-            return .poison;
         },
     };
 
@@ -4177,10 +4023,9 @@ fn checkStructLiteral(
 
         const row: Compilation.Row.Index = row: {
             const name = check.tree.tokenSlice(field_init.name_token);
-            if (try check.structMember(instance, name)) |member| switch (member) {
-                .field => |row| break :row row,
-                .method => {},
-            };
+            if (try check.structMember(instance, name)) |member| {
+                if (member == .field) break :row member.field;
+            }
             try check.reportNoMember(wanted, field_init.name_token, .field);
             _ = try check.checkExpr(field_init.value, null);
             clean = false;
@@ -4216,13 +4061,12 @@ fn checkStructLiteral(
         missing = try quotedList(comp, missing, name);
     }
     if (missing.len > 0) {
-        try check.fail(node, .{
+        return check.refuse(node, .{
             .code = .missing_field,
             .message = try comp.fmt("this literal leaves out {s}", .{missing}),
             .label = "incomplete",
             .help = "every field of the struct must be present, and there are no defaults",
         });
-        return .poison;
     }
     if (clean == false) return .poison;
 
@@ -4280,12 +4124,11 @@ fn settleAggregate(
 ) Allocator.Error!Value {
     if (allConstant(operands)) return check.internAggregate(type_index, operands);
     if (check.builder == null) {
-        try check.fail(node, .{
+        return check.refuse(node, .{
             .code = .not_constant,
             .message = "a top-level binding must be a constant, and part of this literal is not",
             .label = "not a constant",
         });
-        return .poison;
     }
     const payload = try check.emitExtra(&.{@intCast(operands.len)}, operands);
     return check.emitValue(node, .aggregate_init, type_index, .{ .payload = payload });
@@ -4315,8 +4158,11 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
         aggregateLanding(&comp.pool, found, elements.len)
     else
         .void_type;
-    const holds = holdsOf(&comp.pool, landing);
-    const element_hint: ?Pool.Index = if (holds) |it| it.child else null;
+    const element_hint: ?Pool.Index = switch (comp.pool.keyOf(landing)) {
+        .type_array => |it| it.child,
+        .type_slice => |it| it.child,
+        else => null,
+    };
 
     const start = comp.operands.items.len;
     defer comp.operands.shrinkRetainingCapacity(start);
@@ -4336,41 +4182,39 @@ fn checkArrayLiteral(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocat
     if (clean == false) return .poison;
     const operands = comp.operands.items[start..];
 
-    const storage = holds orelse {
-        if (allConstant(operands)) return check.internAggregate(.untyped_aggregate_type, operands);
-        try check.fail(node, .{
-            .code = .var_needs_type,
-            .message = "nothing says what type this array is",
-            .label = "no type in sight",
-            .help = "annotate what it feeds, as in 'let a: [2]u32 = ...'",
-        });
-        return .poison;
-    };
-    const count = storage.len orelse {
-        if (allConstant(operands)) return check.internAggregate(.untyped_aggregate_type, operands);
-        try check.fail(node, .{
-            .code = .not_constant,
-            .message = "a view needs bytes the program owns, and part of this " ++
-                "array is settled at run time",
-            .label = "not a constant",
-            .help = "bind it to storage first and slice that, as in " ++
-                "'var a: [4]u32 = ...' then 'a[0..]'",
-        });
-        return .poison;
+    const storage: Pool.Key.Array = switch (comp.pool.keyOf(landing)) {
+        .type_array => |it| it,
+        else => |key| {
+            if (allConstant(operands)) {
+                return check.internAggregate(.untyped_aggregate_type, operands);
+            }
+            return check.refuse(node, if (key == .type_slice) .{
+                .code = .not_constant,
+                .message = "a view needs bytes the program owns, and part of this " ++
+                    "array is settled at run time",
+                .label = "not a constant",
+                .help = "bind it to storage first and slice that, as in " ++
+                    "'var a: [4]u32 = ...' then 'a[0..]'",
+            } else .{
+                .code = .var_needs_type,
+                .message = "nothing says what type this array is",
+                .label = "no type in sight",
+                .help = "annotate what it feeds, as in 'let a: [2]u32 = ...'",
+            });
+        },
     };
 
-    if (count != elements.len) {
-        try check.fail(node, .{
+    if (storage.len != elements.len) {
+        return check.refuse(node, .{
             .code = .does_not_fit,
             .message = try comp.fmt("this literal has {d} element{s}, and {s} holds {d}", .{
                 elements.len,
                 plural(@intCast(elements.len)),
                 try comp.typeName(landing),
-                count,
+                storage.len,
             }),
             .label = "the wrong number of elements",
         });
-        return .poison;
     }
 
     for (elements, operands) |element, *operand| {
@@ -4418,78 +4262,62 @@ fn emitExtra(
 fn checkCall(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     const view = check.tree.viewOf(node).call;
     if (view.args.len > call_args_max) {
-        try check.fail(node, .{
+        return check.refuse(node, .{
             .code = .wrong_arity,
             .message = try check.comp.fmt("a call takes at most {d} arguments", .{call_args_max}),
         });
-        return .poison;
     }
 
-    const callee = try check.resolveCallee(view.callee) orelse {
-        for (view.args) |argument| _ = try check.checkExpr(argument, null);
-        return .poison;
-    };
-    switch (callee.kind) {
-        .builtin => |which| {
-            if (check.builder == null and which.needsBody()) {
-                const name = try check.comp.fmt("'@{s}'", .{@tagName(which)});
-                return check.needRuntime(node, name);
-            }
-            return which.call(check, node, callee.explicit orelse &.{}, view.args, hint);
-        },
-        .function => |target| {
-            if (check.builder == null) return check.needRuntime(node, "a call");
-            return check.checkCallResolved(node, target, callee.explicit, view.args, hint);
-        },
+    var explicit: ?[]const Node.Index = null;
+    var callee_node = view.callee;
+    if (check.tree.nodeTag(callee_node) == .bracket) {
+        const bracket = check.tree.viewOf(callee_node).bracket;
+        explicit = bracket.args;
+        callee_node = bracket.base;
     }
+    const callee = try check.resolveCallee(callee_node) orelse return check.abandonCall(view.args);
+    if (explicit) |written| {
+        if (written.len > type_params_max) {
+            try check.fail(view.callee, .{
+                .code = .generic_arguments,
+                .message = try check.comp.fmt(
+                    "a call takes at most {d} type arguments",
+                    .{type_params_max},
+                ),
+            });
+            return check.abandonCall(view.args);
+        }
+    }
+
+    if (callee == .builtin) {
+        const which = callee.builtin;
+        if (check.builder == null and which.needsBody()) {
+            const name = try check.comp.fmt("'@{s}'", .{@tagName(which)});
+            return check.needRuntime(node, name);
+        }
+        return which.call(check, node, explicit orelse &.{}, view.args, hint);
+    }
+    if (check.builder == null) return check.needRuntime(node, "a call");
+    return check.checkCallResolved(node, callee, explicit, view.args, hint);
 }
 
-/// A method waits for its receiver type, so the receiver is walked once.
-const Callee = struct {
-    kind: Kind,
-    /// The `[T, U]` written at the call site.
-    explicit: ?[]const Node.Index,
+fn abandonCall(check: *Check, args: []const Node.Index) Allocator.Error!Value {
+    for (args) |argument| _ = try check.checkExpr(argument, null);
+    return .poison;
+}
 
-    const Kind = union(enum) {
-        function: Target,
-        builtin: Builtin,
-    };
-
-    const Target = union(enum) {
-        /// A plain function, or one reached through a module.
-        direct: Decl.Index,
-        /// `Type.f(...)`, whose arguments pass exactly as written.
-        static: struct { decl: Decl.Index, owner: Pool.Instance },
-        /// `value.f(...)`, where the value is the receiver.
-        method: struct { receiver: Node.Index, name_token: Token.Index },
-    };
+const Callee = union(enum) {
+    builtin: Builtin,
+    direct: Decl.Index,
+    static: struct { decl: Decl.Index, owner: Pool.Instance },
+    method: struct { receiver: Node.Index, name_token: Token.Index },
 };
 
-fn resolveCallee(check: *Check, callee_node: Node.Index) Allocator.Error!?Callee {
-    if (check.tree.nodeTag(callee_node) != .bracket) return check.resolveCalleeBase(callee_node);
-
-    const bracket = check.tree.viewOf(callee_node).bracket;
-    var callee = try check.resolveCalleeBase(bracket.base) orelse return null;
-
-    if (bracket.args.len > type_params_max) {
-        try check.fail(callee_node, .{
-            .code = .generic_arguments,
-            .message = try check.comp.fmt(
-                "a call takes at most {d} type arguments",
-                .{type_params_max},
-            ),
-        });
-        return null;
-    }
-    callee.explicit = bracket.args;
-    return callee;
-}
-
-fn resolveCalleeBase(check: *Check, node: Node.Index) Allocator.Error!?Callee {
+fn resolveCallee(check: *Check, node: Node.Index) Allocator.Error!?Callee {
     switch (check.tree.viewOf(node)) {
         .builtin => |name_token| {
             const which = try Builtin.resolve(check, name_token) orelse return null;
-            return .{ .kind = .{ .builtin = which }, .explicit = null };
+            return .{ .builtin = which };
         },
         .field_access => |access| return check.resolveCalleeMember(node, access),
         else => {
@@ -4512,41 +4340,25 @@ fn resolveCalleeMember(
         switch (base) {
             .poison, .diverged => return null,
             .named_module => |target| {
-                const member = try Module.findExported(
-                    comp,
-                    target,
-                    check.origin(callee_node),
-                    access.name_token,
-                ) orelse return null;
+                const member = try check.exported(target, callee_node, access.name_token) orelse
+                    return null;
                 const value = try check.declAsValue(member, callee_node);
                 return check.calleeOfValue(callee_node, value);
             },
             .named_type => |type_index| {
-                switch (comp.pool.keyOf(type_index)) {
-                    .type_struct => |owner| {
-                        const member = try check.methodOf(type_index, access.name_token) orelse
-                            return null;
-                        if (try check.memberIsVisible(member, access.name_token) == false) {
-                            return null;
-                        }
-                        return .{
-                            .kind = .{ .function = .{
-                                .static = .{ .decl = member, .owner = owner },
-                            } },
-                            .explicit = null,
-                        };
-                    },
-                    else => {
-                        try check.failToken(access.name_token, .{
-                            .code = .no_such_member,
-                            .message = try comp.fmt("{s} has no functions to call", .{
-                                try comp.typeName(type_index),
-                            }),
-                            .label = "nothing here",
-                        });
-                        return null;
-                    },
+                if (comp.pool.keyOf(type_index) != .type_struct) {
+                    try check.failToken(access.name_token, .{
+                        .code = .no_such_member,
+                        .message = try comp.fmt("{s} has no functions to call", .{
+                            try comp.typeName(type_index),
+                        }),
+                        .label = "nothing here",
+                    });
+                    return null;
                 }
+                const member = try check.methodOf(type_index, access.name_token) orelse return null;
+                if (try check.memberIsVisible(member, access.name_token) == false) return null;
+                return .{ .static = .{ .decl = member, .owner = comp.pool.structOf(type_index) } };
             },
             .named_generic => {
                 try check.fail(access.lhs, .{
@@ -4563,14 +4375,7 @@ fn resolveCalleeMember(
             .constant, .runtime => {},
         }
     }
-
-    return .{
-        .kind = .{ .function = .{ .method = .{
-            .receiver = access.lhs,
-            .name_token = access.name_token,
-        } } },
-        .explicit = null,
-    };
+    return .{ .method = .{ .receiver = access.lhs, .name_token = access.name_token } };
 }
 
 fn baseIsNamespace(check: *const Check, node: Node.Index) bool {
@@ -4590,10 +4395,7 @@ fn baseIsNamespace(check: *const Check, node: Node.Index) bool {
 fn calleeOfValue(check: *Check, node: Node.Index, value: Value) Allocator.Error!?Callee {
     const comp = check.comp;
     switch (value) {
-        .named_fn => |decl_index| return .{
-            .kind = .{ .function = .{ .direct = decl_index } },
-            .explicit = null,
-        },
+        .named_fn => |decl_index| return .{ .direct = decl_index },
         .poison, .diverged => return null,
         .constant, .runtime => {
             try check.fail(node, .{
@@ -4629,7 +4431,7 @@ const Receiver = struct { place: Place, node: Node.Index };
 fn checkCallResolved(
     check: *Check,
     node: Node.Index,
-    target: Callee.Target,
+    callee: Callee,
     explicit: ?[]const Node.Index,
     args: []const Node.Index,
     hint: ?Pool.Index,
@@ -4638,7 +4440,8 @@ fn checkCallResolved(
 
     var receiver: ?Receiver = null;
     var owner_args: []const Pool.Index = &.{};
-    const decl_index: Decl.Index = switch (target) {
+    const decl_index: Decl.Index = switch (callee) {
+        .builtin => unreachable,
         .direct => |direct| direct,
         .static => |static| static: {
             owner_args = comp.instanceArgs(static.owner);
@@ -4676,14 +4479,8 @@ fn checkCallResolved(
     var inferred = false;
     if (explicit) |written| {
         if (written.len != own_count) {
-            try check.fail(node, .{
-                .code = .generic_arguments,
-                .message = try comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
-                    fn_name, own_count, plural(own_count), written.len,
-                }),
-                .label = "wrong number of arguments",
-                .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
-            });
+            const declared = try comp.noteOne(decl.module, decl.node, "declared here");
+            try check.failTypeArity(node, fn_name, own_count, written.len, declared);
             return .poison;
         }
         for (written, 0..) |argument, position| {
@@ -4723,7 +4520,7 @@ fn checkCallResolved(
     var receiver_count: u32 = 0;
     if (receiver) |it| {
         if (rows.len == 0) {
-            try check.fail(node, .{
+            return check.refuse(node, .{
                 .code = .wrong_arity,
                 .message = try comp.fmt("'{s}' takes no parameters, so it has no receiver", .{
                     fn_name,
@@ -4732,7 +4529,6 @@ fn checkCallResolved(
                 .help = "call it through the type instead",
                 .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
             });
-            return .poison;
         }
         const self_type = comp.rowAt(.from(rows.at(0))).type;
         const adapted = try check.adaptReceiver(it.node, it.place, self_type, fn_name) orelse
@@ -4746,14 +4542,8 @@ fn checkCallResolved(
 
     const expected = rows.len - receiver_count;
     if (args.len != expected) {
-        try check.fail(node, .{
-            .code = .wrong_arity,
-            .message = try comp.fmt("'{s}' takes {d} argument{s}, and this call has {d}", .{
-                fn_name, expected, plural(expected), args.len,
-            }),
-            .label = "wrong number of arguments",
-            .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
-        });
+        const declared = try comp.noteOne(decl.module, decl.node, "declared here");
+        try check.failArity(node, fn_name, expected, args.len, declared);
         if (inferred == false) {
             for (args) |argument| _ = try check.checkExpr(argument, null);
         }
@@ -5073,11 +4863,11 @@ fn adaptReceiver(
 ) Allocator.Error!?Ref {
     const comp = check.comp;
     assert(place.type != .poison);
+    if (place.type == self_type) return try check.placeValue(place);
 
+    const place_key = comp.pool.keyOf(place.type);
     switch (comp.pool.keyOf(self_type)) {
         .type_pointer => |wanted| {
-            if (place.type == self_type) return try check.placeValue(place);
-            const place_key = comp.pool.keyOf(place.type);
             if (place_key == .type_pointer and place_key.type_pointer.child == wanted.child) {
                 if (wanted.mutable and place_key.type_pointer.mutable == false) {
                     try check.fail(receiver_node, .{
@@ -5103,18 +4893,23 @@ fn adaptReceiver(
                 const addressed = try check.placeAddress(place) orelse return null;
                 return addressed.ref;
             }
-            return check.reportReceiverMismatch(receiver_node, place.type, self_type, fn_name);
         },
-        else => {
-            if (place.type == self_type) return try check.placeValue(place);
-            const place_key = comp.pool.keyOf(place.type);
-            if (place_key == .type_pointer and place_key.type_pointer.child == self_type) {
-                const pointer = try check.placeValue(place);
-                return try check.emitOne(receiver_node, .load, self_type, pointer);
-            }
-            return check.reportReceiverMismatch(receiver_node, place.type, self_type, fn_name);
+        else => if (place_key == .type_pointer and place_key.type_pointer.child == self_type) {
+            const pointer = try check.placeValue(place);
+            return try check.emitOne(receiver_node, .load, self_type, pointer);
         },
     }
+    try check.fail(receiver_node, .{
+        .code = .type_mismatch,
+        .message = try comp.fmt("the first parameter of '{s}' is {s}, so {s} " ++
+            "cannot be its receiver", .{
+            fn_name,
+            try comp.typeName(self_type),
+            try comp.typeName(place.type),
+        }),
+        .label = "receiver and parameter disagree",
+    });
+    return null;
 }
 
 fn reportReceiverImmutable(
@@ -5140,26 +4935,6 @@ fn reportReceiverImmutable(
         .label = "immutable receiver",
         .help = "bind it with 'var' to let a method change it",
     });
-}
-
-fn reportReceiverMismatch(
-    check: *Check,
-    node: Node.Index,
-    found: Pool.Index,
-    self_type: Pool.Index,
-    fn_name: []const u8,
-) Allocator.Error!?Ref {
-    try check.fail(node, .{
-        .code = .type_mismatch,
-        .message = try check.comp.fmt("the first parameter of '{s}' is {s}, so {s} " ++
-            "cannot be its receiver", .{
-            fn_name,
-            try check.comp.typeName(self_type),
-            try check.comp.typeName(found),
-        }),
-        .label = "receiver and parameter disagree",
-    });
-    return null;
 }
 
 const Place = struct {
@@ -5226,12 +5001,12 @@ fn localPlace(
     if (narrow != null) assert(local.kind != .var_slot);
     return .{
         .kind = if (local.kind == .var_slot) .address else .value,
-        .ref = if (narrow) |it| it.ref else localRef(local),
+        .ref = if (narrow) |it| it.ref else local.ref,
         .type = if (narrow) |it| it.type else local.type,
         .node = node,
         .immutable = switch (local.kind) {
             .var_slot => null,
-            .let_constant, .let_value => .let_bound,
+            .let => .let_bound,
             .param => .param_bound,
         },
         .root_name = text,
@@ -5242,7 +5017,7 @@ fn localPlace(
 fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
     if (check.builder == null) {
         const value = try check.checkExpr(node, null);
-        return check.placeOfValue(node, value, "this value");
+        return check.placeOfValue(node, value, null);
     }
 
     switch (check.tree.viewOf(node)) {
@@ -5268,7 +5043,7 @@ fn checkPlace(check: *Check, node: Node.Index) Allocator.Error!?Place {
         .err => return null,
         else => {
             const value = try check.checkExpr(node, null);
-            return check.placeOfValue(node, value, "this value");
+            return check.placeOfValue(node, value, null);
         },
     }
 }
@@ -5277,7 +5052,7 @@ fn placeOfValue(
     check: *Check,
     node: Node.Index,
     value: Value,
-    name: []const u8,
+    name: ?[]const u8,
 ) Allocator.Error!?Place {
     if (try check.valueOnly(node, value) == false) return null;
     if (value.stops()) return null;
@@ -5286,8 +5061,8 @@ fn placeOfValue(
         .ref = refOf(value),
         .type = check.typeOf(value),
         .node = node,
-        .immutable = if (std.mem.eql(u8, name, "this value")) .temporary else .let_bound,
-        .root_name = name,
+        .immutable = if (name == null) .temporary else .let_bound,
+        .root_name = name orelse "this value",
         .root_node = node,
     };
 }
@@ -5325,6 +5100,7 @@ fn placeField(
     const reached = try check.reachField(base.type, name_token) orelse return null;
     const row = switch (reached.member) {
         .field => |found| found,
+        .method => unreachable,
         .length => return check.failNotAPlace(
             name_token,
             "an array's length is in its type, and a view keeps its own",
@@ -5360,62 +5136,47 @@ fn placeIndex(
     }
 
     const indexed = try check.checkIndex(node, view) orelse return null;
-    return check.elementPlace(indexed.elements, indexed.index.ref);
+    return check.elementPlace(indexed.elements, indexed.ref);
 }
 
 fn elementPlace(check: *Check, elements: Elements, index: Ref) Allocator.Error!?Place {
-    const element = elements.holds.child;
-    assert(element != .poison);
+    assert(elements.child != .poison);
     assert(index != .none);
 
     const through = try check.elementsThrough(elements) orelse return null;
     if (settledAgainstBase(elements, index) == false) {
         const length = try check.baseLengthRef(elements, through);
-        _ = try check.emit(elements.node, .bounds_check, .void_type, .{
-            .bin = .{ .lhs = index, .rhs = length },
-        });
+        try check.emitCheck(elements.node, .bounds_check, index, length);
     }
-    const element_pointer = try check.pointerTo(element, through.mutable());
+    const element_pointer = try check.pointerTo(elements.child, through.mutable());
     const place = try check.emit(elements.node, .elem_ptr, element_pointer, .{
         .bin = .{ .lhs = through.ref, .rhs = index },
     });
-    return through.reaching(elements.node, place, element);
+    return through.reaching(elements.node, place, elements.child);
 }
 
 fn settledAgainstBase(elements: Elements, count: Ref) bool {
-    if (elements.holds.len == null) return false;
-    return refIsConstant(count);
+    return elements.len != null and refIsConstant(count);
 }
 
 fn baseLengthRef(check: *Check, elements: Elements, through: Place) Allocator.Error!Ref {
     const comp = check.comp;
-    const count = elements.holds.len orelse
+    const count = elements.len orelse
         return check.emitOne(elements.node, .slice_len, .u64_type, through.ref);
     return .fromConstant(try comp.pool.intern(comp.gpa, .{
         .value_int = .{ .type = .u64_type, .value = count },
     }));
 }
 
-fn emitRangeCheck(
+fn emitCheck(
     check: *Check,
-    elements: Elements,
-    through: Place,
-    range: AST.View.Range,
-    bounds: Bounds,
+    node: Node.Index,
+    tag: IR.Inst.Tag,
+    lhs: Ref,
+    rhs: Ref,
 ) Allocator.Error!void {
-    if (refIsConstant(bounds.start) == false or refIsConstant(bounds.end) == false) {
-        _ = try check.emit(elements.node, .order_check, .void_type, .{
-            .bin = .{ .lhs = bounds.start, .rhs = bounds.end },
-        });
-    }
-
-    if (range.end == .none) return;
-    if (settledAgainstBase(elements, bounds.end)) return;
-
-    const length = try check.baseLengthRef(elements, through);
-    _ = try check.emit(elements.node, .order_check, .void_type, .{
-        .bin = .{ .lhs = bounds.end, .rhs = length },
-    });
+    assert(tag == .bounds_check or tag == .order_check);
+    _ = try check.emit(node, tag, .void_type, .{ .bin = .{ .lhs = lhs, .rhs = rhs } });
 }
 
 fn refIsConstant(ref: Ref) bool {
@@ -5425,15 +5186,14 @@ fn refIsConstant(ref: Ref) bool {
 /// A view carries its own permission and leads with the address, so elements
 /// reach through its value. Storage is reached through its place instead.
 fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Place {
-    if (elements.holds.len != null) return check.placeThrough(elements.base, elements.pointer);
+    if (elements.len != null) return check.placeThrough(elements.base, elements.pointer);
 
     var held = try check.placeValue(elements.base);
     if (elements.pointer != null) {
         held = try check.emitOne(elements.node, .load, elements.owner, held);
     }
     const base = elements.base.reaching(elements.base.node, held, elements.owner);
-    const crossed: Place.Crossed = .{ .form = .slice, .child = elements.holds.child };
-    return base.crossing(elements.holds.mutable, crossed);
+    return base.crossing(elements.mutable, .{ .form = .slice, .child = elements.child });
 }
 
 fn placeThrough(
@@ -5610,13 +5370,11 @@ fn coerce(
             }
 
             if (comp.pool.isUnion(wanted)) {
-                const listed = if (comp.pool.isUnion(runtime.type))
-                    comp.pool.unionCovers(wanted, runtime.type)
-                else
-                    comp.pool.unionHas(wanted, runtime.type);
-                if (listed) return check.emitValue(node, .union_init, wanted, .{
-                    .probe = .{ .operand = runtime.ref, .member = runtime.type },
-                });
+                if (comp.pool.subsumes(wanted, runtime.type)) {
+                    return check.emitValue(node, .union_init, wanted, .{
+                        .probe = .{ .operand = runtime.ref, .member = runtime.type },
+                    });
+                }
                 if (unionMemberFor(&comp.pool, wanted, runtime.type)) |member| {
                     return check.enterUnion(value, wanted, member, node);
                 }
@@ -5767,7 +5525,7 @@ fn reportMismatch(
         break :help "nothing converts on its own";
     };
 
-    try check.fail(node, .{
+    return check.refuse(node, .{
         .code = .type_mismatch,
         .message = try comp.fmt("expected {s}, found {s}", .{
             try comp.typeName(wanted),
@@ -5776,7 +5534,6 @@ fn reportMismatch(
         .label = "the wrong type",
         .help = help,
     });
-    return .poison;
 }
 
 /// Whether the value is one. A name is reported here.
@@ -5827,7 +5584,7 @@ fn runtimeOnly(tag: Node.Tag) ?[]const u8 {
 
 fn needRuntime(check: *Check, node: Node.Index, what: []const u8) Allocator.Error!Value {
     assert(check.builder == null);
-    try check.fail(node, .{
+    return check.refuse(node, .{
         .code = .not_constant,
         .message = try check.comp.fmt(
             "a top-level binding must be a constant, and {s} happens at run time",
@@ -5836,7 +5593,6 @@ fn needRuntime(check: *Check, node: Node.Index, what: []const u8) Allocator.Erro
         .label = "not a constant",
         .help = "the constant set is literals, names of constants, operators, and parentheses",
     });
-    return .poison;
 }
 
 fn reportBadOperand(
@@ -5929,6 +5685,58 @@ pub fn failToken(
     report: Diagnostic.Report,
 ) Allocator.Error!void {
     try check.comp.reportToken(check.module_index, token, report);
+}
+
+pub fn refuse(check: *Check, node: Node.Index, report: Diagnostic.Report) Allocator.Error!Value {
+    try check.fail(node, report);
+    return .poison;
+}
+
+pub fn refuseToken(
+    check: *Check,
+    token: Token.Index,
+    report: Diagnostic.Report,
+) Allocator.Error!Value {
+    try check.failToken(token, report);
+    return .poison;
+}
+
+pub fn failArity(
+    check: *Check,
+    node: Node.Index,
+    name: []const u8,
+    wanted: u64,
+    written: usize,
+    notes: []const Diagnostic.Note,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .wrong_arity,
+        .message = try check.comp.fmt("'{s}' takes {d} argument{s}, and this call has {d}", .{
+            name, wanted, plural(wanted), written,
+        }),
+        .label = "wrong number of arguments",
+        .notes = notes,
+    });
+}
+
+fn failTypeArity(
+    check: *Check,
+    node: Node.Index,
+    name: []const u8,
+    wanted: u64,
+    written: usize,
+    notes: []const Diagnostic.Note,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try check.fail(node, .{
+        .code = .generic_arguments,
+        .message = try check.comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
+            name, wanted, plural(wanted), written,
+        }),
+        .label = "wrong number of arguments",
+        .notes = notes,
+    });
 }
 
 fn noteHere(

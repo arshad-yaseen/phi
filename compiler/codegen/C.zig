@@ -1072,6 +1072,13 @@ fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 
 const MemberValue = union(enum) { direct: Ref, held: Ref };
 
+fn writeMemberValue(backend: *C, member: Pool.Index, source: MemberValue) Fail!void {
+    switch (source) {
+        .direct => |ref| try backend.put(.{ref}),
+        .held => |ref| try backend.writeHeldMember(ref, member),
+    }
+}
+
 fn writeUnionInit(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const member = inst.data.probe.member;
@@ -1119,14 +1126,6 @@ fn writeUnionValue(
             try backend.writeMemberValue(member, source);
             try backend.put(.{ ", .tag = ", position, " }" });
         },
-    }
-}
-
-fn writeMemberValue(backend: *C, member: Pool.Index, source: MemberValue) Fail!void {
-    assert(backend.comp.pool.isUnion(member) == false);
-    switch (source) {
-        .direct => |ref| try backend.put(.{ref}),
-        .held => |ref| try backend.writeHeldMember(ref, member),
     }
 }
 

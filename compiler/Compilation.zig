@@ -265,37 +265,20 @@ pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
 
 fn enqueueBodies(comp: *Compilation, decl_index: Decl.Index, origin: Origin) Allocator.Error!void {
     const decl = comp.declAt(decl_index);
+    if (decl.state == .poisoned or comp.isGeneric(decl_index)) return;
     switch (decl.kind) {
         .import, .type_alias, .unit_decl, .let => {},
         .extern_fn => {
-            if (decl.state == .poisoned) return;
             const instance = try comp.instantiate(decl_index, &.{}, origin);
             try comp.ensure(.of(.signature, instance), origin);
         },
-        .fn_decl => try comp.enqueueBodiesFn(decl_index, origin),
+        .fn_decl => try comp.enqueueBody(try comp.instantiate(decl_index, &.{}, origin)),
         .struct_decl => {
             if (decl.state != .done) return;
-            if (comp.isGeneric(decl_index)) return;
             const members = decl.members();
-            for (members.start..members.end()) |raw| {
-                const member: Decl.Index = .from(raw);
-                try comp.enqueueBodiesFn(member, origin);
-            }
+            for (members.start..members.end()) |raw| try comp.enqueueBodies(.from(raw), origin);
         },
     }
-}
-
-fn enqueueBodiesFn(
-    comp: *Compilation,
-    decl_index: Decl.Index,
-    origin: Origin,
-) Allocator.Error!void {
-    const decl = comp.declAt(decl_index);
-    if (decl.kind != .fn_decl) return;
-    if (decl.state == .poisoned) return;
-    if (comp.isGeneric(decl_index)) return;
-
-    try comp.enqueueBody(try comp.instantiate(decl_index, &.{}, origin));
 }
 
 pub fn enqueueBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!void {
@@ -787,15 +770,14 @@ fn withTrail(
 
     var depth: u32 = 0;
     var current = comp.currentInstance();
-    while (current.unwrap()) |instance| {
+    while (current.unwrap()) |instance| : (current = comp.instanceAt(instance).parent) {
         const row = comp.instanceAt(instance);
         if (row.args.len > 0) depth += 1;
         // a parent is created before its child, so the walk must descend
         if (row.parent.unwrap()) |above| assert(above.int() < instance.int());
-        current = row.parent;
     }
 
-    const elided: u32 = if (depth > head_max + tail_max) depth - head_max - tail_max else 0;
+    const elided = depth -| (head_max + tail_max);
     const total = notes_in.len + depth - elided + @intFromBool(elided > 0);
     if (total == 0) return &.{};
 
@@ -805,29 +787,22 @@ fn withTrail(
     var at = notes_in.len;
     var position: u32 = 0;
     current = comp.currentInstance();
-    while (current.unwrap()) |instance| {
+    while (current.unwrap()) |instance| : (current = comp.instanceAt(instance).parent) {
         const row = comp.instanceAt(instance);
-        if (row.args.len > 0) {
-            if (elided > 0 and position == head_max) {
-                out[at] = .{ .message = try comp.fmt("and {d} more instantiation level{s}", .{
-                    elided,
-                    Check.plural(elided),
-                }) };
-                at += 1;
-            }
-            if (elided == 0 or position < head_max or position >= head_max + elided) {
-                out[at] = comp.noteAt(
-                    row.origin.module,
-                    row.origin.node,
-                    try comp.fmt("while checking '{s}', needed here", .{
-                        try comp.instanceName(instance),
-                    }),
-                );
-                at += 1;
-            }
-            position += 1;
+        if (row.args.len == 0) continue;
+        defer position += 1;
+        if (elided > 0 and position == head_max) {
+            out[at] = .{ .message = try comp.fmt("and {d} more instantiation level{s}", .{
+                elided, Check.plural(elided),
+            }) };
+            at += 1;
         }
-        current = row.parent;
+        if (elided > 0 and position >= head_max and position < head_max + elided) continue;
+        out[at] = comp.noteAt(row.origin.module, row.origin.node, try comp.fmt(
+            "while checking '{s}', needed here",
+            .{try comp.instanceName(instance)},
+        ));
+        at += 1;
     }
 
     assert(at == total);

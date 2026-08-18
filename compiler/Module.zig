@@ -30,7 +30,7 @@ pub const Index = enum(u32) {
 
     pub fn from(raw: usize) Index {
         assert(raw < std.math.maxInt(u32));
-        return @enumFromInt(@as(u32, @intCast(raw)));
+        return @enumFromInt(raw);
     }
 
     pub fn int(index: Index) u32 {
@@ -155,44 +155,32 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
 
     for (root) |node| {
         const new: NewDecl = switch (tree.viewOf(node)) {
-            .import_decl => |use| .{
-                .kind = .import,
-                .node = node,
-                .name_token = use.binding_token,
-            },
-            .struct_decl => |decl| {
-                const struct_index = try addDecl(comp, module, index, .{
-                    .kind = .struct_decl,
-                    .node = node,
-                    .name_token = decl.name_token,
-                    .type_params = @intCast(decl.type_params.len),
-                }) orelse continue;
-                try registerMembers(comp, module, index, struct_index, decl);
-                continue;
+            .import_decl => |use| .{ .kind = .import, .name_token = use.binding_token },
+            .struct_decl => |decl| .{
+                .kind = .struct_decl,
+                .name_token = decl.name_token,
+                .type_params = @intCast(decl.type_params.len),
             },
             .alias_decl => |decl| .{
                 .kind = .type_alias,
-                .node = node,
                 .name_token = decl.name_token,
                 .type_params = @intCast(decl.type_params.len),
             },
-            .unit_decl => |decl| .{
-                .kind = .unit_decl,
-                .node = node,
-                .name_token = decl.name_token,
-            },
+            .unit_decl => |decl| .{ .kind = .unit_decl, .name_token = decl.name_token },
             .fn_decl => |decl| .{
                 .kind = if (decl.is_extern) .extern_fn else .fn_decl,
-                .node = node,
                 .name_token = decl.name_token,
                 .type_params = @intCast(decl.type_params.len),
             },
-            .var_decl => |decl| .{ .kind = .let, .node = node, .name_token = decl.name_token },
+            .var_decl => |decl| .{ .kind = .let, .name_token = decl.name_token },
             // the parser puts only declarations and holes at the root
             .err => continue,
             else => unreachable,
         };
-        _ = try addDecl(comp, module, index, new);
+        if (tree.tokenTag(new.name_token) != .ident) continue;
+        const decl_index = try appendDecl(comp, index, node, new, .none);
+        try bindName(comp, module, index, decl_index, new);
+        if (new.kind == .struct_decl) try registerMembers(comp, module, index, decl_index, node);
     }
 }
 
@@ -201,21 +189,41 @@ fn registerMembers(
     module: *Module,
     index: Module.Index,
     struct_index: Decl.Index,
-    decl: AST.View.StructDecl,
+    struct_node: AST.Node.Index,
 ) Allocator.Error!void {
     const tree = &module.tree;
+    const members = tree.viewOf(struct_node).struct_decl.members;
     const members_start: u32 = @intCast(comp.decls.items.len);
 
-    for (decl.members) |member| {
-        switch (tree.viewOf(member)) {
-            .fn_decl => |fn_view| try addMember(comp, module, index, struct_index, .{
-                .kind = .fn_decl,
-                .node = member,
-                .name_token = fn_view.name_token,
-                .type_params = @intCast(fn_view.type_params.len),
-            }),
-            .field, .err => {},
+    for (members, 0..) |member, position| {
+        const fn_view = switch (tree.viewOf(member)) {
+            .fn_decl => |fn_view| fn_view,
+            .field, .err => continue,
             else => unreachable,
+        };
+        if (tree.tokenTag(fn_view.name_token) != .ident) continue;
+        const decl_index = try appendDecl(comp, index, member, .{
+            .kind = .fn_decl,
+            .name_token = fn_view.name_token,
+            .type_params = @intCast(fn_view.type_params.len),
+        }, struct_index.toOptional());
+
+        const text = tree.tokenSlice(fn_view.name_token);
+        for (members[0..position]) |other| {
+            const other_name = switch (tree.viewOf(other)) {
+                .field => |field| field.name_token,
+                .fn_decl => |member_fn| member_fn.name_token,
+                .err => continue,
+                else => unreachable,
+            };
+            if (std.mem.eql(u8, tree.tokenSlice(other_name), text) == false) continue;
+            try poison(comp, index, decl_index, fn_view.name_token, .{
+                .code = .redeclared,
+                .message = try comp.fmt("'{s}' is declared twice in this struct", .{text}),
+                .label = "declared again here",
+                .notes = try comp.noteOne(index, other, "first declared here"),
+            });
+            break;
         }
     }
 
@@ -225,24 +233,19 @@ fn registerMembers(
 
 const NewDecl = struct {
     kind: Decl.Kind,
-    node: AST.Node.Index,
     name_token: Token.Index,
     type_params: u8 = 0,
 };
 
-fn addDecl(
+fn bindName(
     comp: *Compilation,
     module: *Module,
     index: Module.Index,
+    decl_index: Decl.Index,
     new: NewDecl,
-) Allocator.Error!?Decl.Index {
-    const tree = &module.tree;
-    if (tree.tokenTag(new.name_token) != .ident) return null;
-    const text = tree.tokenSlice(new.name_token);
-    const decl_index = try appendDecl(comp, index, new, .none);
-
-    // a name the file cannot have binds nothing, so the map keeps the first one
-    const refused: ?Diagnostic.Report = refused: {
+) Allocator.Error!void {
+    const text = module.tree.tokenSlice(new.name_token);
+    const refused: Diagnostic.Report = refused: {
         if (isDiscard(text)) break :refused .{
             .code = .discard_reserved,
             .message = "'_' is not a name, and only discards a value",
@@ -258,55 +261,24 @@ fn addDecl(
             .help = "pick another name, and alias it with 'type' if you want a synonym",
         };
         const gop = module.names.getOrPutAssumeCapacity(text);
-        if (gop.found_existing) {
-            const first = comp.declAt(gop.value_ptr.*);
-            break :refused .{
-                .code = .redeclared,
-                .message = try comp.fmt("'{s}' is declared twice in this file", .{text}),
-                .label = "declared again here",
-                .help = if (new.kind == .import)
-                    try comp.fmt("bind it under another name, as in 'as {s}_module'", .{text})
-                else
-                    null,
-                .notes = try comp.noteOne(index, first.node, "first declared here"),
-            };
-        }
-        gop.value_ptr.* = decl_index;
-        break :refused null;
-    };
-    if (refused) |report| try poison(comp, index, decl_index, new.name_token, report);
-    return decl_index;
-}
-
-fn addMember(
-    comp: *Compilation,
-    module: *Module,
-    index: Module.Index,
-    owner: Decl.Index,
-    new: NewDecl,
-) Allocator.Error!void {
-    const tree = &module.tree;
-    if (tree.tokenTag(new.name_token) != .ident) return;
-    const text = tree.tokenSlice(new.name_token);
-    const decl_index = try appendDecl(comp, index, new, owner.toOptional());
-
-    for (tree.viewOf(comp.declAt(owner).node).struct_decl.members) |other| {
-        if (other == new.node) break;
-        const other_name = switch (tree.viewOf(other)) {
-            .field => |field| field.name_token,
-            .fn_decl => |member_fn| member_fn.name_token,
-            .err => continue,
-            else => unreachable,
-        };
-        if (std.mem.eql(u8, tree.tokenSlice(other_name), text) == false) continue;
-        try poison(comp, index, decl_index, new.name_token, .{
+        if (gop.found_existing) break :refused .{
             .code = .redeclared,
-            .message = try comp.fmt("'{s}' is declared twice in this struct", .{text}),
+            .message = try comp.fmt("'{s}' is declared twice in this file", .{text}),
             .label = "declared again here",
-            .notes = try comp.noteOne(index, other, "first declared here"),
-        });
-        break;
-    }
+            .help = if (new.kind == .import)
+                try comp.fmt("bind it under another name, as in 'as {s}_module'", .{text})
+            else
+                null,
+            .notes = try comp.noteOne(
+                index,
+                comp.declAt(gop.value_ptr.*).node,
+                "first declared here",
+            ),
+        };
+        gop.value_ptr.* = decl_index;
+        return;
+    };
+    try poison(comp, index, decl_index, new.name_token, refused);
 }
 
 fn poison(
@@ -324,6 +296,7 @@ fn poison(
 fn appendDecl(
     comp: *Compilation,
     module_index: Module.Index,
+    node: AST.Node.Index,
     new: NewDecl,
     owner: Decl.OptionalIndex,
 ) Allocator.Error!Decl.Index {
@@ -333,7 +306,7 @@ fn appendDecl(
     const index: Decl.Index = .from(comp.decls.items.len);
     try comp.decls.append(comp.gpa, .{
         .module = module_index,
-        .node = new.node,
+        .node = node,
         .name = try comp.pool.string(comp.gpa, tree.tokenSlice(new.name_token)),
         .owner = owner,
         .result = 0,
