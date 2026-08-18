@@ -11,6 +11,10 @@ typedef struct pt16 pt16;
 struct pt16 { union { int64_t m0; }; uint8_t tag; }; // i64 | none
 _Static_assert(sizeof(pt16) == 16, "phi sized i64 | none at 16 bytes");
 _Static_assert(_Alignof(pt16) == 8, "phi aligned i64 | none at 8 bytes");
+typedef struct pt17 pt17;
+struct pt17 { }; // true
+_Static_assert(sizeof(pt17) == 0, "phi sized true at 0 bytes");
+_Static_assert(_Alignof(pt17) == 1, "phi aligned true at 1 bytes");
 
 static pt18 p0_widen(pt16 v0 /* x */);
 static pt16 p1_shed(pt18 v0 /* x */);
@@ -34,7 +38,7 @@ b0:;
 // fn shed
 static pt16 p1_shed(pt18 v0 /* x */) {
     uint8_t v1;
-    uint8_t v2;
+    pt17 v2;
     pt16 v3;
 
 b0:;
@@ -43,7 +47,7 @@ b0:;
     if (v1 == 0) goto b1; else goto b2;
 b1:;
 #line 6 "test/pass/union_convert.phi"
-    v2 = 0;
+    v2 = (pt17){};
     return ((pt16){ .tag = 1 });
 b2:;
     goto b3;

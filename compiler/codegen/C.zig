@@ -287,8 +287,6 @@ fn writeTypeName(
 
     switch (pool.typeKey(index)) {
         .type_simple => |simple| try writer.writeAll(simpleName(simple)),
-        // no zero-sized C object, so a unit is a byte no one reads
-        .type_unit => try writer.writeAll("uint8_t"),
         .type_pointer => |pointer| {
             try backend.writeTypeName(writer, pointer.child, depth + 1);
             try writer.writeByte('*');
@@ -302,7 +300,7 @@ fn writeTypeName(
             try backend.ensureTypedef(canonical, depth);
             try writer.print("pt{d}", .{canonical.int()});
         },
-        .type_array, .type_struct => {
+        .type_array, .type_struct, .type_unit => {
             try backend.ensureTypedef(index, depth);
             try writer.print("pt{d}", .{index.int()});
         },
@@ -392,6 +390,8 @@ fn ensureTypedef(backend: *C, index: Pool.Index, depth: u32) Fail!void {
                 try w.print(" f{d} /* {s} */; ", .{ position, pool.stringText(row.name) });
             }
         },
+        // empty, which GNU C sizes at zero, so a unit costs nothing wherever it sits
+        .type_unit => {},
         else => unreachable,
     }
     try w.writeAll("}; // ");
@@ -459,7 +459,11 @@ fn writeConstant(
         .poison => unreachable,
         .value_int => |it| try writeIntValue(writer, it),
         .value_float => |it| try writeFloatValue(writer, it),
-        .value_unit => try writer.writeAll("0"),
+        .value_unit => |unit_type| {
+            try backend.writeCast(writer, unit_type, context, depth);
+            try writer.writeAll("{}");
+            try writeCastClose(writer, context);
+        },
         .value_union => |it| try backend.writeUnionConstant(writer, it, context, depth),
         .value_slice => |it| {
             try backend.ensureStored(it.data, depth);
@@ -1201,8 +1205,8 @@ fn writeUnionNarrow(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 
     try backend.put(.{assign(local)});
     if (pool.keyOf(inst.type) == .type_unit) {
-        // a unit narrows to its one value, which is a byte no one reads
-        try backend.put(.{"0"});
+        // a unit narrows to its one value, which is nothing
+        try backend.put(.{ "(", inst.type, "){}" });
     } else {
         try backend.writeHeldMember(inst.data.un, inst.type);
     }

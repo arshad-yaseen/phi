@@ -1,0 +1,63 @@
+import std/io
+
+type Marker
+
+/// A unit field takes no room, so the struct is its other field alone.
+type Holder = {
+    flag: none
+    n: u32
+}
+
+/// Only units inside, so nothing at all.
+type Pair = {
+    a: Marker
+    b: Marker
+}
+
+fn make(n: u32) Holder {
+    return .{ flag: none, n: n }
+}
+
+fn tag(m: Marker) Marker {
+    return m
+}
+
+fn count(found: []Pair) u64 {
+    return found.len
+}
+
+let pairs: []Pair = [Pair.{ a: Marker, b: Marker }, Pair.{ a: Marker, b: Marker }]
+
+fn main() {
+    io.print(@size_of[Marker]())
+    io.print("\n")
+    io.print(@size_of[Holder]())
+    io.print("\n")
+    io.print(@size_of[Pair]())
+    io.print("\n")
+    io.print(@size_of[[8]Marker]())
+    io.print("\n")
+    io.print(@size_of[Holder | none]())
+    io.print("\n")
+
+    var h = make(41)
+    h.n += 1
+    h.flag = none
+    let flag = h.flag
+    _ = flag
+    io.print(h.n)
+    io.print("\n")
+
+    var marks: [3]Marker = @splat(Marker)
+    marks[1] = tag(marks[0])
+    let p = &marks[2]
+    _ = p.*
+
+    let boxed: Holder | none = h
+    if boxed is Holder {
+        io.print(boxed.n)
+        io.print("\n")
+    }
+    io.print(count(pairs))
+    io.print("\n")
+}
