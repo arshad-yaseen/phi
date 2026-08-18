@@ -1,6 +1,61 @@
 import std/debug
 import std/math
 
+/// The arena has no room left for what was asked.
+pub type OutOfMemory
+
+/// Bump allocation over bytes the caller owns.
+pub type Arena = {
+    buffer: []var u8
+    used: u64
+
+    /// An arena over `buffer`, which must outlive it.
+    pub fn over(buffer: []var u8) Arena {
+        return .{ buffer: buffer, used: 0 }
+    }
+
+    /// Room for one `T`, holding `value`.
+    pub fn create[T](self: *var Arena, value: T) *var T | OutOfMemory {
+        let bytes = self.take(@size_of[T](), @align_of[T]()) or return
+        let p = @ptr_cast[T](bytes.ptr)
+        p.* = value
+        return p
+    }
+
+    /// Room for `count` of `T`, every one holding `fill`.
+    pub fn alloc[T](self: *var Arena, count: u64, fill: T) []var T | OutOfMemory {
+        let size = @size_of[T]()
+        // more than any address space holds is refused, never overflowed
+        if size != 0 and count > @max_int[u64]() / size {
+            return OutOfMemory
+        }
+        let bytes = self.take(count * size, @align_of[T]()) or return
+        let items = @view(@ptr_cast[T](bytes.ptr), count)
+        loop i in 0..count {
+            items[i] = fill
+        }
+        return items
+    }
+
+    /// Forgets everything handed out, so the room is used again from the start.
+    pub fn reset(self: *var Arena) {
+        self.used = 0
+    }
+
+    fn take(self: *var Arena, size: u64, alignment: u64) []var u8 | OutOfMemory {
+        let base = @int_from_ptr(self.buffer.ptr)
+        let start = align_up(base + self.used, alignment) - base
+        let end = start + size
+        if end > self.buffer.len {
+            return OutOfMemory
+        }
+        self.used = end
+        let bytes = self.buffer[start..end]
+        debug.assert(@int_from_ptr(bytes.ptr) % alignment == 0)
+        return bytes
+    }
+}
+
 /// `addr` rounded up to a multiple of `alignment`, which must be a power of two.
 pub fn align_up[T: Unsigned](addr: T, alignment: T) T {
     debug.assert(math.is_power_of_two(alignment))

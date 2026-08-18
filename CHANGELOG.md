@@ -12,6 +12,10 @@
   pointer, and `@int_from_ptr(p)` is its address as a `u64`. Both are the
   standard library's alone, the way `@ptr_cast` is, because each takes the
   caller's word for what the checker cannot see.
+- `std/mem` gains `Arena`, bump allocation over bytes the caller owns:
+  `Arena.over(buffer)` makes one, `create[T](value)` and `alloc[T](count,
+  fill)` hand out one or many, each holding what was given, and `reset` takes
+  it all back at once. What does not fit answers `mem.OutOfMemory`.
 
 ### Compiler
 
