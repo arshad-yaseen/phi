@@ -1,7 +1,5 @@
 import std/io
 
 fn main() {
-    var num: u32 = 2000000
-    io.print_uint(num)
-    io.print("\n")
+    io.print("Hello, world!\n")
 }
