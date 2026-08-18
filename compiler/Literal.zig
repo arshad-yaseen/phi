@@ -8,8 +8,6 @@ const Diagnostic = @import("Diagnostic.zig");
 
 pub const Refusal = Diagnostic.Report;
 
-// numbers
-
 pub const Decoded = union(enum) {
     int: i128,
     float: f64,
@@ -21,7 +19,6 @@ pub fn decodeNumber(arena: Allocator, text: []const u8) Allocator.Error!Decoded 
 
     // most literals are plain decimals, and 18 digits cannot overflow
     if (text.len <= 18) fast: {
-        // a leading zero is a prefix or a mistake, so it goes the long way
         if (text.len > 1) {
             if (text[0] == '0') break :fast;
         }
@@ -41,8 +38,9 @@ fn decodeSlow(arena: Allocator, text: []const u8) Allocator.Error!Decoded {
         .int => |value| return .{ .int = value },
         .big_int => |base| return decodeWide(text, base),
         .float => {
-            // `parseNumberLiteral` validated the shape, so the parse cannot fail
-            const value = std.fmt.parseFloat(f64, text) catch unreachable;
+            const value = std.fmt.parseFloat(f64, text) catch {
+                return .{ .refused = try refusalOf(arena, text, .{ .invalid_character = 0 }) };
+            };
             if (std.math.isFinite(value) == false) {
                 return .{ .refused = .{
                     .code = .bad_number,
@@ -62,9 +60,7 @@ fn decodeWide(text: []const u8, base: std.zig.number_literal.Base) Decoded {
 
     var value: i128 = 0;
     for (digits) |byte| {
-        if (byte == '_') continue;
-        // `parseNumberLiteral` validated every digit
-        const digit = std.fmt.charToDigit(byte, radix) catch unreachable;
+        const digit = std.fmt.charToDigit(byte, radix) catch continue;
         const wide = std.math.mul(i128, value, radix) catch return too_wide;
         value = std.math.add(i128, wide, digit) catch return too_wide;
     }
@@ -169,24 +165,19 @@ fn refusalOf(
     };
 }
 
-// strings and characters
-
 const codepoint_max = 0x10FFFF;
 
 pub const Char = union(enum) { codepoint: u32, refused: Refusal };
 
-/// A run of a string's bytes, or the refusal that ends it.
 pub const Piece = union(enum) { bytes: []const u8, refused: Refusal };
 
 pub const Bytes = struct {
-    /// The literal as written, quotes included.
     text: []const u8,
     cursor: u32,
     /// Staging for an escape, four being the widest UTF-8 sequence.
     encoded: [4]u8,
     stopped: bool,
 
-    /// The next run, or null at the closing quote. A run lasts until the next call.
     pub fn next(reading: *Bytes) ?Piece {
         assert(reading.cursor >= 1);
         assert(reading.cursor <= reading.text.len);
@@ -206,7 +197,7 @@ pub const Bytes = struct {
                     .refused => |refusal| return reading.stop(refusal),
                     .unit => |unit| {
                         reading.cursor += unit.width;
-                        return .{ .bytes = reading.encode(unit) };
+                        return reading.encode(unit.value);
                     },
                 }
             },
@@ -229,22 +220,20 @@ pub const Bytes = struct {
         return .{ .refused = refusal };
     }
 
-    /// What an escape stands for, staged inside the iterator.
-    fn encode(reading: *Bytes, unit: Unit) []const u8 {
-        switch (unit.kind) {
-            .byte => {
-                assert(unit.value <= std.math.maxInt(u8));
-                reading.encoded[0] = @intCast(unit.value);
-                return reading.encoded[0..1];
+    fn encode(reading: *Bytes, value: Unit.Value) Piece {
+        switch (value) {
+            .byte => |byte| {
+                reading.encoded[0] = byte;
+                return .{ .bytes = reading.encoded[0..1] };
             },
-            .codepoint => {
-                assert(unit.value <= codepoint_max);
-                // the escape refused surrogates, the only other thing encoding rejects
-                const width = std.unicode.utf8Encode(
-                    @intCast(unit.value),
-                    &reading.encoded,
-                ) catch unreachable;
-                return reading.encoded[0..width];
+            .codepoint => |codepoint| {
+                const width = std.unicode.utf8Encode(codepoint, &reading.encoded) catch |err| {
+                    return reading.stop(switch (err) {
+                        error.Utf8CannotEncodeSurrogateHalf => surrogate,
+                        error.CodepointTooLarge => codepoint_too_large,
+                    });
+                };
+                return .{ .bytes = reading.encoded[0..width] };
             },
         }
     }
@@ -291,21 +280,17 @@ pub fn decodeChar(literal: []const u8) Char {
 
     // the token ends at the first quote the body did not escape
     assert(end + 1 == literal.len);
-    return .{ .codepoint = unit.value };
+    return .{ .codepoint = switch (unit.value) {
+        .byte => |byte| byte,
+        .codepoint => |codepoint| codepoint,
+    } };
 }
 
-/// One character of a literal, and how many of its bytes spell it.
 const Unit = struct {
-    value: u32,
+    value: Value,
     width: u32,
-    kind: Kind,
 
-    const Kind = enum {
-        /// One byte, written as it stands.
-        byte,
-        /// A codepoint, whose UTF-8 bytes a string holds.
-        codepoint,
-    };
+    const Value = union(enum) { byte: u8, codepoint: u21 };
 };
 
 const Read = union(enum) { unit: Unit, refused: Refusal };
@@ -329,10 +314,9 @@ fn escapeAt(literal: []const u8, at: u32) Read {
 
 /// A backslash and one letter, so every one of them is two bytes wide.
 fn oneByte(value: u8) Read {
-    return .{ .unit = .{ .value = value, .width = 2, .kind = .byte } };
+    return .{ .unit = .{ .value = .{ .byte = value }, .width = 2 } };
 }
 
-/// `\xNN`, one byte in hex.
 fn byteEscape(literal: []const u8, at: u32) Read {
     assert(literal[at] == '\\');
     assert(literal[at + 1] == 'x');
@@ -345,10 +329,9 @@ fn byteEscape(literal: []const u8, at: u32) Read {
     const low = std.fmt.charToDigit(literal[digits + 1], 16) catch
         return .{ .refused = bad_byte_escape };
 
-    return .{ .unit = .{ .value = @as(u32, high) * 16 + low, .width = 4, .kind = .byte } };
+    return .{ .unit = .{ .value = .{ .byte = high * 16 + low }, .width = 4 } };
 }
 
-/// `\u{1F980}`, a codepoint in braces.
 fn codepointEscape(literal: []const u8, at: u32) Read {
     assert(literal[at] == '\\');
     assert(literal[at + 1] == 'u');
@@ -376,8 +359,7 @@ fn codepointEscape(literal: []const u8, at: u32) Read {
     if (value > codepoint_max) return .{ .refused = codepoint_too_large };
     // half of a surrogate pair is not a codepoint, so nothing encodes it
     if (value >= 0xD800 and value <= 0xDFFF) return .{ .refused = surrogate };
-
-    return .{ .unit = .{ .value = value, .width = cursor + 1 - at, .kind = .codepoint } };
+    return .{ .unit = .{ .value = .{ .codepoint = @intCast(value) }, .width = cursor + 1 - at } };
 }
 
 fn utf8At(literal: []const u8, at: u32) Read {
@@ -390,7 +372,7 @@ fn utf8At(literal: []const u8, at: u32) Read {
 
     const value = std.unicode.utf8Decode(literal[at..][0..width]) catch
         return .{ .refused = bad_utf8 };
-    return .{ .unit = .{ .value = value, .width = width, .kind = .codepoint } };
+    return .{ .unit = .{ .value = .{ .codepoint = value }, .width = width } };
 }
 
 const escapes_help = "the escapes are '\\n', '\\r', '\\t', '\\\\', '\\'', '\\\"', " ++

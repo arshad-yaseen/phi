@@ -1,0 +1,6 @@
+fn main() {
+    let a: [3]u8 = [1, 2, 3]
+    let x = a[[]u8]
+    let y = a[*u8]
+    let z = a[0..1, [2]u8]
+}

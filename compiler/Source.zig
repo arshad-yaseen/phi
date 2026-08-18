@@ -7,7 +7,6 @@ const Allocator = std.mem.Allocator;
 path: []const u8,
 /// The file, with `padding` zero bytes past the end.
 bytes: [:0]const u8,
-/// Built on first use.
 line_starts: ?[]u32 = null,
 
 pub const padding = 1;
@@ -22,7 +21,6 @@ comptime {
 
 pub const LoadError = error{ SourceTooLarge, OutOfMemory, ReadFailed };
 
-/// Both counted from one.
 pub const LineColumn = struct { line: u32, column: u32 };
 
 const Source = @This();
@@ -68,7 +66,6 @@ pub fn lineColumn(source: *Source, gpa: Allocator, offset: u32) Allocator.Error!
     return .{ .line = @intCast(line_index + 1), .column = offset - starts[line_index] + 1 };
 }
 
-/// One line, without its terminator.
 pub fn lineText(source: *Source, gpa: Allocator, line: u32) Allocator.Error![]const u8 {
     const starts = try source.lineStarts(gpa);
     if (line == 0 or line > starts.len) return "";
@@ -96,8 +93,9 @@ fn lineStarts(source: *Source, gpa: Allocator) Allocator.Error![]u32 {
         try starts.append(gpa, cursor);
     }
 
-    source.line_starts = try starts.toOwnedSlice(gpa);
-    return source.line_starts.?;
+    const owned = try starts.toOwnedSlice(gpa);
+    source.line_starts = owned;
+    return owned;
 }
 
 fn order(offset: u32, start: u32) std.math.Order {

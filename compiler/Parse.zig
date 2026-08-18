@@ -18,15 +18,11 @@ pub const type_params_max = 16;
 const errors_max = 64;
 
 gpa: Allocator,
-/// Backs `errors` and its strings.
 arena: std.heap.ArenaAllocator,
 source: [:0]const u8,
 tokens: Tokenizer.TokenList.Slice,
-/// The column the cursor reads on nearly every step.
 tags: []const Token.Tag,
-/// The `.eof` the cursor never passes.
 eof_index: Token.Index,
-/// Only ever moves forward.
 token_index: Token.Index = .first,
 nodes: std.MultiArrayList(AST.Node) = .empty,
 extra: std.ArrayList(u32) = .empty,
@@ -91,15 +87,11 @@ pub fn run(gpa: Allocator, source: [:0]const u8) Allocator.Error!AST {
     };
 }
 
-// the cursor
-
-/// The cursor never passes the `.eof`, so the read is always in bounds.
 fn current(self: *const Parse) Token.Tag {
     assert(self.token_index.int() <= self.eof_index.int());
     return self.tags[self.token_index.int()];
 }
 
-/// The tag `ahead` tokens past the cursor, `.eof` past the end.
 fn peek(self: *const Parse, ahead: u32) Token.Tag {
     assert(ahead > 0);
     const index = self.token_index.int() + ahead;
@@ -117,7 +109,6 @@ fn eof(self: *const Parse) bool {
     return self.token_index.int() >= self.eof_index.int();
 }
 
-/// Stops at the `.eof`, so the cursor always names a token.
 fn nextToken(self: *Parse) Token.Index {
     assert(self.token_index.int() <= self.eof_index.int());
 
@@ -142,8 +133,6 @@ fn ensureProgress(self: *Parse, before: Token.Index) void {
     if (self.eof() == false) assert(self.token_index.int() > before.int());
 }
 
-// nesting
-
 /// One level deeper, or false at the limit. Every true `enter` pairs with a `leave`.
 fn enter(self: *Parse) bool {
     assert(self.depth <= depth_max);
@@ -156,8 +145,6 @@ fn leave(self: *Parse) void {
     assert(self.depth > 0);
     self.depth -= 1;
 }
-
-// spans
 
 fn spanOf(self: *const Parse, index: Token.Index) Diagnostic.Span {
     const start = self.tokens.items(.start)[index.int()];
@@ -175,14 +162,11 @@ fn here(self: *const Parse) Diagnostic.Span {
     return self.spanOf(self.token_index);
 }
 
-/// From `from` to the last token consumed.
 fn spanSince(self: *const Parse, from: Token.Index) Diagnostic.Span {
     assert(from.int() <= self.token_index.int());
     const last = if (self.token_index.int() > from.int()) self.token_index.before(1) else from;
     return .{ .start = self.spanOf(from).start, .end = self.spanOf(last).end };
 }
-
-// diagnostics
 
 fn fmt(self: *Parse, comptime template: []const u8, args: anytype) Allocator.Error![]const u8 {
     comptime assert(template.len > 0);
@@ -262,7 +246,6 @@ fn errChainedComparison(self: *Parse) Allocator.Error!void {
     });
 }
 
-/// The first overflow reports, and parsing carries on with holes.
 fn tooDeep(self: *Parse) Allocator.Error!Node.Index {
     @branchHint(.cold);
     if (self.reported_too_deep == false) {
@@ -277,8 +260,6 @@ fn tooDeep(self: *Parse) Allocator.Error!Node.Index {
     }
     return self.hole();
 }
-
-// recovery
 
 /// Over the rest of an item, so one mistake reports once.
 fn skipToTerminator(self: *Parse, closer: Token.Tag) void {
@@ -297,7 +278,6 @@ fn skipToTerminator(self: *Parse, closer: Token.Tag) void {
 /// What stood between two items. Only a bare line break leaves doubt.
 const Terminator = enum { none, line, comma };
 
-/// An end of line, a ',' and a ';' all end an item, and a run of them ends one.
 fn eatTerminators(self: *Parse) Terminator {
     var found: Terminator = .none;
     while (self.at(.semi) or self.at(.comma)) {
@@ -307,7 +287,6 @@ fn eatTerminators(self: *Parse) Terminator {
     return found;
 }
 
-/// Every item ends the same way, and a bracket ends the last one for free.
 fn expectTerminator(self: *Parse, closer: Token.Tag) Allocator.Error!void {
     if (self.eatTerminators() != .none) return;
     switch (self.current()) {
@@ -346,8 +325,6 @@ fn errAmbiguousLine(self: *Parse) Allocator.Error!void {
         .help = "move it up to continue that line, or write ',' before it to start a new one",
     });
 }
-
-// nodes and payloads
 
 fn addNode(self: *Parse, node: Node) Allocator.Error!Node.Index {
     assert(node.main_token.int() < self.tags.len);
@@ -415,7 +392,6 @@ fn hole(self: *Parse) Allocator.Error!Node.Index {
     return self.addNode(.{ .tag = .err, .main_token = self.token_index, .data = .{ .none = {} } });
 }
 
-/// A hole over a token nothing can use, stepping past it so the caller moves.
 fn skip(self: *Parse) Allocator.Error!Node.Index {
     @branchHint(.cold);
 
@@ -427,7 +403,6 @@ fn skip(self: *Parse) Allocator.Error!Node.Index {
     return node;
 }
 
-/// Bounded by the appends below, which keep the length inside a `u32`.
 fn extraStart(self: *const Parse) AST.ExtraIndex {
     assert(self.extra.items.len < std.math.maxInt(u32));
     return .from(self.extra.items.len);
@@ -486,12 +461,10 @@ const starts_member = TokenSet.initMany(&.{ .ident, .kw_fn, .kw_pub });
 
 const starts_type = TokenSet.initMany(&.{ .ident, .star, .l_bracket });
 
-/// Whatever opens a type argument or an index, which a bracket may hold.
 const starts_bracket_item = starts_expr.unionWith(TokenSet.initMany(&.{ .star, .l_bracket }));
 
 const starts_name = TokenSet.initOne(.ident);
 
-/// A label opens like a type, and `else` labels the rest.
 const starts_arm = TokenSet.initMany(&.{ .ident, .star, .l_bracket, .kw_else });
 
 const starts_decl = TokenSet.initMany(&.{
@@ -502,17 +475,12 @@ const starts_decl = TokenSet.initMany(&.{
 
 const ends_list = starts_decl.unionWith(TokenSet.initMany(&.{ .l_brace, .r_brace, .semi }));
 
-/// Every list, a file, a block, a struct body, and everything bracketed.
 const List = struct {
-    /// Each element lands in `scratch`.
     item: *const fn (*Parse) Allocator.Error!Node.Index,
     starts: TokenSet,
-    /// `.eof` for the file, which no bracket closes.
     closer: Token.Tag,
-    /// Null when the opening bracket was itself missing.
     opener: ?Token.Index,
     code: Diagnostic.Code,
-    /// Named in "expected _, found ...".
     expected: []const u8,
     help: ?[]const u8 = null,
     /// What means this list was never closed. Nothing does, for a file.
@@ -567,14 +535,12 @@ fn parseList(self: *Parse, list: List) Allocator.Error!void {
     }
     if (list.closer == .eof) return;
 
-    // a list that never closed ran out at the end of its last line
     if (self.at(list.closer) == false and self.tags[item_end.int()] == .semi) {
         self.token_index = item_end;
     }
     try self.expectClosing(list.closer, list.opener);
 }
 
-/// A node whose payload is `lead`, then the list, as `AST.Fields` reads it back.
 fn parseListNode(
     self: *Parse,
     list: List,
@@ -591,8 +557,6 @@ fn parseListNode(
     try self.extraList(self.scratch.items[top..]);
     return self.addExtraNode(node_tag, main_token, start);
 }
-
-// declarations
 
 fn parseRoot(self: *Parse) Allocator.Error!void {
     assert(self.nodes.len == 0);
@@ -624,7 +588,6 @@ fn parseDecl(self: *Parse) Allocator.Error!Node.Index {
     const pub_token = self.eatToken(.kw_pub);
     switch (self.current()) {
         .kw_import => {
-            // an import binds a name in one file, so there is nothing for 'pub' to open up
             if (pub_token) |token| try self.err(.{
                 .code = .expected_declaration,
                 .span = self.spanOf(token),
@@ -656,7 +619,6 @@ fn parseDecl(self: *Parse) Allocator.Error!Node.Index {
             });
             return self.parseVarDecl();
         },
-        // `pub` with nothing it can introduce
         else => {
             try self.errExpected(.expected_declaration, "a declaration", null);
             return self.skip();
@@ -687,7 +649,6 @@ fn expectImportName(self: *Parse) Allocator.Error!bool {
     return false;
 }
 
-/// The head of a type. Only names, never `.*`.
 fn parsePath(self: *Parse) Allocator.Error!Node.Index {
     if (self.at(.ident) == false) {
         try self.errExpected(.expected_token, Token.Tag.ident.symbol(), null);
@@ -705,7 +666,6 @@ fn parsePath(self: *Parse) Allocator.Error!Node.Index {
     return node;
 }
 
-/// `type Name` a unit, `= { }` a struct, `= T` an alias, which `A | B` makes a union.
 fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_type));
     const type_token = self.nextToken();
@@ -718,7 +678,6 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
     const members_start = self.scratch.items.len;
 
     if (self.at(.semi) or self.at(.comma) or self.at(.eof)) {
-        // a bare name, with nothing assigned, declares a unit type
         if (members_start == top) {
             return self.addNode(.{
                 .tag = .unit_decl,
@@ -726,7 +685,6 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
                 .data = .{ .none = {} },
             });
         }
-        // type parameters with nothing assigned, so one error covers it
         try self.expectToken(.eq);
         return self.hole();
     }
@@ -751,7 +709,6 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
         .expected = "a field or a function",
     });
 
-    // a struct with nothing inside is a unit, which has a spelling of its own
     if (self.scratch.items.len == members_start) {
         try self.err(.{
             .code = .expected_struct_member,
@@ -772,7 +729,6 @@ fn parseTypeDecl(self: *Parse) Allocator.Error!Node.Index {
 
 const Body = enum { written, linked };
 
-/// The block is read and dropped, so one mistake does not become two.
 fn errExternBody(self: *Parse, fn_token: Token.Index) Allocator.Error!void {
     @branchHint(.cold);
     try self.err(.{
@@ -811,7 +767,6 @@ fn parseFnDecl(self: *Parse, form: Body) Allocator.Error!Node.Index {
         .expected = "a parameter",
     });
 
-    // nothing between the parameters and the body means it returns nothing
     const return_type: Node.OptionalIndex = if (starts_type.contains(self.current()))
         (try self.parseType()).toOptional()
     else
@@ -866,7 +821,6 @@ fn errTypeParams(self: *Parse, lbracket: Token.Index, top: usize) Allocator.Erro
     self.scratch.shrinkRetainingCapacity(top + type_params_max);
 }
 
-/// `T`, or `T: Number` to bound it to the members of a type.
 fn parseTypeParam(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.ident));
     const name = self.nextToken();
@@ -885,7 +839,6 @@ fn parseParam(self: *Parse) Allocator.Error!Node.Index {
     return self.parseTypedName(.param);
 }
 
-/// `name: Type`, a parameter or a field.
 fn parseTypedName(self: *Parse, node_tag: Node.Tag) Allocator.Error!Node.Index {
     assert(node_tag == .param or node_tag == .field);
     assert(self.at(.ident));
@@ -896,7 +849,6 @@ fn parseTypedName(self: *Parse, node_tag: Node.Tag) Allocator.Error!Node.Index {
     return self.addUnary(node_tag, name, type_expr);
 }
 
-/// A struct body holds fields and functions, and `pub` introduces a function.
 fn parseMember(self: *Parse) Allocator.Error!Node.Index {
     assert(starts_member.contains(self.current()));
     if (self.at(.ident)) return self.parseTypedName(.field);
@@ -906,8 +858,6 @@ fn parseMember(self: *Parse) Allocator.Error!Node.Index {
     try self.errExpected(.expected_struct_member, "a function after 'pub'", null);
     return self.hole();
 }
-
-// statements
 
 fn parseBlock(self: *Parse) Allocator.Error!Node.Index {
     if (self.at(.l_brace) == false) {
@@ -945,7 +895,6 @@ fn parseStatement(self: *Parse) Allocator.Error!Node.Index {
     }
 }
 
-/// Likeliest the newline that ended the `if`. The arm is read, so it reports once.
 fn parseStrayElse(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_else));
     try self.err(.{
@@ -979,7 +928,6 @@ fn parseVarDecl(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// An expression, or an expression assigned into.
 fn parseExprStatement(self: *Parse) Allocator.Error!Node.Index {
     const from = self.token_index;
 
@@ -988,7 +936,6 @@ fn parseExprStatement(self: *Parse) Allocator.Error!Node.Index {
 
     if (AST.assigns(self.current()) == false) return lhs;
 
-    // `1 = x` is a shape error, so it never reaches a checker
     switch (self.nodes.items(.tag)[@intFromEnum(lhs)]) {
         .ident, .field_access, .deref, .bracket, .err => {},
         else => try self.err(.{
@@ -1005,7 +952,6 @@ fn parseExprStatement(self: *Parse) Allocator.Error!Node.Index {
     return self.addPair(.assign, op_token, lhs, rhs);
 }
 
-/// A header expression, where a block after `or` belongs to the header.
 fn parseCondition(self: *Parse) Allocator.Error!Node.Index {
     const outer = self.in_condition;
     self.in_condition = true;
@@ -1013,10 +959,8 @@ fn parseCondition(self: *Parse) Allocator.Error!Node.Index {
     return self.parseExpr();
 }
 
-/// No parentheses, and mandatory braces, so no arm can dangle.
 fn parseIf(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_if));
-    // an `else if` chain recurses with no block between
     if (self.enter() == false) return self.tooDeep();
     defer self.leave();
 
@@ -1035,7 +979,6 @@ fn parseIf(self: *Parse) Allocator.Error!Node.Index {
     return self.addExtraNode(.if_expr, if_token, start);
 }
 
-/// `loop { }` forever, `loop cond { }` while. `else` runs when it ends on its own.
 fn parseLoop(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_loop));
     if (self.enter() == false) return self.tooDeep();
@@ -1048,7 +991,7 @@ fn parseLoop(self: *Parse) Allocator.Error!Node.Index {
     if (self.at(.l_brace) == false) {
         if (self.at(.ident) and self.peek(1) == .kw_in) {
             binding = (try self.addLeaf(.ident)).toOptional();
-            _ = self.eatToken(.kw_in).?;
+            _ = self.nextToken();
             head = (try self.parseLoopRange()).toOptional();
         } else {
             head = (try self.parseCondition()).toOptional();
@@ -1088,7 +1031,6 @@ fn parseLoopRange(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// `outer: loop`, which needs the one two-token peek the grammar has.
 fn atLabeledLoop(self: *const Parse) bool {
     if (self.at(.ident) == false) return false;
     if (self.peek(1) != .colon) return false;
@@ -1099,11 +1041,10 @@ fn atLabeledLoop(self: *const Parse) bool {
 fn parseLabeledLoop(self: *Parse) Allocator.Error!Node.Index {
     assert(self.atLabeledLoop());
     _ = self.nextToken();
-    _ = self.eatToken(.colon).?;
+    _ = self.nextToken();
     return self.parseLoop();
 }
 
-/// `match e { ... }`. No parentheses, and mandatory braces, like `if`.
 fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_match));
     if (self.enter() == false) return self.tooDeep();
@@ -1128,7 +1069,6 @@ fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
     }, .match_expr, match_token, &.{scrutinee.toOptional()});
 }
 
-/// `Member => body`, `A | B => body`, or `else => body`. A label is a type, never a binder.
 fn parseMatchArm(self: *Parse) Allocator.Error!Node.Index {
     assert(starts_arm.contains(self.current()));
 
@@ -1143,11 +1083,9 @@ fn parseMatchArm(self: *Parse) Allocator.Error!Node.Index {
             Token.Tag.eq_arrow.symbol(),
             "an arm is 'Member => expression', or 'else =>' for the rest",
         );
-        // the rest of the line was this arm, so the mistake reports once
         return self.skipItem(.r_brace);
     };
 
-    // a handler block is unambiguous inside an arm
     const outer = self.in_condition;
     self.in_condition = false;
     defer self.in_condition = outer;
@@ -1160,13 +1098,10 @@ fn parseMatchArm(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-// expressions
-
 fn parseExpr(self: *Parse) Allocator.Error!Node.Index {
     return self.parseExprPrec(1);
 }
 
-/// Precedence climbing over `AST.oper_table`.
 fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
     assert(min_prec > 0);
     if (self.enter() == false) return self.tooDeep();
@@ -1175,8 +1110,7 @@ fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
     var node = try self.parsePrefixExpr();
     var banned_prec: u8 = 0;
 
-    // `is` tests like a comparison, so it sits at that precedence
-    const is_prec = comptime AST.oper_table[@intFromEnum(Token.Tag.eq_eq)].prec;
+    const is_prec = AST.compare_prec;
 
     while (true) {
         const op_tag = self.current();
@@ -1186,20 +1120,18 @@ fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
 
             const is_token = self.nextToken();
             _ = self.eatToken(.kw_not);
-            // a whole type, so `is A | B` asks for either
             node = try self.addPair(.is_expr, is_token, node, try self.parseType());
             banned_prec = is_prec;
             continue;
         }
 
-        const info = AST.oper_table[@intFromEnum(op_tag)];
+        const info = AST.oper_table[@intFromEnum(op_tag)] orelse break;
         if (info.prec < min_prec) break;
         if (info.prec == banned_prec) try self.errChainedComparison();
 
         const op_token = self.nextToken();
         const rhs = try self.parseExprPrec(info.prec + 1);
 
-        // a bare name and a block after `or` is the handler form
         if (op_tag == .kw_or and self.at(.l_brace) and self.in_condition == false and
             self.nodes.items(.tag)[@intFromEnum(rhs)] == .ident)
         {
@@ -1220,7 +1152,6 @@ fn parseExprPrec(self: *Parse, min_prec: u8) Allocator.Error!Node.Index {
 }
 
 fn parsePrefixExpr(self: *Parse) Allocator.Error!Node.Index {
-    // these carry their own node instead of wrapping an operand
     switch (self.current()) {
         .kw_if => return self.parseIf(),
         .kw_loop => return self.parseLoop(),
@@ -1252,13 +1183,11 @@ fn parseReturn(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// An expression where one starts, `.none` where the construct ends instead.
 fn parseOptExpr(self: *Parse) Allocator.Error!Node.OptionalIndex {
     if (starts_expr.contains(self.current()) == false) return .none;
     return (try self.parseExpr()).toOptional();
 }
 
-/// `break` and `continue` with an optional `:label`, and `break` with an optional value.
 fn parseLoopExit(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.kw_break) or self.at(.kw_continue));
 
@@ -1282,7 +1211,6 @@ fn parseLoopExit(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// Suffixes bind tighter than any operator, and each wraps the one before.
 fn parseSuffixExpr(self: *Parse) Allocator.Error!Node.Index {
     var node = try self.parsePrimaryExpr();
     assert(node.int() < self.nodes.len);
@@ -1300,7 +1228,6 @@ fn parseSuffixExpr(self: *Parse) Allocator.Error!Node.Index {
     }
 }
 
-/// `.name` reaches a field, `.*` reaches what a pointer points at.
 fn parseSelector(self: *Parse, base: Node.Index) Allocator.Error!?Node.Index {
     if (self.eatToken(.dot_star)) |star| return try self.addUnary(.deref, star, base);
 
@@ -1310,8 +1237,7 @@ fn parseSelector(self: *Parse, base: Node.Index) Allocator.Error!?Node.Index {
     if (self.at(.l_brace)) return try self.parseStructLiteral(base.toOptional(), dot);
 
     try self.errExpected(.expected_token, Token.Tag.ident.symbol(), null);
-    // an operator cannot follow a `.`, so it is the mistake itself
-    if (AST.oper_table[@intFromEnum(self.current())].prec > 0) _ = self.nextToken();
+    if (AST.oper_table[@intFromEnum(self.current())] != null) _ = self.nextToken();
     return null;
 }
 
@@ -1342,7 +1268,6 @@ fn parseBracket(self: *Parse, base: Node.Index) Allocator.Error!Node.Index {
     }, .bracket, lbracket, &.{base.toOptional()});
 }
 
-/// Only a type opens with `*` or `[`. This is the one place a range is written.
 fn parseBracketItem(self: *Parse) Allocator.Error!Node.Index {
     switch (self.current()) {
         .star, .l_bracket => return self.parseType(),
@@ -1367,7 +1292,6 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
         .string_line => return self.parseMultilineString(),
         .char => return self.addLeaf(.char_literal),
         .l_bracket => return self.parseArrayLiteral(),
-        // `.{ ... }` takes the struct from wherever it lands
         .dot => {
             const dot = self.nextToken();
             if (self.at(.l_brace)) return self.parseStructLiteral(.none, dot);
@@ -1382,12 +1306,10 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
                 .help = "'.{ field: value }' builds the struct its context asks for",
             });
 
-            // a name after the dot is part of the same mistake, so it reports once
             if (self.at(.ident)) _ = self.nextToken();
 
             return self.hole();
         },
-        // parentheses group, and the tree already holds the grouping
         .l_paren => {
             const lparen = self.nextToken();
             const outer = self.in_condition;
@@ -1413,7 +1335,6 @@ fn parsePrimaryExpr(self: *Parse) Allocator.Error!Node.Index {
     }
 }
 
-/// The run of `\\` lines the tokenizer held together, which is one string.
 fn parseMultilineString(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.string_line));
     const first = self.nextToken();
@@ -1429,7 +1350,6 @@ fn parseMultilineString(self: *Parse) Allocator.Error!Node.Index {
     });
 }
 
-/// `[a, b, c]`, which states its own length.
 fn parseArrayLiteral(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.l_bracket));
     const lbracket = self.nextToken();
@@ -1443,7 +1363,6 @@ fn parseArrayLiteral(self: *Parse) Allocator.Error!Node.Index {
     }, .array_literal, lbracket, &.{});
 }
 
-/// `Point.{ x: 1 }`, or `.{ x: 1 }` where the type is left to the context.
 fn parseStructLiteral(
     self: *Parse,
     type_expr: Node.OptionalIndex,
@@ -1469,8 +1388,6 @@ fn parseFieldInit(self: *Parse) Allocator.Error!Node.Index {
     return self.addUnary(.struct_field_init, name, value);
 }
 
-// types
-
 fn parseType(self: *Parse) Allocator.Error!Node.Index {
     if (self.enter() == false) return self.tooDeep();
     defer self.leave();
@@ -1482,7 +1399,7 @@ fn parseType(self: *Parse) Allocator.Error!Node.Index {
     defer self.scratch.shrinkRetainingCapacity(top);
     try self.scratch.append(self.gpa, first);
 
-    const first_pipe = self.eatToken(.pipe).?;
+    const first_pipe = self.nextToken();
     try self.scratch.append(self.gpa, try self.parseTypeMember());
     while (self.eatToken(.pipe) != null) {
         try self.scratch.append(self.gpa, try self.parseTypeMember());
@@ -1493,13 +1410,11 @@ fn parseType(self: *Parse) Allocator.Error!Node.Index {
     return self.addExtraNode(.union_type, first_pipe, start);
 }
 
-/// One union member, an array, a pointer, or a path. `|` binds looser, in `parseType`.
 fn parseTypeMember(self: *Parse) Allocator.Error!Node.Index {
     if (self.enter() == false) return self.tooDeep();
     defer self.leave();
 
     switch (self.current()) {
-        // `[]T` views elements, `[N]T` holds them, told apart by what follows
         .l_bracket => {
             if (self.peek(1) == .r_bracket) return self.parseSliceType();
             return self.parseArrayType();

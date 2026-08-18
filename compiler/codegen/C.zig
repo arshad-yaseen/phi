@@ -16,28 +16,19 @@ const Pool = @import("../Pool.zig");
 const Spell = @import("../Spell.zig");
 
 const Ref = IR.Ref;
-/// An instruction's position inside the body being lowered, the `n` in `v{n}`.
 const Position = IR.Inst.Index;
 
 comp: *Compilation,
 gpa: Allocator,
-/// One typedef per demanded type, in first-demand order.
 types: Writer.Allocating,
-/// Storage for every constant that needs an address.
 data: Writer.Allocating,
-/// One declaration per extern function a body calls.
 externs: Writer.Allocating,
 /// One prototype per function, so definition order never matters.
 protos: Writer.Allocating,
-/// The function definitions.
 code: Writer.Allocating,
-/// Types whose typedef is already written.
 typed: std.AutoHashMapUnmanaged(Pool.Index, void),
-/// Constants whose storage is already written.
 stored: std.AutoHashMapUnmanaged(Pool.Index, void),
-/// Extern instances already declared.
 declared: std.AutoHashMapUnmanaged(Pool.Instance, void),
-/// The body being lowered.
 func: IR.Func,
 /// Whose demand a lazily resolved row set or layout names, the body's decl.
 origin: Compilation.Origin,
@@ -62,13 +53,10 @@ const preamble =
 
 pub const Entry = union(enum) {
     instance: Pool.Instance,
-    /// Nothing reported. The caller says the file has no 'main'.
     missing,
-    /// Already reported at the declaration.
     refused,
 };
 
-/// The `fn main()` a program starts at, in the root module.
 pub fn entryOf(comp: *Compilation) Allocator.Error!Entry {
     assert(comp.hasErrors() == false);
     assert(comp.modules.items.len > 0);
@@ -101,8 +89,8 @@ pub fn entryOf(comp: *Compilation) Allocator.Error!Entry {
     }
     if (shaped == false) return .refused;
 
-    // a clean compile instantiated and lowered every plain root function
-    const instance = decl.plain_instance.unwrap().?;
+    const origin: Compilation.Origin = .{ .module = .root, .node = decl.node };
+    const instance = try comp.instantiate(decl_index, &.{}, origin);
     assert(comp.instanceAt(instance).func != .none);
     return .{ .instance = instance };
 }
@@ -120,7 +108,6 @@ fn reportEntry(
     });
 }
 
-/// The whole program as C, ending in an `int main` that calls the entry.
 pub fn emit(
     comp: *Compilation,
     entry: Pool.Instance,
@@ -147,7 +134,6 @@ pub fn emit(
     defer backend.deinit();
 
     backend.writeProgram(entry) catch |err| switch (err) {
-        // a buffer write fails only when its allocation does
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
         error.Refused => return error.Refused,
     };
@@ -199,8 +185,6 @@ fn deinit(backend: *C) void {
     backend.declared.deinit(gpa);
     backend.* = undefined;
 }
-
-// signatures
 
 /// `p<instance>_<name>`, unique because the instance is.
 fn writeFuncName(comp: *const Compilation, writer: *Writer, instance: Pool.Instance) Fail!void {
@@ -262,7 +246,6 @@ fn writeParams(
     try writer.writeByte(')');
 }
 
-/// The declaration an extern call needs, written once into its own section.
 fn ensureExtern(backend: *C, instance: Pool.Instance) Fail!void {
     const comp = backend.comp;
     assert(comp.declAt(comp.instanceDecl(instance)).kind == .extern_fn);
@@ -274,23 +257,18 @@ fn ensureExtern(backend: *C, instance: Pool.Instance) Fail!void {
     try backend.externs.writer.writeAll(";\n");
 }
 
-// types
-
-/// What one union is in C
 const UnionForm = union(enum) {
     tag_only,
-    /// The member that keeps the address.
-    /// See `Layout.niche`
-    niche: Pool.Index,
+    niche: Layout.Niche,
     tagged,
 };
 
 fn unionFormOf(pool: *const Pool, index: Pool.Index) UnionForm {
     assert(pool.isUnion(index));
 
-    if (Layout.niche(pool, index)) |carrier| {
-        assert(pool.unionHas(index, carrier));
-        return .{ .niche = carrier };
+    if (Layout.niche(pool, index)) |it| {
+        assert(pool.unionHas(index, it.member));
+        return .{ .niche = it };
     }
     for (pool.unionMembers(index)) |member| {
         if (pool.keyOf(member) != .type_unit) return .tagged;
@@ -298,7 +276,6 @@ fn unionFormOf(pool: *const Pool, index: Pool.Index) UnionForm {
     return .tag_only;
 }
 
-/// The C spelling of a type, its typedef demanded on the way.
 fn writeTypeName(
     backend: *C,
     writer: *Writer,
@@ -308,7 +285,7 @@ fn writeTypeName(
     assert(depth < type_depth_max);
     const pool = &backend.comp.pool;
 
-    switch (pool.keyOf(index)) {
+    switch (pool.typeKey(index)) {
         .type_simple => |simple| try writer.writeAll(simpleName(simple)),
         // no zero-sized C object, so a unit is a byte no one reads
         .type_unit => try writer.writeAll("uint8_t"),
@@ -331,14 +308,12 @@ fn writeTypeName(
         },
         .type_union => switch (unionFormOf(pool, index)) {
             .tag_only => try writer.writeAll("uint8_t"),
-            .niche => |carrier| try backend.writeTypeName(writer, carrier, depth + 1),
+            .niche => |it| try backend.writeTypeName(writer, it.member, depth + 1),
             .tagged => {
                 try backend.ensureTypedef(index, depth);
                 try writer.print("pt{d}", .{index.int()});
             },
         },
-        .value_int, .value_float, .value_aggregate => unreachable,
-        .value_unit, .value_union, .value_slice, .value_splat => unreachable,
     }
 }
 
@@ -427,7 +402,6 @@ fn ensureTypedef(backend: *C, index: Pool.Index, depth: u32) Fail!void {
     try backend.writeLayoutAsserts(index);
 }
 
-/// The size and alignment restated, so the C compiler proves the layouts agree.
 fn writeLayoutAsserts(backend: *C, index: Pool.Index) Fail!void {
     const comp = backend.comp;
     const layout = Layout.of(comp, backend.origin, index) catch |err| switch (err) {
@@ -469,8 +443,6 @@ fn refuseTooLarge(backend: *C, index: Pool.Index) Fail {
     return error.Refused;
 }
 
-// constants
-
 const ConstantContext = enum { expression, initializer };
 
 fn writeConstant(
@@ -483,7 +455,8 @@ fn writeConstant(
     assert(depth < type_depth_max);
     const pool = &backend.comp.pool;
 
-    switch (pool.keyOf(index)) {
+    switch (pool.valueKey(index)) {
+        .poison => unreachable,
         .value_int => |it| try writeIntValue(writer, it),
         .value_float => |it| try writeFloatValue(writer, it),
         .value_unit => try writer.writeAll("0"),
@@ -513,8 +486,6 @@ fn writeConstant(
             }
             try writeCastClose(writer, context);
         },
-        .type_simple, .type_pointer, .type_array, .type_slice => unreachable,
-        .type_struct, .type_unit, .type_union => unreachable,
     }
 }
 
@@ -537,7 +508,6 @@ fn writeCastClose(writer: *Writer, context: ConstantContext) Fail!void {
     if (context == .expression) try writer.writeByte(')');
 }
 
-/// `{ .f0 = ..., .f1 = ... }`, fields in declaration order.
 fn writeFields(backend: *C, writer: *Writer, index: Pool.Index, depth: u32) Fail!void {
     const pool = &backend.comp.pool;
     assert(pool.keyOf(index) == .value_aggregate);
@@ -553,7 +523,6 @@ fn writeFields(backend: *C, writer: *Writer, index: Pool.Index, depth: u32) Fail
     try writer.writeAll(" }");
 }
 
-/// `{ .elems = { ... } }`, a splat spelled once with a GNU range.
 fn writeElements(backend: *C, writer: *Writer, index: Pool.Index, depth: u32) Fail!void {
     const pool = &backend.comp.pool;
     const count = pool.aggregateLen(index);
@@ -584,23 +553,22 @@ fn writeUnionConstant(
 ) Fail!void {
     const pool = &backend.comp.pool;
     const member = pool.typeOfValue(it.value);
-    const position = pool.unionMemberPosition(it.type, member).?;
+    const position = pool.memberPosition(it.type, member);
 
     switch (unionFormOf(pool, it.type)) {
         .tag_only => try writer.print("{d}", .{position}),
-        .niche => |carrier| {
-            if (member == carrier) {
+        .niche => |niche| {
+            if (member == niche.member) {
                 return backend.writeConstant(writer, it.value, context, depth + 1);
             }
             // the null address stands for the unit member
-            switch (pool.keyOf(carrier)) {
-                .type_pointer => try writer.writeAll("0"),
-                .type_slice => {
-                    try backend.writeCast(writer, carrier, context, depth);
+            switch (niche.form) {
+                .pointer => try writer.writeAll("0"),
+                .slice => {
+                    try backend.writeCast(writer, niche.member, context, depth);
                     try writer.writeAll("{ 0, 0 }");
                     try writeCastClose(writer, context);
                 },
-                else => unreachable,
             }
         },
         .tagged => {
@@ -652,7 +620,6 @@ fn writeFloatValue(writer: *Writer, it: Pool.Key.Float) Fail!void {
     try writer.print("(({s}){x})", .{ cast, it.value });
 }
 
-/// The bytes a view points at in static storage.
 fn ensureStored(backend: *C, index: Pool.Index, depth: u32) Fail!void {
     assert(depth < type_depth_max);
     const pool = &backend.comp.pool;
@@ -672,12 +639,12 @@ fn ensureStored(backend: *C, index: Pool.Index, depth: u32) Fail!void {
     try w.writeAll(";\n");
 }
 
-/// Every storage line a constant will mention, written before its own.
 fn ensureStoredDeps(backend: *C, index: Pool.Index, depth: u32) Fail!void {
     assert(depth < type_depth_max);
     const pool = &backend.comp.pool;
 
-    switch (pool.keyOf(index)) {
+    switch (pool.valueKey(index)) {
+        .poison => unreachable,
         .value_slice => |it| try backend.ensureStored(it.data, depth + 1),
         .value_union => |it| try backend.ensureStoredDeps(it.value, depth + 1),
         .value_aggregate, .value_splat => {
@@ -692,22 +659,13 @@ fn ensureStoredDeps(backend: *C, index: Pool.Index, depth: u32) Fail!void {
             }
         },
         .value_int, .value_float, .value_unit => {},
-        .type_simple, .type_pointer, .type_array, .type_slice => unreachable,
-        .type_struct, .type_unit, .type_union => unreachable,
     }
 }
 
-// functions
-
-/// `    v{n} = `, opening the statement that fills a declared value.
 const Assign = struct { local: Position };
-/// `v{n}`, a declared value standing inside an expression.
 const Value = struct { local: Position };
-/// What a pointer ref points at, a local slot read as itself.
 const Deref = struct { ref: Ref };
-/// The ref as an unsigned 64-bit count, sign-widened the way `bounds_check` states.
 const Widened = struct { ref: Ref };
-/// The address of the first element, behind a slice or an array pointer.
 const Base = struct { ref: Ref };
 
 fn assign(local: Position) Assign {
@@ -729,7 +687,6 @@ fn int(type_index: Pool.Index, raw: i128) Pool.Key.Int {
     return .{ .type = type_index, .value = raw };
 }
 
-/// One run of C into the code
 fn put(backend: *C, parts: anytype) Fail!void {
     const w = &backend.code.writer;
     inline for (parts) |part| {
@@ -750,7 +707,6 @@ fn put(backend: *C, parts: anytype) Fail!void {
     }
 }
 
-/// An instruction result, or a constant spelled in expression position.
 fn writeRef(backend: *C, ref: Ref) Fail!void {
     const w = &backend.code.writer;
     switch (ref.unwrap()) {
@@ -806,7 +762,6 @@ fn typeOfRef(backend: *const C, ref: Ref) Pool.Index {
     };
 }
 
-/// The field's position inside its struct, which names the C member.
 fn fieldPosition(backend: *const C, ref: Ref, row: Compilation.Row.Index) u32 {
     const pool = &backend.comp.pool;
 
@@ -815,7 +770,7 @@ fn fieldPosition(backend: *const C, ref: Ref, row: Compilation.Row.Index) u32 {
         .type_pointer => |pointer| pointer.child,
         else => found,
     };
-    const rows = backend.comp.instanceAt(pool.keyOf(owner).type_struct).rows;
+    const rows = backend.comp.instanceAt(pool.structOf(owner)).rows;
     assert(row.int() >= rows.start);
     assert(row.int() < rows.end());
     return row.int() - rows.start;
@@ -842,7 +797,6 @@ fn writeFunc(backend: *C, instance: Pool.Instance, func: IR.Func) Fail!void {
         assert(inst.type == row.type);
     }
 
-    // every value up front
     var raw: u32 = 0;
     while (raw < func.insts.len) : (raw += 1) try backend.writeDeclaration(.from(raw));
     try w.writeByte('\n');
@@ -884,14 +838,12 @@ fn writeLine(backend: *C, node: AST.Node.Index) Fail!void {
     try w.writeAll("\"\n");
 }
 
-/// The declaration an instruction's value needs, if it produces one.
 fn writeDeclaration(backend: *C, local: Position) Fail!void {
     const pool = &backend.comp.pool;
     const w = &backend.code.writer;
     const inst = backend.instOf(local);
 
     switch (inst.tag) {
-        // bound by the signature already
         .param => assert(local.int() < backend.comp.instanceRows(backend.func.instance).len),
         .local => {
             try backend.put(.{ "    ", pool.keyOf(inst.type).type_pointer.child });
@@ -905,7 +857,6 @@ fn writeDeclaration(backend: *C, local: Position) Fail!void {
             try backend.put(.{ "    ", inst.type });
             try w.print(" v{d};\n", .{local.int()});
         } else switch (inst.tag) {
-            // of the effects, only the compiler's own tests carry a value
             .cmp_eq, .cmp_ne, .cmp_lt, .cmp_le, .cmp_gt, .cmp_ge, .union_is => {
                 try w.print("    int v{d};\n", .{local.int()});
             },
@@ -920,7 +871,6 @@ fn writeInst(backend: *C, local: Position) Fail!void {
     const inst = backend.instOf(local);
 
     switch (inst.tag) {
-        // both stand declared at the top of the function
         .param => assert(local.int() < comp.instanceRows(backend.func.instance).len),
         .local => assert(pool.keyOf(inst.type).type_pointer.mutable),
 
@@ -929,18 +879,14 @@ fn writeInst(backend: *C, local: Position) Fail!void {
             "    ", deref(inst.data.bin.lhs), " = ", inst.data.bin.rhs, ";\n",
         }),
 
-        .add, .sub, .mul => try backend.writeArith(local, inst),
+        .add => try backend.writeArith(local, inst, " + ", "__builtin_add_overflow"),
+        .sub => try backend.writeArith(local, inst, " - ", "__builtin_sub_overflow"),
+        .mul => try backend.writeArith(local, inst, " * ", "__builtin_mul_overflow"),
         .div => try backend.writeDiv(local, inst),
         .mod => try backend.writeMod(local, inst),
-        .bit_and, .bit_or, .bit_xor => {
-            assert(Pool.isSizedInt(inst.type));
-            try backend.writeBinary(local, inst, switch (inst.tag) {
-                .bit_and => " & ",
-                .bit_or => " | ",
-                .bit_xor => " ^ ",
-                else => unreachable,
-            });
-        },
+        .bit_and => try backend.writeBitwise(local, inst, " & "),
+        .bit_or => try backend.writeBitwise(local, inst, " | "),
+        .bit_xor => try backend.writeBitwise(local, inst, " ^ "),
         .shift_left, .shift_right => try backend.writeShift(local, inst),
         .cmp_eq => try backend.writeCompare(local, inst, " == "),
         .cmp_ne => try backend.writeCompare(local, inst, " != "),
@@ -951,7 +897,6 @@ fn writeInst(backend: *C, local: Position) Fail!void {
 
         .negate => try backend.writeNegate(local, inst),
         .not => {
-            // `not` runs on a bool, two units around one tag byte
             assert(unionFormOf(pool, inst.type) == .tag_only);
             assert(pool.unionMemberCount(inst.type) == 2);
             try backend.put(.{ assign(local), inst.data.un, " ^ 1;\n" });
@@ -1004,20 +949,23 @@ fn writeInst(backend: *C, local: Position) Fail!void {
     }
 }
 
-/// `v = lhs op rhs`, the shape every plain binary lands on.
 fn writeBinary(backend: *C, local: Position, inst: IR.Inst, operator: []const u8) Fail!void {
     const bin = inst.data.bin;
     try backend.put(.{ assign(local), bin.lhs, operator, bin.rhs, ";\n" });
 }
 
-/// Checked by the builtin, so the sum that does not fit stops the program.
-fn writeArith(backend: *C, local: Position, inst: IR.Inst) Fail!void {
-    const operator, const builtin = switch (inst.tag) {
-        .add => .{ " + ", "__builtin_add_overflow" },
-        .sub => .{ " - ", "__builtin_sub_overflow" },
-        .mul => .{ " * ", "__builtin_mul_overflow" },
-        else => unreachable,
-    };
+fn writeBitwise(backend: *C, local: Position, inst: IR.Inst, operator: []const u8) Fail!void {
+    assert(Pool.isSizedInt(inst.type));
+    try backend.writeBinary(local, inst, operator);
+}
+
+fn writeArith(
+    backend: *C,
+    local: Position,
+    inst: IR.Inst,
+    operator: []const u8,
+    builtin: []const u8,
+) Fail!void {
     if (Pool.isFloat(inst.type)) return backend.writeBinary(local, inst, operator);
 
     assert(Pool.isSizedInt(inst.type));
@@ -1089,7 +1037,6 @@ fn writeNegate(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     try backend.put(.{ ", &", value(local), ")) __builtin_trap();\n" });
 }
 
-/// The number where the destination holds it, the union's other member where not.
 fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const operand = inst.data.un;
@@ -1123,7 +1070,6 @@ fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     try backend.put(.{"){ .tag = 1 };\n"});
 }
 
-/// How a member's value arrives, as its own ref or held inside a source union.
 const MemberValue = union(enum) { direct: Ref, held: Ref };
 
 fn writeUnionInit(backend: *C, local: Position, inst: IR.Inst) Fail!void {
@@ -1139,7 +1085,6 @@ fn writeUnionInit(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     try backend.put(.{";\n"});
 }
 
-/// One member's value spelled as the union that takes it.
 fn writeUnionValue(
     backend: *C,
     dest: Pool.Index,
@@ -1150,23 +1095,21 @@ fn writeUnionValue(
     assert(pool.isUnion(dest));
     assert(pool.isUnion(member) == false);
 
-    // the member the checker admitted, so membership is its promise
-    const position = pool.unionMemberPosition(dest, member).?;
+    const position = pool.memberPosition(dest, member);
 
     switch (unionFormOf(pool, dest)) {
         .tag_only => {
             assert(pool.keyOf(member) == .type_unit);
             try backend.put(.{position});
         },
-        .niche => |carrier| if (member == carrier) {
+        .niche => |niche| if (member == niche.member) {
             try backend.writeMemberValue(member, source);
         } else {
             // the null address stands for the unit member
             assert(pool.keyOf(member) == .type_unit);
-            switch (pool.keyOf(carrier)) {
-                .type_pointer => try backend.put(.{"0"}),
-                .type_slice => try backend.put(.{ "(", carrier, "){ 0, 0 }" }),
-                else => unreachable,
+            switch (niche.form) {
+                .pointer => try backend.put(.{"0"}),
+                .slice => try backend.put(.{ "(", niche.member, "){ 0, 0 }" }),
             }
         },
         .tagged => if (pool.keyOf(member) == .type_unit) {
@@ -1187,7 +1130,6 @@ fn writeMemberValue(backend: *C, member: Pool.Index, source: MemberValue) Fail!v
     }
 }
 
-/// The member's value as the union ref holds it, in expression position.
 fn writeHeldMember(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     const pool = &backend.comp.pool;
     const source = backend.typeOfRef(ref);
@@ -1197,18 +1139,17 @@ fn writeHeldMember(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     switch (unionFormOf(pool, source)) {
         // every member of a tag-only union is a unit, which holds no value
         .tag_only => unreachable,
-        .niche => |carrier| {
-            assert(member == carrier);
+        .niche => |niche| {
+            assert(member == niche.member);
             try backend.put(.{ref});
         },
         .tagged => {
-            const position = pool.unionMemberPosition(source, member).?;
+            const position = pool.memberPosition(source, member);
             try backend.put(.{ ref, ".m", position });
         },
     }
 }
 
-/// The value re-tagged into another union, one arm per member both sides list.
 fn writeUnionConvert(backend: *C, local: Position, dest: Pool.Index, source: Ref) Fail!void {
     const pool = &backend.comp.pool;
     const from = backend.typeOfRef(source);
@@ -1269,7 +1210,6 @@ fn writeUnionNarrow(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     try backend.put(.{";\n"});
 }
 
-/// C truth for whether the union ref holds the member, or any of a union of them.
 fn writeMemberTest(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     const pool = &backend.comp.pool;
     if (pool.isUnion(member)) {
@@ -1285,14 +1225,14 @@ fn writeMemberTest(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
 
     const source = backend.typeOfRef(ref);
     assert(pool.isUnion(source));
-    const position = pool.unionMemberPosition(source, member).?;
+    const position = pool.memberPosition(source, member);
 
     switch (unionFormOf(pool, source)) {
         .tag_only => try backend.put(.{ ref, " == ", position }),
-        .niche => |carrier| {
+        .niche => |niche| {
             try backend.put(.{ref});
-            if (pool.keyOf(carrier) == .type_slice) try backend.put(.{".ptr"});
-            try backend.put(.{if (member == carrier) " != 0" else " == 0"});
+            if (niche.form == .slice) try backend.put(.{".ptr"});
+            try backend.put(.{if (member == niche.member) " != 0" else " == 0"});
         },
         .tagged => try backend.put(.{ ref, ".tag == ", position }),
     }
@@ -1354,8 +1294,6 @@ fn writeAggregateInit(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 
 fn writeTerminator(backend: *C, terminator: IR.Terminator) Fail!void {
     switch (terminator) {
-        // `finishFunc` left every surviving block a terminator
-        .none => unreachable,
         .jump => |target| try backend.put(.{ "    goto b", target.int(), ";\n" }),
         .branch => |branch| {
             try backend.put(.{"    if ("});

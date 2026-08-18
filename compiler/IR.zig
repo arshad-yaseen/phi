@@ -27,7 +27,6 @@ pub const Func = struct {
     pub const OptionalIndex = Index.Optional;
 };
 
-/// Reads a call payload out of one function's extra words.
 pub fn callAt(extra: []const u32, at: ExtraIndex) Call {
     const start = @intFromEnum(at);
     assert(start + 2 <= extra.len);
@@ -39,7 +38,6 @@ pub fn callAt(extra: []const u32, at: ExtraIndex) Call {
 
 pub const SliceMake = struct { base: Ref, start: Ref, end: Ref };
 
-/// The base and the two ends.
 pub fn sliceMakeAt(extra: []const u32, at: ExtraIndex) SliceMake {
     const start = @intFromEnum(at);
     assert(start + 3 <= extra.len);
@@ -50,7 +48,6 @@ pub fn sliceMakeAt(extra: []const u32, at: ExtraIndex) SliceMake {
     };
 }
 
-/// Elements in order, or fields in declaration order.
 pub fn aggregateInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
     const start = @intFromEnum(at);
     assert(start + 1 <= extra.len);
@@ -59,7 +56,6 @@ pub fn aggregateInitAt(extra: []const u32, at: ExtraIndex) []const Ref {
 
 fn refsAt(extra: []const u32, start: u32, len: u32) []const Ref {
     assert(start + len <= extra.len);
-    // a `Ref` is one `u32`
     return @ptrCast(extra[start..][0..len]);
 }
 
@@ -113,19 +109,14 @@ pub const Inst = struct {
     };
 
     pub const Tag = enum(u8) {
-        /// One per parameter, in order.
         param,
         /// Produces the address. The name is `.empty` for a temporary.
         local,
-        /// The pointee of a place.
         load,
-        /// The place, then the value.
         store,
         /// A field pointer, as mutable as its base.
         field_ptr,
-        /// The field's value.
         field_val,
-        /// What holds the elements, and the index.
         elem_ptr,
         /// Sign-widened then compared unsigned, so one test settles both edges.
         ///
@@ -136,17 +127,12 @@ pub const Inst = struct {
         bounds_check,
         /// Traps unless the first is at most the second, widened as above.
         order_check,
-        /// The count a view carries.
         slice_len,
-        /// The address a view carries.
         slice_ptr,
         slice_make,
 
-        /// Traps where the sum does not fit.
         add,
-        /// Traps where the difference does not fit.
         sub,
-        /// Traps where the product does not fit.
         mul,
         /// Traps where the quotient does not fit, and where the divisor is zero.
         div,
@@ -171,7 +157,6 @@ pub const Inst = struct {
         not,
         bit_not,
 
-        /// Retypes a pointer and emits nothing.
         ptr_cast,
         /// Converts into a type holding every value of the old one, so nothing is lost.
         widen,
@@ -182,11 +167,9 @@ pub const Inst = struct {
         union_init,
         /// Whether the union holds the member, or any of a union of them. Void for a branch.
         union_is,
-        /// A union retyped to what a passed test proved.
         union_narrow,
 
         call,
-        /// An array or a struct, told apart by the type.
         aggregate_init,
 
         pub fn payload(tag: Tag) std.meta.FieldEnum(Data) {
@@ -208,7 +191,6 @@ pub const Inst = struct {
 };
 
 pub const Block = struct {
-    /// Instructions `first ..< end()`, contiguous.
     first: u32,
     count: u32,
     terminator: Terminator,
@@ -233,14 +215,10 @@ pub const Block = struct {
 };
 
 pub const Terminator = union(enum) {
-    /// Still being built.
-    none,
     jump: Block.Index,
     /// The then edge is taken when the union condition holds its first member.
     branch: struct { cond: Ref, then_block: Block.Index, else_block: Block.Index },
-    /// `.none` returns nothing.
     ret: Ref,
-    /// Stops the program where it stands, so nothing follows it.
     trap,
 };
 

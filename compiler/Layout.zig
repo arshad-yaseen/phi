@@ -14,7 +14,6 @@ const Layout = @This();
 /// 64-bit, hardcoded for now
 pub const pointer_size = 8;
 
-/// The tag is one byte, at the payload's end.
 pub const tag_size = 1;
 
 comptime {
@@ -35,7 +34,6 @@ comptime {
     assert(@sizeOf(u8) == 1);
 }
 
-/// Far past any embedding chain the declaration limits admit.
 pub const depth_max = 512;
 
 comptime {
@@ -58,7 +56,7 @@ fn ofBounded(
     assert(depth < depth_max);
     if (comp.layouts.get(index)) |known| return known;
 
-    const found: Layout = switch (comp.pool.keyOf(index)) {
+    const found: Layout = switch (comp.pool.typeKey(index)) {
         .type_simple => |simple| switch (simple) {
             .poison => return error.Poison,
             .i8, .u8 => .{ .size = 1, .alignment = 1 },
@@ -69,14 +67,11 @@ fn ofBounded(
             .void, .untyped_int, .untyped_float, .untyped_aggregate => unreachable,
         },
         .type_pointer => .{ .size = pointer_size, .alignment = pointer_size },
-        // an address and a count, two words
         .type_slice => .{ .size = 2 * pointer_size, .alignment = pointer_size },
         .type_unit => .{ .size = 0, .alignment = 1 },
         .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
         .type_union => try ofUnion(comp, origin, index, depth),
-        .value_int, .value_float, .value_aggregate => unreachable,
-        .value_unit, .value_union, .value_slice, .value_splat => unreachable,
     };
 
     assert(std.math.isPowerOfTwo(found.alignment));
@@ -122,7 +117,6 @@ fn ofStruct(
         alignment = @max(alignment, field.alignment);
     }
 
-    // the size is the stride, rounded up so a row of them stays aligned
     return sized(std.mem.alignForward(u64, size, alignment), alignment);
 }
 
@@ -133,7 +127,7 @@ fn ofStruct(
 ///                     0x0000000000000000                        none
 ///   []u32 | none      0x00007f2e51c04150  0x0000000000000004    the []u32
 ///                     0x0000000000000000  ------------------    none, count unread
-pub fn niche(pool: *const Pool, index: Pool.Index) ?Pool.Index {
+pub fn niche(pool: *const Pool, index: Pool.Index) ?Niche {
     if (pool.isUnion(index) == false) return null;
     if (pool.unionMemberCount(index) != 2) return null;
 
@@ -144,15 +138,17 @@ pub fn niche(pool: *const Pool, index: Pool.Index) ?Pool.Index {
     return null;
 }
 
-/// The member itself where it leads with an address, so a null one can stand for the unit.
-fn carrierOf(pool: *const Pool, index: Pool.Index) ?Pool.Index {
+/// The member that keeps the address, and whether a view, whose count goes unread.
+pub const Niche = struct { member: Pool.Index, form: enum { pointer, slice } };
+
+fn carrierOf(pool: *const Pool, index: Pool.Index) ?Niche {
     return switch (pool.keyOf(index)) {
-        .type_pointer, .type_slice => index,
+        .type_pointer => .{ .member = index, .form = .pointer },
+        .type_slice => .{ .member = index, .form = .slice },
         else => null,
     };
 }
 
-/// A tag and a payload, or the zero niche.
 fn ofUnion(
     comp: *Compilation,
     origin: Compilation.Origin,
@@ -161,7 +157,7 @@ fn ofUnion(
 ) Error!Layout {
     const pool = &comp.pool;
     assert(pool.unionMemberCount(index) >= 2);
-    if (niche(pool, index)) |carrier| return ofBounded(comp, origin, carrier, depth + 1);
+    if (niche(pool, index)) |it| return ofBounded(comp, origin, it.member, depth + 1);
 
     var payload_size: u32 = 0;
     var payload_alignment: u32 = 1;
@@ -175,7 +171,6 @@ fn ofUnion(
     return sized(@as(u64, payload_size) + tag_size, payload_alignment);
 }
 
-/// The stride a run of these occupies, refused where it outgrows `size_max`.
 fn sized(size: u64, alignment: u32) Error!Layout {
     const total = std.mem.alignForward(u64, size, alignment);
     if (total > size_max) return error.TooLarge;

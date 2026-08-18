@@ -1,5 +1,3 @@
-//! A module is one file.
-
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -20,7 +18,6 @@ key: []const u8,
 source: Source,
 tree: AST,
 space: Space,
-/// Rows in the declaration table, members included.
 decls: Range,
 /// Top-level names, keyed by source text, which outlives the map. Members go through their struct.
 names: std.StringHashMapUnmanaged(Decl.Index),
@@ -41,10 +38,7 @@ pub const Index = enum(u32) {
     }
 };
 
-/// Which directory a module resolves against.
 pub const Space = enum { root, std };
-
-// the names the compiler knows by spelling
 
 pub const std_name = "std";
 pub const prelude_name = "prelude";
@@ -52,7 +46,6 @@ pub const bool_name = "bool";
 pub const none_name = "none";
 const discard_name = "_";
 
-/// Whether this text is the discard, which is never a name.
 pub fn isDiscard(text: []const u8) bool {
     return std.mem.eql(u8, text, discard_name);
 }
@@ -62,12 +55,10 @@ comptime {
     assert(std.mem.eql(u8, @tagName(Space.std), std_name));
 }
 
-/// The row is the identity everything else refers to.
 pub const Decl = struct {
     module: Module.Index,
     node: AST.Node.Index,
     name: Pool.String,
-    /// For a member function, the struct declaration it belongs to.
     owner: OptionalIndex,
     /// What resolution left behind, read with `aux`.
     result: u32,
@@ -93,7 +84,6 @@ pub const Decl = struct {
     pub const Index = Handle.Index("decl");
     pub const OptionalIndex = Decl.Index.Optional;
 
-    /// Members sit contiguously after their struct.
     pub fn members(decl: Decl) Compilation.Range {
         assert(decl.kind == .struct_decl);
         return .{ .start = decl.result, .len = decl.aux };
@@ -111,14 +101,12 @@ pub fn findDecl(module: *const Module, text: []const u8) ?Decl.Index {
     return module.names.get(text);
 }
 
-/// The key without its space prefix.
 pub fn displayName(module: *const Module) []const u8 {
-    const colon = std.mem.indexOfScalar(u8, module.key, ':').?;
-    assert(colon + 1 < module.key.len);
-    return module.key[colon + 1 ..];
+    const prefix = @tagName(module.space).len + 1;
+    assert(module.key[prefix - 1] == ':');
+    return module.key[prefix..];
 }
 
-/// Parse one source and register its declarations, parse errors notwithstanding.
 pub fn register(
     comp: *Compilation,
     key: []const u8,
@@ -172,7 +160,6 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
                 .node = node,
                 .name_token = use.binding_token,
             },
-            // a struct also registers its members, so it goes its own way
             .struct_decl => |decl| {
                 const struct_index = try addDecl(comp, module, index, .{
                     .kind = .struct_decl,
@@ -243,7 +230,6 @@ const NewDecl = struct {
     type_params: u8 = 0,
 };
 
-/// A top-level declaration, poisoned where its name is one the file cannot bind.
 fn addDecl(
     comp: *Compilation,
     module: *Module,
@@ -292,7 +278,6 @@ fn addDecl(
     return decl_index;
 }
 
-/// A member function, poisoned where it clashes with a field or an earlier member.
 fn addMember(
     comp: *Compilation,
     module: *Module,
@@ -361,22 +346,21 @@ fn appendDecl(
     return index;
 }
 
-// modules on disk
+fn spaceDir(comp: *const Compilation, space: Space) ?[]const u8 {
+    return switch (space) {
+        .root => comp.root_dir,
+        .std => comp.std_dir,
+    };
+}
 
-/// Once per path, null where nothing is there. `sub` is joined from identifiers.
 pub fn loadModule(comp: *Compilation, space: Space, sub: []const u8) Allocator.Error!?Module.Index {
     assert(sub.len > 0);
 
     const key = try comp.fmt("{t}:{s}", .{ space, sub });
     if (comp.module_map.get(key)) |index| return index;
 
-    const base = switch (space) {
-        .root => comp.root_dir,
-        .std => comp.std_dir orelse return null,
-    };
-
+    const base = spaceDir(comp, space) orelse return null;
     const path = try comp.fmt("{s}/{s}.phi", .{ std.mem.trimEnd(u8, base, "/\\"), sub });
-
     const source = comp.loader.load(comp.loader.context, comp.gpa, comp.io, path) catch |err|
         switch (err) {
             error.ReadFailed, error.SourceTooLarge => return null,
@@ -384,11 +368,10 @@ pub fn loadModule(comp: *Compilation, space: Space, sub: []const u8) Allocator.E
         };
 
     const index = try register(comp, key, space, source);
-    assert(comp.module_map.get(key).? == index);
+    assert(comp.module_map.get(key) == index);
     return index;
 }
 
-/// One module, which the path names the same way from every file that writes it.
 pub fn resolveImport(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     const decl = comp.declAt(decl_index);
     assert(decl.kind == .import);
@@ -397,18 +380,36 @@ pub fn resolveImport(comp: *Compilation, decl_index: Decl.Index) Allocator.Error
     const view = tree.viewOf(decl.node).import_decl;
     const in_std = std.mem.eql(u8, tree.tokenSlice(view.first_token), std_name);
 
-    // 'std' names a root, so it needs a directory to be and a module to name inside it
-    if (in_std and (comp.std_dir == null or view.first_token == view.last_token)) {
-        return reportStd(comp, decl.module, view.first_token);
+    const space: Space = if (in_std) .std else .root;
+    const dir = spaceDir(comp, space) orelse {
+        try comp.reportToken(decl.module, view.first_token, .{
+            .code = .module_not_found,
+            .message = "the standard library was not found",
+            .label = "'std' has nowhere to point",
+            .help = "pass --std <dir>, or run beside a 'lib/std' directory",
+        });
+        return false;
+    };
+    if (in_std and view.first_token == view.last_token) {
+        try comp.reportToken(decl.module, view.first_token, .{
+            .code = .module_not_found,
+            .message = "'std' is the standard library, not a module in it",
+            .label = "name one",
+            .help = "'import std/io' imports the input and output module",
+        });
+        return false;
     }
 
-    const space: Space = if (in_std) .std else .root;
     const first = if (in_std) view.first_token.after(2) else view.first_token;
-
     const sub = try pathText(comp, tree, first, view.last_token);
-    const target = try loadModule(comp, space, sub) orelse
-        return reportUnresolved(comp, decl.module, decl.node, sub, space);
-
+    const target = try loadModule(comp, space, sub) orelse {
+        try comp.reportNode(decl.module, decl.node, .{
+            .code = .module_not_found,
+            .message = try comp.fmt("no module named '{s}' in '{s}'", .{ sub, dir }),
+            .label = "nothing on disk answers to this",
+        });
+        return false;
+    };
     comp.declPtr(decl_index).result = target.int();
     return true;
 }
@@ -443,44 +444,6 @@ fn pathText(
     return out.items;
 }
 
-fn reportStd(comp: *Compilation, module: Module.Index, token: Token.Index) Allocator.Error!bool {
-    @branchHint(.cold);
-    const report: Diagnostic.Report = if (comp.std_dir == null) .{
-        .code = .module_not_found,
-        .message = "the standard library was not found",
-        .label = "'std' has nowhere to point",
-        .help = "pass --std <dir>, or run beside a 'lib/std' directory",
-    } else .{
-        .code = .module_not_found,
-        .message = "'std' is the standard library, not a module in it",
-        .label = "name one",
-        .help = "'import std/io' imports the input and output module",
-    };
-    try comp.reportToken(module, token, report);
-    return false;
-}
-
-fn reportUnresolved(
-    comp: *Compilation,
-    module: Module.Index,
-    node: AST.Node.Index,
-    sub: []const u8,
-    space: Space,
-) Allocator.Error!bool {
-    @branchHint(.cold);
-    const dir = switch (space) {
-        .root => comp.root_dir,
-        .std => comp.std_dir.?,
-    };
-    try comp.reportNode(module, node, .{
-        .code = .module_not_found,
-        .message = try comp.fmt("no module named '{s}' in '{s}'", .{ sub, dir }),
-        .label = "nothing on disk answers to this",
-    });
-    return false;
-}
-
-/// A public declaration of `in`. Null once reported, keyed on the origin's token.
 pub fn findExported(
     comp: *Compilation,
     in: Module.Index,

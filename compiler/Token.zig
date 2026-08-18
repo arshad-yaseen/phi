@@ -6,21 +6,17 @@ tag: Tag,
 start: u32,
 
 pub const Tag = enum(u8) {
-    /// Bytes that cannot begin a token.
     invalid,
     eof,
 
     ident,
     number,
     string,
-    /// One line of a multi-line string.
     string_line,
     char,
-    /// `@name`, an operation the compiler performs itself.
     builtin,
 
     comment,
-    /// Belongs to the declaration below.
     doc_comment,
     file_doc_comment,
 
@@ -56,7 +52,6 @@ pub const Tag = enum(u8) {
     dot,
     /// One token, so a line ending in `p.*` ends its statement.
     dot_star,
-    /// `a..b`, the ends of a range.
     dot_dot,
     colon,
     /// Written, or inserted at a line break.
@@ -65,7 +60,6 @@ pub const Tag = enum(u8) {
 
     eq,
     eq_eq,
-    /// `=>`, between a match arm's label and its body.
     eq_arrow,
     bang_eq,
     lt,
@@ -169,7 +163,6 @@ pub const Tag = enum(u8) {
         };
     }
 
-    /// How a message names this tag.
     pub fn symbol(tag: Tag) []const u8 {
         return switch (tag) {
             .invalid => "invalid bytes",
@@ -229,17 +222,17 @@ pub const Index = enum(u32) {
 
 pub const tag_count = @typeInfo(Tag).@"enum".fields.len;
 
-/// The tags whose spelling begins with one byte, longest first.
 pub const Punctuation = struct {
-    tags: [max]Tag,
+    entries: [max]Entry,
     count: u8,
 
-    /// `<`, `<=`, `<<`, and `<<=` are the largest group.
     pub const max = 4;
 
-    pub fn candidates(group: *const Punctuation) []const Tag {
+    pub const Entry = struct { tag: Tag, text: []const u8 };
+
+    pub fn candidates(group: *const Punctuation) []const Entry {
         assert(group.count <= max);
-        return group.tags[0..group.count];
+        return group.entries[0..group.count];
     }
 };
 
@@ -251,7 +244,6 @@ comptime {
     assert(@sizeOf(Index) == 4);
 }
 
-/// Whether a line break after this tag ends a statement.
 pub fn endsStatement(tag: Tag) bool {
     return switch (tag) {
         .ident, .number, .string, .string_line, .char, .builtin, .invalid => true,
@@ -274,8 +266,9 @@ const keywords = build: {
     var entries: [tags.len]struct { []const u8, Tag } = undefined;
     var count = 0;
     for (tags) |tag| {
+        const text = tag.lexeme() orelse continue;
         if (tag.isKeyword() == false) continue;
-        entries[count] = .{ tag.lexeme().?, tag };
+        entries[count] = .{ text, tag };
         count += 1;
     }
     assert(count > 0);
@@ -285,7 +278,7 @@ const keywords = build: {
 /// Derived, longest first, which is what makes `<<=` win over `<<`.
 pub const punctuation: [256]Punctuation = build: {
     @setEvalBranchQuota(8000);
-    var table: [256]Punctuation = @splat(.{ .tags = @splat(.invalid), .count = 0 });
+    var table: [256]Punctuation = @splat(.{ .entries = undefined, .count = 0 });
 
     var longest = 0;
     for (std.enums.values(Tag)) |tag| {
@@ -304,7 +297,7 @@ pub const punctuation: [256]Punctuation = build: {
 
             const group = &table[text[0]];
             assert(group.count < Punctuation.max);
-            group.tags[group.count] = tag;
+            group.entries[group.count] = .{ .tag = tag, .text = text };
             group.count += 1;
         }
     }

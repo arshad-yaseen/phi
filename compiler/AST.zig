@@ -1,5 +1,3 @@
-//! The syntax tree.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
@@ -14,17 +12,11 @@ const AST = @This();
 
 /// Borrowed, so the caller's `Source` must outlive the tree.
 source: [:0]const u8,
-/// In source order, ending in one `.eof`. No comment is among them.
 tokens: Tokenizer.TokenList.Slice,
-/// In source order. Analysis never looks.
 comments: []const Token,
-/// Node 0 is the root.
 nodes: NodeList.Slice,
-/// Read back through `Fields`.
 extra: []const u32,
-/// Empty when the file parsed.
 errors: []const Diagnostic,
-/// Backs `errors` and its strings.
 error_text: std.heap.ArenaAllocator.State,
 
 pub const nest_max = Parse.depth_max;
@@ -32,7 +24,6 @@ pub const type_params_max = Parse.type_params_max;
 
 const NodeList = std.MultiArrayList(Node);
 
-/// Where a node's payload starts in `extra`. Internal to the parser.
 pub const ExtraIndex = Handle.Index("ast extra");
 
 pub fn parse(gpa: Allocator, source: [:0]const u8) Allocator.Error!AST {
@@ -54,8 +45,6 @@ pub fn deinit(tree: *AST, gpa: Allocator) void {
     tree.error_text.promote(gpa).deinit();
     tree.* = undefined;
 }
-
-// storage
 
 pub const Node = struct {
     tag: Tag,
@@ -90,12 +79,10 @@ pub const Node = struct {
         import_decl,
         struct_decl,
         alias_decl,
-        /// `type Name` with nothing assigned, whose only value is its name.
         unit_decl,
         fn_decl,
         /// Both `let` and `var`, told apart by `main_token`.
         var_decl,
-        /// One name in a `[T, U: Number]` list, with its bound where one is written.
         type_param,
         param,
         field,
@@ -104,36 +91,26 @@ pub const Node = struct {
         assign,
         defer_stmt,
         if_expr,
-        /// A loop, forever or while. `else` runs when it ends on its own.
         loop_expr,
-        /// `break`, with an optional `:label` and an optional value.
         break_expr,
-        /// `continue`, with an optional `:label`.
         continue_expr,
         return_expr,
-        /// `match e { ... }`, one arm per member of a union.
         match_expr,
-        /// `Member => body`, or `else => body` when no label is stored.
         match_arm,
 
-        /// `@name`, which only a call may follow.
         builtin,
         ident,
         number_literal,
         string_literal,
-        /// A run of `\\` lines.
         multiline_string,
         char_literal,
 
         field_access,
-        /// `p.*`, what a pointer points at.
         deref,
         /// `a[x, y]`. Type arguments where `a` is generic, an index otherwise.
         bracket,
         call,
-        /// `Point.{ ... }`, or `.{ ... }` where what it lands on says the type.
         struct_literal,
-        /// `[a, b, c]`, which states its own length.
         array_literal,
         /// `a..b` and `a..`. Only a bracket takes one.
         range_expr,
@@ -141,20 +118,16 @@ pub const Node = struct {
 
         binary,
         unary,
-        /// `e is T` and `e is not T`, negation read off the token after `is`.
         is_expr,
         /// `e or name { ... }`, the handler form of `or`.
         or_bind,
 
-        /// `[N]T`, N values of one type. The length is folded by the checker.
         array_type,
-        /// `[]T` and `[]var T`, a view of elements it does not own.
         slice_type,
         pointer_type,
         /// `A | B`, only in type position. Members are never unions.
         union_type,
 
-        /// A hole where parsing failed.
         err,
     };
 
@@ -168,7 +141,6 @@ pub const Node = struct {
         node_and_node: struct { Index, Index },
         node_and_opt_node: struct { Index, OptionalIndex },
         opt_node_and_node: struct { OptionalIndex, Index },
-        /// Where `Fields` starts reading.
         extra: ExtraIndex,
     };
 };
@@ -186,7 +158,6 @@ comptime {
     if (std.debug.runtime_safety == false) assert(@sizeOf(Node.Data) == 8);
 }
 
-/// Reads a payload back in the order `Parse` wrote it.
 const Fields = struct {
     extra: []const u32,
     cursor: u32,
@@ -212,8 +183,6 @@ const Fields = struct {
         return @ptrCast(payload.extra[payload.cursor + 1 ..][0..length]);
     }
 };
-
-// the view
 
 pub const BinaryOp = enum {
     add,
@@ -246,27 +215,24 @@ pub const UnaryOp = enum {
 /// `none` bans chaining, so `a < b < c` is reported rather than nested.
 pub const Assoc = enum { left, none };
 
-pub const OperInfo = struct {
-    /// Zero means the token is not an infix operator. One is the loosest.
-    prec: u8 = 0,
-    assoc: Assoc = .left,
-    /// Null for the tokens whose node is not `.binary`.
-    op: ?BinaryOp = null,
-};
+pub const OperInfo = struct { prec: u8, assoc: Assoc, op: BinaryOp };
 
-/// The one place a token maps to an infix operator.
-pub const oper_table: [Token.tag_count]OperInfo = blk: {
+/// Where `is` sits too, testing like a comparison.
+pub const compare_prec = 3;
+
+/// The one place a token maps to an infix operator. Null where it is not one.
+pub const oper_table: [Token.tag_count]?OperInfo = blk: {
     @setEvalBranchQuota(8000);
-    var table: [Token.tag_count]OperInfo = @splat(.{});
+    var table: [Token.tag_count]?OperInfo = @splat(null);
     for (.{
         .{ Token.Tag.kw_or, 1, Assoc.left, BinaryOp.bool_or },
         .{ Token.Tag.kw_and, 2, Assoc.left, BinaryOp.bool_and },
-        .{ Token.Tag.eq_eq, 3, Assoc.none, BinaryOp.equal },
-        .{ Token.Tag.bang_eq, 3, Assoc.none, BinaryOp.not_equal },
-        .{ Token.Tag.lt, 3, Assoc.none, BinaryOp.less_than },
-        .{ Token.Tag.lt_eq, 3, Assoc.none, BinaryOp.less_or_equal },
-        .{ Token.Tag.gt, 3, Assoc.none, BinaryOp.greater_than },
-        .{ Token.Tag.gt_eq, 3, Assoc.none, BinaryOp.greater_or_equal },
+        .{ Token.Tag.eq_eq, compare_prec, Assoc.none, BinaryOp.equal },
+        .{ Token.Tag.bang_eq, compare_prec, Assoc.none, BinaryOp.not_equal },
+        .{ Token.Tag.lt, compare_prec, Assoc.none, BinaryOp.less_than },
+        .{ Token.Tag.lt_eq, compare_prec, Assoc.none, BinaryOp.less_or_equal },
+        .{ Token.Tag.gt, compare_prec, Assoc.none, BinaryOp.greater_than },
+        .{ Token.Tag.gt_eq, compare_prec, Assoc.none, BinaryOp.greater_or_equal },
         .{ Token.Tag.pipe, 4, Assoc.left, BinaryOp.bit_or },
         .{ Token.Tag.caret, 5, Assoc.left, BinaryOp.bit_xor },
         .{ Token.Tag.ampersand, 6, Assoc.left, BinaryOp.bit_and },
@@ -285,7 +251,6 @@ pub const oper_table: [Token.tag_count]OperInfo = blk: {
     break :blk table;
 };
 
-/// The one place a token maps to a prefix operator.
 pub const unary_table: [Token.tag_count]?UnaryOp = blk: {
     var table: [Token.tag_count]?UnaryOp = @splat(null);
     table[@intFromEnum(Token.Tag.minus)] = .negate;
@@ -318,14 +283,21 @@ pub fn assigns(tag: Token.Tag) bool {
     return tag == .eq or assign_table[@intFromEnum(tag)] != null;
 }
 
+/// The operator a `.binary` node's token spells, which the parser built it from.
+fn infixOf(tag: Token.Tag) OperInfo {
+    return oper_table[@intFromEnum(tag)] orelse unreachable;
+}
+
+/// The operator a `.unary` node's token spells, which the parser built it from.
+fn prefixOf(tag: Token.Tag) UnaryOp {
+    return unary_table[@intFromEnum(tag)] orelse unreachable;
+}
+
 comptime {
     @setEvalBranchQuota(20000);
     for (std.enums.values(Token.Tag)) |tag| {
-        // `unpack` reads the op of every `.binary`, so an infix token must name one
-        const info = oper_table[@intFromEnum(tag)];
-        if (info.prec > 0) assert(info.op != null);
         // an assignment never sits between two values, so a statement sees its left end
-        if (assigns(tag)) assert(info.prec == 0);
+        if (assigns(tag)) assert(oper_table[@intFromEnum(tag)] == null);
     }
 }
 
@@ -406,21 +378,17 @@ pub const View = union(enum) {
         is_extern: bool,
         type_params: []const Node.Index,
         params: []const Node.Index,
-        /// `.none` is a function returning nothing.
         return_type: Node.OptionalIndex,
-        /// `.none` is a signature whose body is declared elsewhere.
         body: Node.OptionalIndex,
     };
     pub const VarDecl = struct {
         name_token: Token.Index,
         is_mutable: bool,
         is_pub: bool,
-        /// `.none` when the initializer decides the type.
         type_expr: Node.OptionalIndex,
         init_expr: Node.Index,
     };
     pub const LoopRange = struct { name: Node.Index, over: Node.Index };
-    /// `.none` leaves the parameter open to any type.
     pub const TypeParam = struct { name_token: Token.Index, bound: Node.OptionalIndex };
     pub const TypedName = struct { name_token: Token.Index, type_expr: Node.Index };
     pub const NamedValue = struct { name_token: Token.Index, value: Node.Index };
@@ -430,7 +398,6 @@ pub const View = union(enum) {
         lhs: Node.Index,
         rhs: Node.Index,
     };
-    /// `else_node` is a block, or another `if_expr` for `else if`.
     pub const If = struct {
         cond: Node.Index,
         then_block: Node.Index,
@@ -442,16 +409,11 @@ pub const View = union(enum) {
         body: Node.Index,
         else_node: Node.OptionalIndex,
     };
-    /// What a loop runs on.
     pub const LoopHead = union(enum) {
-        /// Runs until a `break`.
         forever,
-        /// Runs while the condition holds.
         cond: Node.Index,
-        /// Runs once per value of the range, the name bound for the pass.
         range: LoopRange,
 
-        /// Whether the loop can end without a `break`.
         pub fn ends(head: LoopHead) bool {
             return switch (head) {
                 .forever => false,
@@ -461,14 +423,11 @@ pub const View = union(enum) {
     };
     pub const Break = struct { label: ?Token.Index, value: Node.OptionalIndex };
     pub const Match = struct { scrutinee: Node.Index, arms: []const Node.Index };
-    /// `label` is `.none` for the `else` arm.
     pub const MatchArm = struct { label: Node.OptionalIndex, body: Node.Index };
     pub const StructLiteral = struct {
-        /// `.none` where the literal takes the type from where it lands.
         type_expr: Node.OptionalIndex,
         fields: []const Node.Index,
     };
-    /// Every token from `first` to `last` is a `\\` line of the same string.
     pub const MultilineString = struct { first: Token.Index, last: Token.Index };
     pub const Bracket = struct { base: Node.Index, args: []const Node.Index };
     /// `.none` leaves the end to the base, which is asked for its length.
@@ -476,7 +435,6 @@ pub const View = union(enum) {
     pub const Call = struct { callee: Node.Index, args: []const Node.Index };
     pub const FieldAccess = struct { lhs: Node.Index, name_token: Token.Index };
     pub const ArrayType = struct { length: Node.Index, child: Node.Index };
-    /// A pointer or a view, which differ only in what they are written as.
     pub const Wrap = struct { is_mutable: bool, child: Node.Index };
     pub const Binary = struct {
         op: BinaryOp,
@@ -629,15 +587,14 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
 
         .binary => .{
             .binary = .{
-                // `.binary` is built only for tokens the table names
-                .op = oper_table[@intFromEnum(tree.tokenTag(main))].op.?,
+                .op = infixOf(tree.tokenTag(main)).op,
                 .op_token = main,
                 .lhs = data.node_and_node[0],
                 .rhs = data.node_and_node[1],
             },
         },
         .unary => .{ .unary = .{
-            .op = unary_table[@intFromEnum(tree.tokenTag(main))].?,
+            .op = prefixOf(tree.tokenTag(main)),
             .op_token = main,
             .operand = data.node,
         } },
@@ -721,7 +678,6 @@ fn loopHead(binding: Node.OptionalIndex, head: Node.OptionalIndex) View.LoopHead
     return .{ .range = .{ .name = name, .over = over } };
 }
 
-/// The `outer` of `outer: loop`, read off the tokens before the keyword.
 fn loopLabel(tree: AST, main: Token.Index) ?Token.Index {
     assert(main.int() < tree.tokens.len);
 
@@ -732,7 +688,6 @@ fn loopLabel(tree: AST, main: Token.Index) ?Token.Index {
     return label;
 }
 
-/// The `outer` of `break :outer`, read off the tokens after the keyword.
 fn exitLabel(tree: AST, main: Token.Index) ?Token.Index {
     assert(main.int() < tree.tokens.len);
 
@@ -741,8 +696,6 @@ fn exitLabel(tree: AST, main: Token.Index) ?Token.Index {
     if (tree.tokenTag(label) != .ident) return null;
     return label;
 }
-
-// nodes
 
 pub fn nodeTag(tree: AST, node: Node.Index) Node.Tag {
     assert(node.int() < tree.nodes.len);
@@ -754,14 +707,11 @@ pub fn nodeMainToken(tree: AST, node: Node.Index) Token.Index {
     return tree.nodes.items(.main_token)[node.int()];
 }
 
-// comments
-
 pub fn commentText(tree: AST, at: Token) []const u8 {
     assert(at.start < tree.source.len);
     return tree.source[at.start..Tokenizer.endOfLine(tree.source, at.start)];
 }
 
-/// The `///` run directly above a declaration, with only space between.
 pub fn docsAbove(tree: AST, node: Node.Index) []const Token {
     var next = tree.tokenStart(tree.declStart(node));
     // comments are in source order, so the run ends where the declaration starts
@@ -789,8 +739,6 @@ fn declStart(tree: AST, node: Node.Index) Token.Index {
     const keyword = if (tree.isExtern(main)) main.before(1) else main;
     return if (tree.isPub(main)) keyword.before(1) else keyword;
 }
-
-// tokens
 
 /// Past the last token reads as `.eof`, because derived positions outrun broken trees.
 pub fn tokenTag(tree: AST, index: Token.Index) Token.Tag {
@@ -825,9 +773,6 @@ pub fn tokenSlice(tree: AST, index: Token.Index) []const u8 {
     return tree.source[start..end];
 }
 
-// spans
-
-/// From the leftmost token start to the rightmost child end.
 pub fn nodeSpan(tree: AST, node: Node.Index) Diagnostic.Span {
     const first = edgeToken(tree, node, .leftmost);
     const last = edgeToken(tree, node, .rightmost);
@@ -842,7 +787,6 @@ pub fn nodeSpan(tree: AST, node: Node.Index) Diagnostic.Span {
 
 const Edgewise = enum { leftmost, rightmost };
 
-/// One move down a side, either arriving or descending into a child.
 const Step = union(enum) { at: Token.Index, down: Node.Index };
 
 fn lastOf(children: []const Node.Index, empty: Step) Step {
@@ -850,7 +794,6 @@ fn lastOf(children: []const Node.Index, empty: Step) Step {
     return .{ .down = children[children.len - 1] };
 }
 
-/// Down one side of a node to the token that bounds it.
 fn edgeToken(tree: AST, node: Node.Index, side: Edgewise) Token.Index {
     var current = node;
     var depth: u32 = 0;
@@ -894,7 +837,6 @@ fn leftStep(tree: AST, node: Node.Index) Step {
         .range_expr => |it| .{ .down = it.start },
         // a union writes at least two members, so both edges exist
         .union_type => |members| .{ .down = members[0] },
-        // an unnamed literal begins at its own '.'
         .struct_literal => |it| unwrapOr(it.type_expr, main),
         // an arm with no label began at the `else` keyword
         .match_arm => |it| unwrapOr(it.label, main.before(1)),
@@ -912,7 +854,6 @@ fn rightStep(tree: AST, node: Node.Index) Step {
         .field_access => |it| .{ .at = it.name_token },
         .continue_expr => |label| .{ .at = label orelse main },
         .break_expr => |it| unwrapOr(it.value, it.label orelse main),
-        // `a..` ends at the `..` itself
         .range_expr => |it| unwrapOr(it.end, main),
         .return_expr => |operand| unwrapOr(operand, main),
         .import_decl => |it| .{ .at = it.binding_token },

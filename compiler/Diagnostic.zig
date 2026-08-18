@@ -6,14 +6,10 @@ const Writer = std.Io.Writer;
 const Source = @import("Source.zig");
 
 code: Code,
-/// What the carets sit under.
 span: Span,
-/// The header line.
 message: []const u8,
-/// Beside the carets.
 label: []const u8 = "",
 help: ?[]const u8 = null,
-/// Each renders its own snippet.
 notes: []const Note = &.{},
 
 pub const Span = struct { start: u32, end: u32 };
@@ -26,7 +22,6 @@ pub const Note = struct {
     source: ?*Source = null,
 };
 
-/// The text of a diagnostic, before it is anchored to a span.
 pub const Report = struct {
     code: Code,
     message: []const u8,

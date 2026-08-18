@@ -85,9 +85,10 @@
   the innermost frames and the caller's own, and counts what it leaves out
   between. It used to drop the caller's end, which is the half a reader can
   act on.
-- A type or a function standing as a condition, `if i64 { }`, is refused, and
-  a compound assignment whose right side is already broken reports nothing
-  more. The first used to pass unreported, and the second added a report
+- A type standing where a value belongs, `if i64 { }` or `a[[]u8]`, is
+  refused, and a compound assignment whose right side is already broken
+  reports nothing more. A type as a condition used to pass unreported, a type
+  as an index used to crash the compiler, and the assignment added a report
   naming `<broken>`.
 
 ### Command line

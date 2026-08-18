@@ -1,5 +1,3 @@
-//! The operations the compiler performs itself, reached as `@name`.
-
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -15,28 +13,17 @@ const Closest = Compilation.Closest;
 const Node = AST.Node;
 const Value = Check.Value;
 
-/// Spelled in source exactly as the tag is written, after the `@`.
 pub const Builtin = enum {
-    /// `@ptr_cast[T](pointer)`, retyping a pointer without moving it.
     ptr_cast,
-    /// `@int_cast[T](n)`, the number where `T` holds it, and `none` where it does not.
     int_cast,
-    /// `@size_of[T]()`, the bytes a value of `T` occupies, a constant.
     size_of,
-    /// `@align_of[T]()`, the alignment a value of `T` requires, a constant.
     align_of,
-    /// `@min_int[T]()`, the lowest value the integer type `T` holds, a constant.
     min_int,
-    /// `@max_int[T]()`, the highest value the integer type `T` holds, a constant.
     max_int,
-    /// `@splat(v)`, an array whose every element is `v`.
     splat,
-    /// `@trap()`, stopping the program where it stands.
     trap,
 
-    /// Validated before typing a call. Type rules live with the case that needs them.
     pub const Shape = struct {
-        /// Below `types_max` where the result names the type, so a hint can pin it.
         types_min: u8,
         types_max: u8,
         args: u8,
@@ -64,7 +51,6 @@ pub const Builtin = enum {
         };
     }
 
-    /// Whether this needs a body to lower into, so a top-level binding refuses it.
     pub fn needsBody(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast, .trap => true,
@@ -72,7 +58,6 @@ pub const Builtin = enum {
         };
     }
 
-    /// The name a `@name` token spells, without the sigil that opened it.
     pub fn nameOf(text: []const u8) []const u8 {
         assert(text.len > 1);
         assert(text[0] == '@');
@@ -84,10 +69,8 @@ pub const Builtin = enum {
         return std.meta.stringToEnum(Builtin, text);
     }
 
-    /// For a suggestion when a name is missed.
     pub const names = std.meta.fieldNames(Builtin);
 
-    /// The widest the table goes, so no call site has to check its buffers.
     pub const types_max = blk: {
         var most: u8 = 0;
         for (std.enums.values(Builtin)) |builtin| most = @max(most, builtin.shape().types_max);
@@ -100,7 +83,6 @@ pub const Builtin = enum {
         break :blk most;
     };
 
-    /// The builtin a `@name` spells, and whether this file may reach it. Null once reported.
     pub fn resolve(check: *Check, name_token: Token.Index) Allocator.Error!?Builtin {
         const comp = check.comp;
         const name_text = Builtin.nameOf(check.tree.tokenSlice(name_token));
@@ -126,7 +108,6 @@ pub const Builtin = enum {
         return which;
     }
 
-    /// A builtin stands only in a call, so a bare `@name` is a mistake.
     pub fn notAValue(check: *Check, node: Node.Index) Allocator.Error!Value {
         try check.fail(node, .{
             .code = .not_a_function,
@@ -137,7 +118,6 @@ pub const Builtin = enum {
         return .poison;
     }
 
-    /// Arity from the table, then the one case that knows what this builtin means.
     pub fn call(
         builtin: Builtin,
         check: *Check,
@@ -198,7 +178,6 @@ fn suggest(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     return check.comp.didYouMean(closest);
 }
 
-/// The type arguments as written, within the count the table allows. False once reported.
 fn resolveTypes(
     check: *Check,
     node: Node.Index,
@@ -234,10 +213,8 @@ fn resolveTypes(
     return true;
 }
 
-/// What a builtin lands its result on, and how a report names it.
 const Destination = struct {
     shape: enum { integer, array },
-    /// `'@int_cast' converts between integers`, ahead of what it met instead.
     does: []const u8,
     label: []const u8,
     missing: []const u8,
@@ -267,8 +244,6 @@ const splat_wants: Destination = .{
     .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @splat(0)'",
 };
 
-/// The written type where there is one, else what the call lands on, which
-/// leads with the destination. Null once reported.
 fn destination(
     check: *Check,
     node: Node.Index,
@@ -319,7 +294,6 @@ fn failDestination(
     });
 }
 
-/// The number where the type holds it, and `none` where it does not.
 fn intCast(
     check: *Check,
     node: Node.Index,
@@ -430,7 +404,6 @@ fn splatArray(
     });
 }
 
-/// A size or an alignment, an untyped constant, so it meets any integer.
 fn layoutOf(
     check: *Check,
     node: Node.Index,
@@ -458,7 +431,6 @@ fn layoutOf(
     return check.untypedInt(if (builtin == .size_of) layout.size else layout.alignment);
 }
 
-/// An edge of an integer type, an untyped constant, so it meets any type it fits.
 fn limitOf(
     check: *Check,
     node: Node.Index,
@@ -483,7 +455,6 @@ fn limitOf(
     return check.untypedInt(if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted));
 }
 
-/// Retypes the pointee and keeps what the pointer may do.
 fn ptrCast(
     check: *Check,
     node: Node.Index,

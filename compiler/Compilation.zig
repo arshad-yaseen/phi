@@ -1,5 +1,3 @@
-//! The root object.
-
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -19,8 +17,6 @@ const Token = @import("Token.zig");
 
 const Decl = Module.Decl;
 
-// tables
-
 gpa: Allocator,
 io: std.Io,
 pool: Pool,
@@ -36,47 +32,31 @@ instance_map: std.HashMapUnmanaged(
     InstanceIndexContext,
     std.hash_map.default_max_load_percentage,
 ) = .empty,
-/// Parameters and fields share one shape, so one table.
 rows: std.ArrayList(Row) = .empty,
 /// Marked and restored, because one signature can demand another.
 rows_scratch: std.ArrayList(Row) = .empty,
 /// Bodies never nest, so one builder serves them all.
 body_builder: Check.Builder = .empty,
-/// Staged literal parts and call arguments, marked and restored.
 operands: std.ArrayList(Check.Operand) = .empty,
 body_queue: std.ArrayList(Pool.Instance) = .empty,
 funcs: std.ArrayList(IR.Func) = .empty,
-/// Every function's instructions, blocks, and extra words, which each `Func` ranges into.
 insts: IR.InstList = .empty,
 inst_extra: std.ArrayList(u32) = .empty,
 blocks: std.ArrayList(IR.Block) = .empty,
 diagnostics: std.ArrayList(Entry) = .empty,
 /// One row per (module, code, anchor), so re-walked code reports once.
 reported: std.AutoHashMapUnmanaged(ReportKey, void) = .empty,
-/// Each checked expression's type, recorded only when the host asked.
 expr_types: std.AutoHashMapUnmanaged(ExprKey, Pool.Index) = .empty,
-/// Every layout ever computed, so a type's is computed once.
 layouts: std.AutoHashMapUnmanaged(Pool.Index, Layout) = .empty,
-/// `std.prelude`, when it loaded.
 prelude: ?Module.Index = null,
 
-// transient analysis state
-
-/// What is being analyzed, for cycle reports.
 stack: std.ArrayList(Frame) = .empty,
-/// Backs diagnostic text, module keys, and paths until deinit.
 arena: std.heap.ArenaAllocator,
 
-// configuration
-
 loader: Loader,
-/// Directory of the root file. Bare module paths resolve against it.
 root_dir: []const u8,
-/// Stem of the root file, its name if something imports it back.
 root_stem: []const u8,
-/// Where `std.` resolves, or null.
 std_dir: ?[]const u8,
-/// Whether checking records every expression's type for `exprType`.
 record_expr_types: bool,
 
 const Compilation = @This();
@@ -89,17 +69,13 @@ const diagnostics_max = 256;
 pub const Instance = struct {
     decl: Decl.Index,
     args: Range,
-    /// A struct type, or a function return type once resolved.
     type: Pool.Index,
-    /// Fields for a struct, parameters for a function.
     rows: Range,
-    /// Where this instance was first demanded.
     origin: Origin,
     /// The instance whose checking first demanded this one.
     parent: Pool.OptionalInstance,
     /// Generic ancestors, this instance included.
     depth: u32,
-    /// Row in `funcs` once the body committed.
     func: IR.Func.OptionalIndex,
     /// Fields resolved, or signature resolved.
     rows_state: Decl.State,
@@ -147,7 +123,6 @@ pub const Range = struct {
     }
 };
 
-/// A parameter or a field.
 pub const Row = struct {
     name: Pool.String,
     type: Pool.Index,
@@ -178,7 +153,6 @@ pub const Unit = struct {
     }
 };
 
-/// Where a demand came from, named by a cycle report or the trail.
 pub const Origin = struct { module: Module.Index, node: AST.Node.Index };
 
 const Frame = struct { unit: Unit, origin: Origin };
@@ -195,7 +169,6 @@ const ReportKey = struct {
 
 const ExprKey = struct { instance: Pool.Instance, node: AST.Node.Index };
 
-/// A diagnostic and the unit that produced it. Null belongs to parsing and registration.
 pub const Entry = struct {
     module: Module.Index,
     unit: ?Unit,
@@ -205,7 +178,6 @@ pub const Entry = struct {
 pub const Options = struct {
     root_path: []const u8,
     std_dir: ?[]const u8,
-    /// An editor host records every expression's type. A batch compile leaves it off.
     record_expr_types: bool = false,
     loader: Loader = .disk,
 };
@@ -225,7 +197,6 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .record_expr_types = options.record_expr_types,
     };
 
-    // `analyze_max` caps the stack, so one reservation serves forever
     try comp.stack.ensureTotalCapacity(gpa, analyze_max);
     errdefer comp.stack.deinit(gpa);
 
@@ -266,13 +237,10 @@ pub fn deinit(comp: *Compilation) void {
     comp.* = undefined;
 }
 
-// the driver
-
-/// Check one program from its root file, whose source this takes over.
 pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
     assert(comp.modules.items.len == 0);
 
-    const in_std = comp.std_dir != null and pathInside(comp.std_dir.?, comp.root_dir);
+    const in_std = if (comp.std_dir) |dir| pathInside(dir, comp.root_dir) else false;
     const space: Module.Space = if (in_std) .std else .root;
     const key = try comp.fmt("{t}:{s}", .{ space, comp.root_stem });
 
@@ -295,12 +263,10 @@ pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
     assert(comp.stack.items.len == 0);
 }
 
-/// A plain function, and the plain methods of a plain struct.
 fn enqueueBodies(comp: *Compilation, decl_index: Decl.Index, origin: Origin) Allocator.Error!void {
     const decl = comp.declAt(decl_index);
     switch (decl.kind) {
         .import, .type_alias, .unit_decl, .let => {},
-        // a signature with no body is still checked, so an unused one is not unread
         .extern_fn => {
             if (decl.state == .poisoned) return;
             const instance = try comp.instantiate(decl_index, &.{}, origin);
@@ -332,7 +298,6 @@ fn enqueueBodiesFn(
     try comp.enqueueBody(try comp.instantiate(decl_index, &.{}, origin));
 }
 
-/// The drain's `ensure` makes a duplicate enqueue a no-op.
 pub fn enqueueBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!void {
     const kind = comp.declAt(comp.instanceDecl(instance)).kind;
     if (kind == .extern_fn) return;
@@ -353,15 +318,12 @@ fn drainBodies(comp: *Compilation) Allocator.Error!void {
     comp.body_queue.clearRetainingCapacity();
 }
 
-/// Whether a declaration only means something once instantiated.
 pub fn isGeneric(comp: *const Compilation, decl_index: Decl.Index) bool {
     const decl = comp.declAt(decl_index);
     if (comp.typeParamCount(decl_index) > 0) return true;
     if (decl.owner.unwrap()) |owner| return comp.isGeneric(owner);
     return false;
 }
-
-// ensure, the one door into every memoized computation
 
 pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!void {
     switch (comp.unitState(unit).*) {
@@ -370,7 +332,6 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
         .unanalyzed => {},
     }
 
-    // analysis recurses through whatever it demands
     if (comp.stack.items.len >= analyze_max) {
         try comp.reportNode(origin.module, origin.node, .{
             .code = .analysis_too_deep,
@@ -464,9 +425,8 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
         .decl => switch (comp.declAt(@enumFromInt(unit.index)).kind) {
             .let => try comp.fmt("'{s}' takes its value from itself", .{name}),
             .type_alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
-            // resolving an import demands no other unit, so it can never be re-entered
-            .import => unreachable,
-            .struct_decl, .unit_decl, .fn_decl, .extern_fn => "this definition goes in a circle",
+            .import, .struct_decl, .unit_decl => "this definition goes in a circle",
+            .fn_decl, .extern_fn => "this definition goes in a circle",
         },
         .alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
         .embedding => try comp.fmt("'{s}' holds itself by value, so it has no size", .{name}),
@@ -479,7 +439,6 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
         else => null,
     };
 
-    // the frames above this unit are the chain back to it
     var position: usize = comp.stack.items.len;
     for (comp.stack.items, 0..) |frame, at| {
         if (frame.unit.eql(unit)) {
@@ -517,8 +476,6 @@ fn unitName(comp: *Compilation, unit: Unit) Allocator.Error![]const u8 {
         else => return comp.instanceName(@enumFromInt(unit.index)),
     }
 }
-
-// instantiation, where one memo table makes identity the row
 
 pub fn instantiate(
     comp: *Compilation,
@@ -627,7 +584,6 @@ pub fn funcAt(comp: *const Compilation, index: IR.Func.Index) IR.Func {
     return comp.funcs.items[index.int()];
 }
 
-/// The declaration rows a range names, a module's usually.
 pub fn declsIn(comp: *const Compilation, range: Range) []const Decl {
     assert(range.end() <= comp.decls.items.len);
     return comp.decls.items[range.start..range.end()];
@@ -641,7 +597,6 @@ pub fn instanceDecl(comp: *const Compilation, index: Pool.Instance) Decl.Index {
     return comp.instanceAt(index).decl;
 }
 
-/// A struct's type, or a resolved return type.
 pub fn instanceType(comp: *const Compilation, index: Pool.Instance) Pool.Index {
     return comp.instanceAt(index).type;
 }
@@ -687,7 +642,6 @@ pub fn rememberExprType(
     try comp.expr_types.put(comp.gpa, .{ .instance = instance, .node = node }, type_index);
 }
 
-/// What checking decided for this node. The editor reads data, nothing re-runs.
 pub fn exprType(
     comp: *const Compilation,
     instance: Pool.Instance,
@@ -794,13 +748,11 @@ fn report(
     });
 }
 
-/// The unit being run owns what it reports. Null before any unit runs.
 fn currentUnit(comp: *const Compilation) ?Unit {
     if (comp.stack.items.len == 0) return null;
     return comp.stack.items[comp.stack.items.len - 1].unit;
 }
 
-/// The instance whose unit is running, `.none` outside one.
 fn currentInstance(comp: *const Compilation) Pool.OptionalInstance {
     const unit = comp.currentUnit() orelse return .none;
     if (unit.kind == .decl) return .none;
@@ -826,7 +778,6 @@ pub fn adoptParseErrors(
     }
 }
 
-/// Appended to every report, innermost instance first.
 fn withTrail(
     comp: *Compilation,
     notes_in: []const Diagnostic.Note,
@@ -901,7 +852,6 @@ pub fn notes(comp: *Compilation, list: []const Diagnostic.Note) Allocator.Error!
     return comp.arena.allocator().dupe(Diagnostic.Note, list);
 }
 
-/// The common one-note list, in the arena.
 pub fn noteOne(
     comp: *Compilation,
     module: Module.Index,
@@ -920,7 +870,6 @@ pub fn fmt(
     return std.fmt.allocPrint(comp.arena.allocator(), template, args);
 }
 
-/// The closest candidate to a missed name, if any came under the suggestion threshold.
 pub const Closest = struct {
     target: []const u8,
     best: ?[]const u8 = null,
@@ -934,7 +883,6 @@ pub const Closest = struct {
         }
     }
 
-    /// Levenshtein distance, with both names cut to forty bytes.
     fn distance(a: []const u8, b: []const u8) u32 {
         const cap = 40;
         const from = a[0..@min(a.len, cap)];
@@ -967,7 +915,6 @@ pub fn didYouMean(
     return try comp.fmt("did you mean '{s}'?", .{found});
 }
 
-/// Offers a range's top-level names to a suggestion.
 pub fn considerDecls(comp: *const Compilation, closest: *Closest, range: Range) void {
     for (comp.declsIn(range)) |decl| {
         if (decl.owner != .none) continue;
@@ -999,7 +946,6 @@ pub fn dumpIR(comp: *const Compilation, writer: *Writer) Writer.Error!void {
     }
 }
 
-/// One of the `Spell` writers into the diagnostic arena.
 fn spelled(comp: *Compilation, writer: anytype, subject: anytype) Allocator.Error![]const u8 {
     var out: Writer.Allocating = .init(comp.arena.allocator());
     writer(comp, &out.writer, subject) catch |err| switch (err) {
@@ -1016,7 +962,6 @@ pub fn instanceName(comp: *Compilation, index: Pool.Instance) Allocator.Error![]
     return comp.spelled(Spell.writeInstance, index);
 }
 
-/// The value alone, for a message naming what did not fit.
 pub fn spellValue(comp: *Compilation, value: Pool.Index) Allocator.Error![]const u8 {
     return comp.spelled(Spell.writeConstantBare, value);
 }
@@ -1029,7 +974,6 @@ pub fn typeParamCount(comp: *const Compilation, decl_index: Decl.Index) u32 {
     return comp.declAt(decl_index).type_params;
 }
 
-/// Textual, which is enough to notice a root file inside the standard library.
 fn pathInside(outer: []const u8, inner: []const u8) bool {
     const trimmed = std.mem.trimEnd(u8, outer, "/");
     if (std.mem.startsWith(u8, inner, trimmed) == false) return false;
@@ -1037,11 +981,8 @@ fn pathInside(outer: []const u8, inner: []const u8) bool {
     return inner[trimmed.len] == '/';
 }
 
-// testing
-
 const testing = std.testing;
 
-/// One compilation over one source, with no standard library, as every test stands one up.
 pub fn testCompile(comp: *Compilation, text: []const u8) !void {
     const gpa = testing.allocator;
     try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
@@ -1068,7 +1009,7 @@ test "instantiation identity is index equality" {
     defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
 
-    const hold = comp.moduleAt(.root).findDecl("hold").?;
+    const hold = comp.moduleAt(.root).findDecl("hold") orelse return error.TestUnexpectedResult;
     const instance = try comp.instantiate(hold, &.{}, .{
         .module = .root,
         .node = comp.declAt(hold).node,
@@ -1076,10 +1017,8 @@ test "instantiation identity is index equality" {
     const rows = comp.instanceRows(instance);
     try testing.expectEqual(3, rows.len);
 
-    // `Box[i64]` twice, and once through an alias, is one index
     try testing.expectEqual(rows[0].type, rows[1].type);
     try testing.expectEqual(rows[1].type, comp.instanceType(instance));
-    // `Box[u8]` is another type entirely
     try testing.expect(rows[0].type != rows[2].type);
 }
 
@@ -1098,7 +1037,7 @@ test "a generic alias is the type it names, not a new one" {
     defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
 
-    const pick = comp.moduleAt(.root).findDecl("pick").?;
+    const pick = comp.moduleAt(.root).findDecl("pick") orelse return error.TestUnexpectedResult;
     const instance = try comp.instantiate(pick, &.{}, .{
         .module = .root,
         .node = comp.declAt(pick).node,

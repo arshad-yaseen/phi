@@ -26,7 +26,6 @@ pub fn init(source: [:0]const u8) Tokenizer {
     return .{ .source = source, .cursor = bom, .previous = .semi, .pending = null };
 }
 
-/// Comments are set aside, so the parser never meets one.
 pub fn tokenizeAll(
     gpa: Allocator,
     source: [:0]const u8,
@@ -55,7 +54,6 @@ pub fn tokenizeAll(
     assert(tokens.items(.tag)[tokens.len - 1] == .eof);
 }
 
-/// The next token, the held `;` first where a line break ended a statement.
 pub fn next(tokenizer: *Tokenizer) Token {
     const token = tokenizer.scan();
     if (token.tag.isComment()) return token;
@@ -86,7 +84,6 @@ fn insertedSemi(tokenizer: *Tokenizer, token: Token) ?Token {
     return .{ .tag = .semi, .start = start };
 }
 
-/// One token as it is written, cursor left just past it.
 fn scan(tokenizer: *Tokenizer) Token {
     assert(tokenizer.cursor <= tokenizer.source.len);
 
@@ -124,10 +121,9 @@ fn scan(tokenizer: *Tokenizer) Token {
             '@' => continue :state if (is_ident[source[cursor + 1]]) .builtin else .invalid,
             else => {
                 for (Token.punctuation[source[cursor]].candidates()) |candidate| {
-                    const text = candidate.lexeme().?;
-                    if (std.mem.startsWith(u8, source[cursor..], text)) {
-                        cursor += @intCast(text.len);
-                        break :state candidate;
+                    if (std.mem.startsWith(u8, source[cursor..], candidate.text)) {
+                        cursor += @intCast(candidate.text.len);
+                        break :state candidate.tag;
                     }
                 }
                 continue :state .invalid;
@@ -218,14 +214,9 @@ fn scan(tokenizer: *Tokenizer) Token {
 /// Byte just past a token. Rescans, tokens don't store lengths.
 pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
     assert(start <= source.len);
-
-    const fixed = Token.lexeme_len[@intFromEnum(tag)];
-    if (fixed > 0) return start + fixed;
-
     switch (tag) {
         .eof => return start,
         .ident => return identEnd(source, start),
-        // past the `@`, which the name follows
         .builtin => return identEnd(source, start + 1),
         .number => return numberEnd(source, start),
         .string => return quotedEnd(source, start, '"'),
@@ -238,8 +229,12 @@ pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
             while (cursor < source.len and is_token_start[source[cursor]] == false) cursor += 1;
             return cursor;
         },
-        // every remaining tag spells fixed text, so the table answered above
-        else => unreachable,
+        // every other tag spells fixed text
+        else => {
+            const fixed = Token.lexeme_len[@intFromEnum(tag)];
+            assert(fixed > 0);
+            return start + fixed;
+        },
     }
 }
 
@@ -250,7 +245,6 @@ fn identEnd(source: [:0]const u8, start: u32) u32 {
     return cursor;
 }
 
-/// Past the closing quote, or at the line's end where the literal never closed.
 fn quotedEnd(source: [:0]const u8, start: u32, quote: u8) u32 {
     assert(start < source.len);
     assert(source[start] == quote);

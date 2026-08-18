@@ -9,11 +9,8 @@ const Handle = @import("Handle.zig");
 const Module = @import("Module.zig");
 
 items: std.MultiArrayList(Item),
-/// Wide payloads, each a type and its value words.
 extra: std.ArrayList(u32),
-/// Every interned string, null terminated.
 bytes: std.ArrayList(u8),
-/// Item lookup, so one (tag, payload) is one index forever.
 map: std.HashMapUnmanaged(Index, void, IndexContext, load_percentage),
 string_map: std.HashMapUnmanaged(String, void, StringContext, load_percentage),
 /// Marked and restored. Gathers indexes a walk holds on to, which nests.
@@ -27,7 +24,6 @@ const load_percentage = std.hash_map.default_max_load_percentage;
 
 const Pool = @This();
 
-/// Interned before any source is read.
 const statics = @typeInfo(SimpleType).@"enum".fields.len;
 
 /// A type or a constant. `init` interns the named items in this order.
@@ -44,12 +40,9 @@ pub const Index = enum(u32) {
     u64_type,
     f32_type,
     f64_type,
-    /// What a function with no return type returns.
     void_type,
-    /// A number that has not met a type yet.
     untyped_int_type,
     untyped_float_type,
-    /// A written `[a, b, c]`, which has not met a type yet.
     untyped_aggregate_type,
     _,
 
@@ -63,7 +56,6 @@ pub const Index = enum(u32) {
     }
 };
 
-/// A struct instantiation. The rows live on `Compilation`.
 pub const Instance = Handle.Index("instance");
 pub const OptionalInstance = Instance.Optional;
 
@@ -104,7 +96,6 @@ pub const SimpleType = enum(u32) {
         return @enumFromInt(@intFromEnum(simple));
     }
 
-    /// Whether source may write this name.
     fn isSpellable(simple: SimpleType) bool {
         return switch (simple) {
             .i8, .i16, .i32, .i64 => true,
@@ -116,14 +107,10 @@ pub const SimpleType = enum(u32) {
     }
 };
 
-// the primitive types
-
-/// The type a name means in every file, read off the static items.
 pub fn primitiveType(text: []const u8) ?Index {
     return primitives.get(text);
 }
 
-/// For a suggestion when a name is missed.
 pub const primitive_names = primitives.keys();
 
 /// Whether an interned string spells a primitive name, which `init` interns first.
@@ -151,15 +138,11 @@ const primitives = build: {
     break :build std.StaticStringMap(Index).initComptime(entries[0..count].*);
 };
 
-/// What one item means, spelled like the tag it is stored under.
 pub const Key = union(enum) {
     type_simple: SimpleType,
     type_pointer: Pointer,
-    /// N values of one type, contiguous. The length is part of the type.
     type_array: Array,
-    /// A pointer and a length.
     type_slice: Slice,
-    /// A nominal struct, whose identity is the instantiation.
     type_struct: Instance,
     /// A nominal unit type. Never generic, so the declaration is the identity.
     type_unit: Module.Decl.Index,
@@ -170,7 +153,6 @@ pub const Key = union(enum) {
     value_float: Float,
     /// Ordered elements. Borrowed from `extra`, stale at the next intern.
     value_aggregate: Aggregate,
-    /// The unit type, whose one value this is.
     value_unit: Index,
     /// A constant that knows its union. The union, then the member constant.
     value_union: Wrapped,
@@ -186,7 +168,6 @@ pub const Key = union(enum) {
     pub const Int = struct { type: Index, value: i128 };
     pub const Float = struct { type: Index, value: f64 };
     pub const Wrapped = struct { type: Index, value: Index };
-    /// The view's own type, and the array constant holding the bytes it views.
     pub const Viewed = struct { type: Index, data: Index };
     pub const Splat = struct { type: Index, element: Index };
     pub const Aggregate = struct { type: Index, elems: []const Index };
@@ -217,10 +198,32 @@ pub const Key = union(enum) {
                 std.mem.eql(Index, it.elems, other.value_aggregate.elems),
             // by bits, so float equality is never asked
             .value_float => |it| it.type == other.value_float.type and
-                @as(u64, @bitCast(it.value)) == @as(u64, @bitCast(other.value_float.value)),
+                bitsOf(it.value) == bitsOf(other.value_float.value),
             inline else => |payload, tag| std.meta.eql(payload, @field(other, @tagName(tag))),
         };
     }
+};
+
+pub const TypeKey = union(enum) {
+    type_simple: SimpleType,
+    type_pointer: Key.Pointer,
+    type_array: Key.Array,
+    type_slice: Key.Slice,
+    type_struct: Instance,
+    type_unit: Module.Decl.Index,
+    type_union: []const Index,
+};
+
+/// The value arms of `Key`, and `poison`, which is a broken value as much as a broken type.
+pub const ValueKey = union(enum) {
+    poison,
+    value_int: Key.Int,
+    value_float: Key.Float,
+    value_aggregate: Key.Aggregate,
+    value_unit: Index,
+    value_union: Key.Wrapped,
+    value_slice: Key.Viewed,
+    value_splat: Key.Splat,
 };
 
 const Item = struct {
@@ -259,7 +262,6 @@ const Item = struct {
 
 comptime {
     assert(@sizeOf(Item.Tag) == 1);
-    // the stated fold width is the stored width
     assert(fold_bits == @bitSizeOf(i128));
     // every integer a program can write folds without truncating
     assert(@bitSizeOf(u64) < fold_bits);
@@ -278,7 +280,6 @@ pub fn init(pool: *Pool, gpa: Allocator) Allocator.Error!void {
     };
     errdefer pool.deinit(gpa);
 
-    // a few hundred items per source file
     try pool.items.ensureTotalCapacity(gpa, 256);
     try pool.bytes.ensureTotalCapacity(gpa, 1024);
 
@@ -305,8 +306,6 @@ pub fn deinit(pool: *Pool, gpa: Allocator) void {
     pool.scratch.deinit(gpa);
     pool.* = undefined;
 }
-
-// interning
 
 pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
     const small = smallIntSlot(key);
@@ -432,6 +431,37 @@ fn smallIntSlot(key: Key) ?u32 {
     return slot;
 }
 
+pub fn typeKey(pool: *const Pool, index: Index) TypeKey {
+    assert(pool.isType(index));
+    return switch (pool.keyOf(index)) {
+        inline .type_simple,
+        .type_pointer,
+        .type_array,
+        .type_slice,
+        .type_struct,
+        .type_unit,
+        .type_union,
+        => |payload, tag| @unionInit(TypeKey, @tagName(tag), payload),
+        else => unreachable,
+    };
+}
+
+pub fn valueKey(pool: *const Pool, index: Index) ValueKey {
+    if (index == .poison) return .poison;
+    assert(pool.isType(index) == false);
+    return switch (pool.keyOf(index)) {
+        inline .value_int,
+        .value_float,
+        .value_aggregate,
+        .value_unit,
+        .value_union,
+        .value_slice,
+        .value_splat,
+        => |payload, tag| @unionInit(ValueKey, @tagName(tag), payload),
+        else => unreachable,
+    };
+}
+
 pub fn keyOf(pool: *const Pool, index: Index) Key {
     assert(index.int() < pool.items.len);
 
@@ -477,10 +507,8 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
     };
 }
 
-/// The most members one union may hold, after flattening.
 pub const union_members_max = 255;
 
-/// Everything except `index` is a mistake, reported where the union is written.
 pub const Unite = union(enum) {
     index: Index,
     /// Already in the flattened list. An alias is not a new type.
@@ -488,7 +516,6 @@ pub const Unite = union(enum) {
     too_wide,
 };
 
-/// The one way a union is built. Members splice in flat, and a repeat is refused.
 pub fn unite(pool: *Pool, gpa: Allocator, members: []const Index) Allocator.Error!Unite {
     assert(members.len >= 2);
 
@@ -541,13 +568,18 @@ pub fn unionMemberPosition(pool: *const Pool, union_index: Index, member: Index)
     return null;
 }
 
-/// Whether `member` is `set` itself, or one of `set`'s members where it is a union.
+pub fn memberPosition(pool: *const Pool, union_index: Index, member: Index) u32 {
+    for (pool.unionMembers(union_index), 0..) |candidate, at| {
+        if (candidate == member) return @intCast(at);
+    }
+    unreachable;
+}
+
 pub fn covers(pool: *const Pool, set: Index, member: Index) bool {
     if (set == member) return true;
     return pool.isUnion(set) and pool.unionHas(set, member);
 }
 
-/// The union without `removed`, one member or a union of them. Null where nothing is left.
 pub fn unionWithout(
     pool: *Pool,
     gpa: Allocator,
@@ -568,7 +600,16 @@ pub fn unionWithout(
     return try pool.intern(gpa, .{ .type_union = flat[0..count] });
 }
 
-/// Whether `wide` lists every member of `narrow`, one type or a union. Membership, not order.
+pub fn unionTail(pool: *Pool, gpa: Allocator, union_index: Index) Allocator.Error!Index {
+    const members = pool.unionMembers(union_index);
+    assert(members.len >= 2);
+    if (members.len == 2) return members[1];
+
+    var rest: [union_members_max]Index = undefined;
+    @memcpy(rest[0 .. members.len - 1], members[1..]);
+    return pool.intern(gpa, .{ .type_union = rest[0 .. members.len - 1] });
+}
+
 pub fn unionCovers(pool: *const Pool, wide: Index, narrow: Index) bool {
     assert(pool.isUnion(wide));
     if (pool.isUnion(narrow) == false) return pool.unionHas(wide, narrow);
@@ -659,19 +700,14 @@ fn spells(bytes: []const u8, name: String, text: []const u8) bool {
     return stored[text.len] == 0;
 }
 
-pub fn stringText(pool: *const Pool, index: String) [:0]const u8 {
+pub fn stringText(pool: *const Pool, index: String) []const u8 {
     assert(index.int() < pool.bytes.items.len);
-    const base = pool.bytes.items[index.int()..];
-    // interning terminates every string, so the zero byte is always found
-    const length = std.mem.indexOfScalar(u8, base, 0).?;
-    return base[0..length :0];
+    return std.mem.sliceTo(pool.bytes.items[index.int()..], 0);
 }
 
-// questions every stage asks
-
-/// Only a value has one. `poison` is both, and answers with itself.
 pub fn typeOfValue(pool: *const Pool, value: Index) Index {
-    return switch (pool.keyOf(value)) {
+    return switch (pool.valueKey(value)) {
+        .poison => .poison,
         .value_int => |it| it.type,
         .value_float => |it| it.type,
         .value_aggregate => |it| it.type,
@@ -679,16 +715,9 @@ pub fn typeOfValue(pool: *const Pool, value: Index) Index {
         .value_union => |it| it.type,
         .value_slice => |it| it.type,
         .value_splat => |it| it.type,
-        .type_simple => |simple| simple: {
-            assert(simple == .poison);
-            break :simple .poison;
-        },
-        .type_pointer, .type_array, .type_slice => unreachable,
-        .type_struct, .type_unit, .type_union => unreachable,
     };
 }
 
-/// The type a constant holds, the member where the constant knows its union.
 pub fn memberOfValue(pool: *const Pool, value: Index) Index {
     return switch (pool.keyOf(value)) {
         .value_union => |it| pool.typeOfValue(it.value),
@@ -696,10 +725,25 @@ pub fn memberOfValue(pool: *const Pool, value: Index) Index {
     };
 }
 
+pub fn heldValue(pool: *const Pool, value: Index) Index {
+    return switch (pool.valueKey(value)) {
+        .value_union => |it| it.value,
+        else => unreachable,
+    };
+}
+
+pub fn structOf(pool: *const Pool, index: Index) Instance {
+    return switch (pool.typeKey(index)) {
+        .type_struct => |instance| instance,
+        else => unreachable,
+    };
+}
+
 pub fn isType(pool: *const Pool, index: Index) bool {
-    return switch (pool.keyOf(index)) {
-        .type_simple, .type_pointer, .type_array, .type_slice => true,
-        .type_struct, .type_unit, .type_union => true,
+    assert(index.int() < pool.items.len);
+    return switch (pool.items.items(.tag)[index.int()]) {
+        .type_simple, .type_pointer, .type_pointer_var, .type_array => true,
+        .type_slice, .type_slice_var, .type_struct, .type_unit, .type_union => true,
         .value_int, .value_float, .value_aggregate => false,
         .value_unit, .value_union, .value_slice, .value_splat => false,
     };
@@ -741,7 +785,6 @@ pub fn isFloat(index: Index) bool {
     };
 }
 
-/// A constant that has not met a type yet, so it may still take one.
 pub fn isUntyped(index: Index) bool {
     if (index == .untyped_int_type) return true;
     if (index == .untyped_float_type) return true;
@@ -758,12 +801,10 @@ pub fn isSizedInt(index: Index) bool {
     return index != .untyped_int_type;
 }
 
-/// Whether every value of `from` is also a value of `into`, so no value is lost.
 pub fn widens(from: Index, into: Index) bool {
     if (from == .f32_type) return into == .f64_type;
     if (isSizedInt(from) == false) return false;
     if (isSizedFloat(into)) {
-        // a float holds every integer up to its mantissa exactly
         return minInt(from) >= -exactIntMax(into) and maxInt(from) <= exactIntMax(into);
     }
     if (isSizedInt(into) == false) return false;
@@ -775,7 +816,6 @@ fn isSizedFloat(index: Index) bool {
     return index == .f32_type or index == .f64_type;
 }
 
-/// The largest integer a float holds exactly, and every one below it.
 fn exactIntMax(float_type: Index) i128 {
     return switch (float_type) {
         .f32_type => 1 << 24,
@@ -784,11 +824,9 @@ fn exactIntMax(float_type: Index) i128 {
     };
 }
 
-/// The float that is exactly `value`, or null where the type would round it.
 fn exactFloat(value: i128, type_index: Index) ?f64 {
     assert(isFloat(type_index));
     const wide = narrowFloat(@floatFromInt(value), type_index);
-    // reading back past the fold's width would overflow
     if (wide < -0x1p127 or wide >= 0x1p127) return null;
     if (@as(i128, @intFromFloat(wide)) != value) return null;
     return wide;
@@ -801,7 +839,6 @@ pub fn isSignedInt(index: Index) bool {
     };
 }
 
-/// A sized type that can be negated, an integer with a sign or a float.
 pub fn isSignedNumber(index: Index) bool {
     return isSignedInt(index) or isSizedFloat(index);
 }
@@ -820,30 +857,22 @@ pub fn maxInt(type_index: Index) i128 {
 }
 
 comptime {
-    // both edges of every width sit inside the fold, which is what keeps them exact
     assert(std.math.maxInt(u64) < std.math.maxInt(i128));
     assert(std.math.minInt(i64) > std.math.minInt(i128));
 }
 
 pub fn fitsInt(value: i128, type_index: Index) bool {
     assert(isInteger(type_index) or isFloat(type_index));
-    // untyped always fits, and every i128 is below the smallest float infinity
     if (isSizedInt(type_index) == false) return true;
     if (value < minInt(type_index)) return false;
     return value <= maxInt(type_index);
 }
 
-// the constant-folding core
-
-/// Everything except `value` is a mistake, reported at the operator.
 pub const Fold = union(enum) {
     value: Index,
-    /// Past the 128 bits constants fold in.
     overflow,
     division_by_zero,
-    /// Outside the width the shifted value occupies.
     bad_shift: struct { count: i128, type: Index },
-    /// Refused by the type both operands carry.
     does_not_fit: struct { value: Index, type: Index },
     mismatch: struct { left: Index, right: Index },
     bad_operand: Index,
@@ -851,7 +880,6 @@ pub const Fold = union(enum) {
     truth: bool,
 };
 
-/// The width constants fold in, which bounds every shift.
 pub const fold_bits = 128;
 
 pub fn fold(
@@ -882,36 +910,15 @@ pub fn fold(
         return .{ .does_not_fit = .{ .value = rhs, .type = result_type } };
     };
 
-    if (isFloat(result_type)) {
-        if (compareFold(op, a.float, b.float)) |answer| return answer;
-        return pool.foldFloat(gpa, op, a.float, b.float, result_type);
-    }
-    if (compareFold(op, a.int, b.int)) |answer| return answer;
+    if (isFloat(result_type)) return pool.foldFloat(gpa, op, a.float, b.float, result_type);
     return pool.foldInt(gpa, op, a.int, b.int, result_type);
 }
 
-/// A number as the type holds it, or null where it does not fit.
 fn fitNumber(pool: *Pool, gpa: Allocator, value: Index, type_index: Index) Allocator.Error!?Number {
     return switch (try pool.fit(gpa, value, type_index, .allowed)) {
-        // a number fitted to a numeric type is a number
-        .value => |fitted| numberOf(pool.keyOf(fitted)).?,
-        .does_not_fit => null,
-        // `sharedType` admits only numeric pairs, so the kind always matches
-        .wrong_kind => unreachable,
+        .value => |fitted| numberOf(pool.keyOf(fitted)),
+        .does_not_fit, .wrong_kind => null,
     };
-}
-
-/// The one place an operator becomes a comparison, so both widths ask it alike.
-fn compareFold(op: AST.BinaryOp, a: anytype, b: @TypeOf(a)) ?Fold {
-    return .{ .truth = switch (op) {
-        .equal => a == b,
-        .not_equal => a != b,
-        .less_than => a < b,
-        .less_or_equal => a <= b,
-        .greater_than => a > b,
-        .greater_or_equal => a >= b,
-        else => return null,
-    } };
 }
 
 pub fn foldNegate(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!Fold {
@@ -927,7 +934,6 @@ pub fn foldNegate(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!F
     return pool.internInt(gpa, negated, number.type);
 }
 
-/// The complement inside the operand's own type.
 pub fn foldBitNot(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!Fold {
     if (operand == .poison) return .{ .value = .poison };
 
@@ -938,7 +944,6 @@ pub fn foldBitNot(pool: *Pool, gpa: Allocator, operand: Index) Allocator.Error!F
     return pool.internInt(gpa, complementOf(number.int, number.type), number.type);
 }
 
-/// The bits a value of this type occupies, which bounds every shift of it.
 pub fn widthOf(type_index: Index) u16 {
     assert(isInteger(type_index));
     return switch (type_index) {
@@ -960,7 +965,6 @@ fn complementOf(value: i128, type_index: Index) i128 {
     return ~value & ((@as(i128, 1) << @intCast(widthOf(type_index))) - 1);
 }
 
-/// Null where the distance is not one the value's own width allows.
 fn shiftAmount(count: i128, type_index: Index) ?std.math.Log2Int(i128) {
     if (count < 0) return null;
     if (count >= widthOf(type_index)) return null;
@@ -969,7 +973,6 @@ fn shiftAmount(count: i128, type_index: Index) ?std.math.Log2Int(i128) {
 
 pub const Fit = union(enum) {
     value: Index,
-    /// Right in kind, wrong in size.
     does_not_fit,
     wrong_kind,
 };
@@ -1006,18 +1009,19 @@ pub fn fit(
         return if (wrong_size) .does_not_fit else .wrong_kind;
     }
 
-    // a settled value takes its own type or a wider one
     const found = pool.typeOfValue(value);
     if (isUntyped(found) == false) {
         if (type_index == found) return .{ .value = value };
         if (widen == .allowed and widens(found, type_index)) {
-            const widened: Key = switch (pool.keyOf(value)) {
-                .value_int => |it| widenedInt(it.value, type_index),
-                .value_float => |it| .{ .value_float = .{ .type = type_index, .value = it.value } },
-                // widening answers for a number and nothing else
-                else => unreachable,
-            };
-            return .{ .value = try pool.intern(gpa, widened) };
+            switch (pool.keyOf(value)) {
+                .value_int => |it| return .{
+                    .value = try pool.intern(gpa, widenedInt(it.value, type_index)),
+                },
+                .value_float => |it| return .{ .value = try pool.intern(gpa, .{
+                    .value_float = .{ .type = type_index, .value = it.value },
+                }) },
+                else => {},
+            }
         }
         return switch (pool.keyOf(value)) {
             .value_union => |it| pool.fit(gpa, it.value, type_index, widen),
@@ -1051,7 +1055,6 @@ pub fn fit(
                 }) };
             }
             if (isInteger(type_index)) {
-                // only a whole number can stop being a float
                 const truncated = @trunc(it.value);
                 if (truncated != it.value) return .does_not_fit;
                 if (it.value < -0x1p127 or it.value >= 0x1p127) return .does_not_fit;
@@ -1061,18 +1064,15 @@ pub fn fit(
             }
             return .wrong_kind;
         },
-        // still unchosen, so only storage or a view of it can take the elements
         .value_aggregate => switch (pool.keyOf(type_index)) {
             .type_array => |array| return pool.fitAggregate(gpa, value, array, type_index),
             .type_slice => |view| return pool.fitView(gpa, value, view, type_index),
             else => return .wrong_kind,
         },
-        // only a number or an aggregate can still be untyped
-        else => unreachable,
+        else => return .wrong_kind,
     }
 }
 
-/// The bytes the program owns, and a view of them, which is never writable.
 fn fitView(
     pool: *Pool,
     gpa: Allocator,
@@ -1123,9 +1123,6 @@ fn fitAggregate(
     } }) };
 }
 
-// the arms of the core
-
-/// One integer and one float shape, whichever the type says.
 const Number = struct {
     type: Index,
     int: i128,
@@ -1140,7 +1137,6 @@ fn numberOf(key: Key) ?Number {
     };
 }
 
-/// The type two operands share, or null where no value of one is a value of the other.
 pub fn sharedType(left: Index, right: Index) ?Index {
     if (left == right) return left;
     if (left == .untyped_int_type) return right;
@@ -1162,13 +1158,16 @@ fn foldInt(
 ) Allocator.Error!Fold {
     assert(isInteger(result_type));
     switch (op) {
-        .add, .sub, .mul => {
-            const wide = switch (op) {
-                .add => std.math.add(i128, a, b),
-                .sub => std.math.sub(i128, a, b),
-                .mul => std.math.mul(i128, a, b),
-                else => unreachable,
-            } catch return .overflow;
+        .add => {
+            const wide = std.math.add(i128, a, b) catch return .overflow;
+            return pool.internInt(gpa, wide, result_type);
+        },
+        .sub => {
+            const wide = std.math.sub(i128, a, b) catch return .overflow;
+            return pool.internInt(gpa, wide, result_type);
+        },
+        .mul => {
+            const wide = std.math.mul(i128, a, b) catch return .overflow;
             return pool.internInt(gpa, wide, result_type);
         },
         .div => {
@@ -1178,7 +1177,6 @@ fn foldInt(
         },
         .mod => {
             if (b == 0) return .division_by_zero;
-            // @rem overflows only for minInt / -1
             const wide = if (b == -1) 0 else @rem(a, b);
             return pool.internInt(gpa, wide, result_type);
         },
@@ -1198,9 +1196,14 @@ fn foldInt(
             };
             return pool.internInt(gpa, a >> amount, result_type);
         },
-        // `fold` answered every comparison, and `and` and `or` are control flow
-        .equal, .not_equal, .less_than, .less_or_equal => unreachable,
-        .greater_than, .greater_or_equal, .bool_and, .bool_or => unreachable,
+        .equal => return .{ .truth = a == b },
+        .not_equal => return .{ .truth = a != b },
+        .less_than => return .{ .truth = a < b },
+        .less_or_equal => return .{ .truth = a <= b },
+        .greater_than => return .{ .truth = a > b },
+        .greater_or_equal => return .{ .truth = a >= b },
+        // control flow, which the checker lowers as branches
+        .bool_and, .bool_or => unreachable,
     }
 }
 
@@ -1224,13 +1227,17 @@ fn foldFloat(
         .mod, .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => {
             return .{ .bad_operand = result_type };
         },
-        // `fold` answered every comparison, and `and` and `or` are control flow
-        .equal, .not_equal, .less_than, .less_or_equal => unreachable,
-        .greater_than, .greater_or_equal, .bool_and, .bool_or => unreachable,
+        .equal => return .{ .truth = a == b },
+        .not_equal => return .{ .truth = a != b },
+        .less_than => return .{ .truth = a < b },
+        .less_or_equal => return .{ .truth = a <= b },
+        .greater_than => return .{ .truth = a > b },
+        .greater_or_equal => return .{ .truth = a >= b },
+        // control flow, which the checker lowers as branches
+        .bool_and, .bool_or => unreachable,
     }
 }
 
-/// Where overflow in a sized type is caught.
 fn internInt(
     pool: *Pool,
     gpa: Allocator,
@@ -1255,17 +1262,14 @@ fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Alloc
     }) };
 }
 
-/// Into an integer type already checked to hold the value.
 fn internWith(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Index {
     assert(isInteger(type_index));
     assert(fitsInt(value, type_index));
     return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
 }
 
-/// A typed integer widened, which lands as a float where the type is one.
 fn widenedInt(value: i128, into: Index) Key {
     if (isFloat(into)) {
-        // `widens` admitted the type, so every value of it is exact here
         assert(exactFloat(value, into) != null);
         return .{ .value_float = .{ .type = into, .value = @floatFromInt(value) } };
     }
@@ -1279,9 +1283,6 @@ fn narrowFloat(value: f64, type_index: Index) f64 {
     return @floatCast(@as(f32, @floatCast(value)));
 }
 
-// storage helpers
-
-/// Leading words, then the payload.
 fn addExtra(
     pool: *Pool,
     gpa: Allocator,
@@ -1319,7 +1320,6 @@ fn wordsOf(value: anytype) [@divExact(@bitSizeOf(@TypeOf(value)), 32)]u32 {
     return @bitCast(value);
 }
 
-/// A float by its bits, which is how it is stored and hashed.
 fn bitsOf(value: f64) u64 {
     return @bitCast(value);
 }

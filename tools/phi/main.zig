@@ -51,7 +51,6 @@ const Command = enum { check, ir, build, run };
 
 const ColorChoice = enum { auto, on, off };
 
-/// What the C compiler is asked to favour.
 const Optimize = enum { fast, small };
 
 const Request = struct {
@@ -124,7 +123,6 @@ fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *W
     }
 }
 
-/// emit C, hand it to a C compiler, maybe run it.
 fn runBuild(
     init: std.process.Init,
     comp: *compiler.Compilation,
@@ -155,7 +153,6 @@ fn runBuild(
             try comp.renderAll(log, color);
             return 1;
         },
-        // the buffer's writes fail only when its allocation does
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
 
@@ -188,13 +185,11 @@ fn runBuild(
         return 0;
     }
 
-    // a separator makes argv[0] a path, so the binary just built is the one run
     const program = if (std.fs.path.dirname(out_path) == null)
         try std.fmt.allocPrint(arena, "./{s}", .{out_path})
     else
         out_path;
 
-    // the program owns the terminal from here, so nothing is printed around it
     var child = try std.process.spawn(init.io, .{ .argv = &.{program} });
     switch (try child.wait(init.io)) {
         .exited => |code| return code,
@@ -245,7 +240,6 @@ fn compileC(
     return 2;
 }
 
-/// Beside the binary as `../lib/std`, or `lib/std` under the working directory.
 fn findStd(init: std.process.Init) !?[]const u8 {
     const arena = init.arena.allocator();
 

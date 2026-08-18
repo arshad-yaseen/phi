@@ -10,15 +10,13 @@ const Token = @import("Token.zig");
 
 const Node = AST.Node;
 
-// the pool
-
 pub fn writeType(comp: *const Compilation, writer: *Writer, index: Pool.Index) Writer.Error!void {
     var current = index;
     var depth: u32 = 0;
     const depth_cap = 64;
 
     while (depth < depth_cap) : (depth += 1) {
-        switch (comp.pool.keyOf(current)) {
+        switch (comp.pool.typeKey(current)) {
             .type_simple => |simple| return switch (simple) {
                 .poison => writer.writeAll("<broken>"),
                 .untyped_int => writer.writeAll("an untyped number"),
@@ -51,14 +49,11 @@ pub fn writeType(comp: *const Compilation, writer: *Writer, index: Pool.Index) W
                 }
                 return;
             },
-            .value_int, .value_float, .value_aggregate => unreachable,
-            .value_unit, .value_union, .value_slice, .value_splat => unreachable,
         }
     }
     try writer.writeAll("...");
 }
 
-/// `Box[i64]`, or `Pair[K, V].swap[T]` for a member.
 pub fn writeInstance(
     comp: *const Compilation,
     writer: *Writer,
@@ -72,7 +67,6 @@ pub fn writeInstance(
     if (decl.owner.unwrap()) |owner_index| {
         const owner = comp.declAt(owner_index);
         try writer.writeAll(comp.pool.stringText(owner.name));
-        // the owner's parameters lead the argument list
         const owner_params = comp.typeParamCount(owner_index);
         skip = @min(owner_params, args.len);
         try writeArgs(comp, writer, args[0..skip]);
@@ -100,7 +94,6 @@ fn writeArgs(
     try writer.writeByte(']');
 }
 
-/// `(a: i64, b: bool) i64`, for the IR header.
 fn writeSignature(
     comp: *const Compilation,
     writer: *Writer,
@@ -129,11 +122,8 @@ fn writeConstant(
     writer: *Writer,
     value: Pool.Index,
 ) Writer.Error!void {
-    switch (comp.pool.keyOf(value)) {
-        .type_simple => |simple| {
-            assert(simple == .poison);
-            try writer.writeAll("<broken>");
-        },
+    switch (comp.pool.valueKey(value)) {
+        .poison => try writer.writeAll("<broken>"),
         .value_int => |it| {
             try writer.print("{d}", .{it.value});
             if (it.type != .untyped_int_type) {
@@ -148,7 +138,6 @@ fn writeConstant(
                 try writeType(comp, writer, it.type);
             }
         },
-        // spelled the way it was written, so a struct names its fields
         .value_aggregate => |it| {
             const fields: ?[]const Compilation.Row = switch (comp.pool.keyOf(it.type)) {
                 .type_struct => |instance| comp.instanceRows(instance),
@@ -162,7 +151,6 @@ fn writeConstant(
             }
 
             for (it.elems, 0..) |element, position| {
-                // a long constant would flood the line it sits on
                 if (position == aggregate_shown_max) {
                     try writer.print(", +{d} more", .{it.elems.len - position});
                     break;
@@ -178,9 +166,7 @@ fn writeConstant(
 
             if (fields != null) try writer.writeAll(" }") else try writer.writeByte(']');
         },
-        // a unit value is spelled as its name
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
-        // the member the union holds, which the context types
         .value_union => |it| try writeConstant(comp, writer, it.value),
         // bytes first, then the view, so storage and a view of it never print alike
         .value_slice => |it| {
@@ -201,8 +187,6 @@ fn writeConstant(
             });
             try writer.writeByte(']');
         },
-        .type_pointer, .type_array, .type_slice => unreachable,
-        .type_struct, .type_unit, .type_union => unreachable,
     }
 }
 
@@ -211,16 +195,13 @@ pub fn writeConstantBare(
     writer: *Writer,
     value: Pool.Index,
 ) Writer.Error!void {
-    switch (comp.pool.keyOf(value)) {
+    switch (comp.pool.valueKey(value)) {
         .value_int => |it| try writer.print("{d}", .{it.value}),
         .value_float => |it| try writer.print("{d}", .{it.value}),
         else => try writeConstant(comp, writer, value),
     }
 }
 
-// the tree
-
-/// Far above anything `Parse` can build.
 const depth_max = 1024;
 
 comptime {
@@ -444,7 +425,6 @@ fn node(
     }
 }
 
-/// The name, whether it is exported, and the docs written above it.
 fn declHead(
     ast: AST,
     writer: *Writer,
@@ -474,8 +454,6 @@ fn flag(writer: *Writer, set: bool, name: []const u8) Writer.Error!void {
     if (set) try writer.print(" {s}", .{name});
 }
 
-// the IR
-
 pub fn writeFunc(comp: *const Compilation, body: IR.Func, writer: *Writer) Writer.Error!void {
     assert(body.blocks.len > 0);
 
@@ -485,7 +463,6 @@ pub fn writeFunc(comp: *const Compilation, body: IR.Func, writer: *Writer) Write
     try writer.writeByte('\n');
 
     for (comp.funcBlocks(body), 0..) |block, block_index| {
-        assert(block.terminator != .none);
         try writer.print("b{d}:\n", .{block_index});
 
         for (block.first..block.end()) |raw| {
@@ -531,7 +508,6 @@ fn inst(
             try writeType(comp, writer, data.probe.member);
         },
         .payload => try wide(comp, body, it, writer),
-        // every tag names one of the payloads above
         .none => unreachable,
     }
 
@@ -542,7 +518,6 @@ fn inst(
     try writer.writeByte('\n');
 }
 
-/// The three instructions whose operands live in the function's extra words.
 fn wide(
     comp: *const Compilation,
     body: IR.Func,
@@ -608,8 +583,6 @@ fn terminator(
     writer: *Writer,
 ) Writer.Error!void {
     switch (term) {
-        // `finish` leaves every surviving block a terminator
-        .none => unreachable,
         .jump => |target| try writer.print("  jump b{d}\n", .{target.int()}),
         .branch => |branch| {
             try writer.writeAll("  branch ");
