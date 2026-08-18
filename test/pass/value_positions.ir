@@ -132,7 +132,7 @@ fn operand_that_never_arrives(a: i64, c: true | false) i64
 b0:
   %0 = param a : i64
   %1 = param c : true | false
-  %2 = local : *var <broken>
+  %2 = local : *var u8
   branch %1, b1, b2
 b1:
   return 1:i64

@@ -113,7 +113,6 @@ fn ofStruct(
     var size: u64 = 0;
     var alignment: u32 = 1;
     const rows = comp.instanceAt(instance).rows;
-
     for (rows.start..rows.end()) |raw| {
         // by index, because a field's own layout can grow the rows table
         const row = comp.rowAt(.from(raw));
@@ -140,15 +139,16 @@ pub fn niche(pool: *const Pool, index: Pool.Index) ?Pool.Index {
 
     const first = pool.unionMemberAt(index, 0);
     const second = pool.unionMemberAt(index, 1);
-    if (pool.keyOf(first) == .type_unit) return if (leadsWithAddress(pool, second)) second else null;
-    if (pool.keyOf(second) == .type_unit) return if (leadsWithAddress(pool, first)) first else null;
+    if (pool.keyOf(first) == .type_unit) return carrierOf(pool, second);
+    if (pool.keyOf(second) == .type_unit) return carrierOf(pool, first);
     return null;
 }
 
-fn leadsWithAddress(pool: *const Pool, index: Pool.Index) bool {
+/// The member itself where it leads with an address, so a null one can stand for the unit.
+fn carrierOf(pool: *const Pool, index: Pool.Index) ?Pool.Index {
     return switch (pool.keyOf(index)) {
-        .type_pointer, .type_slice => true,
-        else => false,
+        .type_pointer, .type_slice => index,
+        else => null,
     };
 }
 
@@ -160,16 +160,14 @@ fn ofUnion(
     depth: u32,
 ) Error!Layout {
     const pool = &comp.pool;
-    const count = pool.unionMemberCount(index);
-    assert(count >= 2);
-
+    assert(pool.unionMemberCount(index) >= 2);
     if (niche(pool, index)) |carrier| return ofBounded(comp, origin, carrier, depth + 1);
 
     var payload_size: u32 = 0;
     var payload_alignment: u32 = 1;
-    var at: u32 = 0;
-    while (at < count) : (at += 1) {
-        const found = try ofBounded(comp, origin, pool.unionMemberAt(index, at), depth + 1);
+    var members = pool.membersOf(index);
+    while (members.next()) |member| {
+        const found = try ofBounded(comp, origin, member, depth + 1);
         payload_size = @max(payload_size, found.size);
         payload_alignment = @max(payload_alignment, found.alignment);
     }

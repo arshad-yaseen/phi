@@ -1,0 +1,7 @@
+type Cell = { v: i64 }
+
+fn main() {
+    if i64 { }
+    if Cell { }
+    loop main { }
+}

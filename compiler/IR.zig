@@ -189,7 +189,6 @@ pub const Inst = struct {
         /// An array or a struct, told apart by the type.
         aggregate_init,
 
-        /// Which field of `Data` the tag reads.
         pub fn payload(tag: Tag) std.meta.FieldEnum(Data) {
             return switch (tag) {
                 .param, .local => .name,

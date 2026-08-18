@@ -625,7 +625,7 @@ fn writeIntValue(writer: *Writer, it: Pool.Key.Int) Fail!void {
     // a static simple type shares its value with `SimpleType`, by construction
     const cast = simpleName(@enumFromInt(it.type.int()));
 
-    if (signedIntType(it.type)) {
+    if (Pool.isSignedInt(it.type)) {
         if (it.value == Pool.minInt(it.type)) {
             // the lowest value has no literal of its own in C
             try writer.print("(({s})(-{d}LL - 1))", .{ cast, -(it.value + 1) });
@@ -635,14 +635,6 @@ fn writeIntValue(writer: *Writer, it: Pool.Key.Int) Fail!void {
     } else {
         try writer.print("(({s}){d}ULL)", .{ cast, it.value });
     }
-}
-
-fn signedIntType(index: Pool.Index) bool {
-    return switch (index) {
-        .i8_type, .i16_type, .i32_type, .i64_type => true,
-        .u8_type, .u16_type, .u32_type, .u64_type => false,
-        else => unreachable,
-    };
 }
 
 fn writeFloatValue(writer: *Writer, it: Pool.Key.Float) Fail!void {
@@ -787,7 +779,7 @@ fn writeWidened(backend: *C, ref: Ref) Fail!void {
     assert(Pool.isSizedInt(found));
 
     try backend.code.writer.writeAll("(uint64_t)");
-    if (signedIntType(found)) try backend.code.writer.writeAll("(int64_t)");
+    if (Pool.isSignedInt(found)) try backend.code.writer.writeAll("(int64_t)");
     try backend.writeRef(ref);
 }
 
@@ -1038,7 +1030,7 @@ fn writeDiv(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const bin = inst.data.bin;
     try backend.put(.{ "    if (", bin.rhs, " == 0) __builtin_trap();\n" });
 
-    if (Pool.isSizedInt(inst.type) and signedIntType(inst.type)) {
+    if (Pool.isSizedInt(inst.type) and Pool.isSignedInt(inst.type)) {
         // the one quotient that does not fit is the lowest value over minus one
         try backend.put(.{ "    if (", bin.lhs, " == ", int(inst.type, Pool.minInt(inst.type)) });
         try backend.put(.{ " && ", bin.rhs, " == -1) __builtin_trap();\n" });
@@ -1052,7 +1044,7 @@ fn writeMod(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     try backend.put(.{ "    if (", bin.rhs, " == 0) __builtin_trap();\n" });
 
     try backend.put(.{assign(local)});
-    if (signedIntType(inst.type)) {
+    if (Pool.isSignedInt(inst.type)) {
         // the C remainder of the lowest value over minus one is undefined, ours is zero
         try backend.put(.{ "(", bin.rhs, " == -1) ? 0 : " });
     }
@@ -1092,7 +1084,7 @@ fn writeNegate(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 
     // subtraction from zero, so the lowest value traps instead of overflowing
     assert(Pool.isSizedInt(inst.type));
-    assert(signedIntType(inst.type));
+    assert(Pool.isSignedInt(inst.type));
     try backend.put(.{ "    if (__builtin_sub_overflow((", inst.type, ")0, ", inst.data.un });
     try backend.put(.{ ", &", value(local), ")) __builtin_trap();\n" });
 }
@@ -1113,8 +1105,8 @@ fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 
     // the fit test, in 64 bits, with the signs the two types actually have
     try backend.put(.{"    if ("});
-    if (signedIntType(source)) {
-        if (signedIntType(wanted)) {
+    if (Pool.isSignedInt(source)) {
+        if (Pool.isSignedInt(wanted)) {
             try backend.put(.{ "(int64_t)", operand, " >= ", int(.i64_type, Pool.minInt(wanted)) });
             try backend.put(.{ " && (int64_t)", operand, " <= " });
             try backend.put(.{int(.i64_type, Pool.maxInt(wanted))});
@@ -1224,11 +1216,9 @@ fn writeUnionConvert(backend: *C, local: Position, dest: Pool.Index, source: Ref
     assert(pool.isUnion(dest));
     assert(from != dest);
 
-    const count = pool.unionMemberCount(from);
     var shared: u32 = 0;
-    var at: u32 = 0;
-    while (at < count) : (at += 1) {
-        const member = pool.unionMemberAt(from, at);
+    var members = pool.membersOf(from);
+    while (members.next()) |member| {
         // a member the destination lacks was narrowed away, so no arm takes it
         if (pool.unionHas(dest, member) == false) continue;
         shared += 1;
@@ -1283,13 +1273,12 @@ fn writeUnionNarrow(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 fn writeMemberTest(backend: *C, ref: Ref, member: Pool.Index) Fail!void {
     const pool = &backend.comp.pool;
     if (pool.isUnion(member)) {
-        // by position, because spelling a ref can intern and move the members
-        const count = pool.unionMemberCount(member);
         try backend.put(.{"("});
-        var at: u32 = 0;
-        while (at < count) : (at += 1) {
-            if (at > 0) try backend.put(.{" || "});
-            try backend.writeMemberTest(ref, pool.unionMemberAt(member, at));
+        var members = pool.membersOf(member);
+        while (members.next()) |one| {
+            // `at` counts the members handed out, so the first is behind it
+            if (members.at > 1) try backend.put(.{" || "});
+            try backend.writeMemberTest(ref, one);
         }
         return backend.put(.{")"});
     }

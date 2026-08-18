@@ -17,7 +17,7 @@ source: [:0]const u8,
 /// In source order, ending in one `.eof`. No comment is among them.
 tokens: Tokenizer.TokenList.Slice,
 /// In source order. Analysis never looks.
-comments: []const Comment,
+comments: []const Token,
 /// Node 0 is the root.
 nodes: NodeList.Slice,
 /// Read back through `Fields`.
@@ -29,8 +29,6 @@ error_text: std.heap.ArenaAllocator.State,
 
 pub const nest_max = Parse.depth_max;
 pub const type_params_max = Parse.type_params_max;
-
-pub const Comment = Tokenizer.Comment;
 
 const NodeList = std.MultiArrayList(Node);
 
@@ -349,7 +347,6 @@ pub const View = union(enum) {
     if_expr: If,
     loop_expr: Loop,
     break_expr: Break,
-    /// The label, where one is written.
     continue_expr: ?Token.Index,
     return_expr: Node.OptionalIndex,
     match_expr: Match,
@@ -759,21 +756,21 @@ pub fn nodeMainToken(tree: AST, node: Node.Index) Token.Index {
 
 // comments
 
-pub fn commentText(tree: AST, at: Comment) []const u8 {
+pub fn commentText(tree: AST, at: Token) []const u8 {
     assert(at.start < tree.source.len);
     return tree.source[at.start..Tokenizer.endOfLine(tree.source, at.start)];
 }
 
 /// The `///` run directly above a declaration, with only space between.
-pub fn docsAbove(tree: AST, node: Node.Index) []const Comment {
+pub fn docsAbove(tree: AST, node: Node.Index) []const Token {
     var next = tree.tokenStart(tree.declStart(node));
     // comments are in source order, so the run ends where the declaration starts
-    const end = std.sort.lowerBound(Comment, tree.comments, next, commentOrder);
+    const end = std.sort.lowerBound(Token, tree.comments, next, commentOrder);
 
     var first = end;
     while (first > 0) {
         const at = tree.comments[first - 1];
-        if (at.kind != .doc) break;
+        if (at.tag != .doc_comment) break;
         const gap = tree.source[Tokenizer.endOfLine(tree.source, at.start)..next];
         if (std.mem.indexOfNone(u8, gap, " \t\r\n") != null) break;
 
@@ -783,7 +780,7 @@ pub fn docsAbove(tree: AST, node: Node.Index) []const Comment {
     return tree.comments[first..end];
 }
 
-fn commentOrder(offset: u32, comment: Comment) std.math.Order {
+fn commentOrder(offset: u32, comment: Token) std.math.Order {
     return std.math.order(offset, comment.start);
 }
 
@@ -880,7 +877,6 @@ fn leftStep(tree: AST, node: Node.Index) Step {
         .param, .field => |it| .{ .at = it.name_token },
         .unary => |it| .{ .at = it.op_token },
         .loop_expr => |it| .{ .at = it.label orelse main },
-        // everything the parser names by the token it opens with
         .err, .type_param, .builtin, .ident, .number_literal => .{ .at = main },
         .string_literal, .multiline_string, .char_literal, .import_decl => .{ .at = main },
         .struct_decl, .alias_decl, .unit_decl, .fn_decl, .var_decl, .block => .{ .at = main },

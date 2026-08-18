@@ -1,0 +1,24 @@
+error[E0203]: types are not values
+ --> test/fail/condition_not_a_value.phi:4:8
+  |
+4 |     if i64 { }
+  |        ^^^ a type, where a value belongs
+  |
+  = help: a type stands where a type is written, before '.', and after 'is' or 'match'
+
+error[E0203]: types are not values
+ --> test/fail/condition_not_a_value.phi:5:8
+  |
+5 |     if Cell { }
+  |        ^^^^ a type, where a value belongs
+  |
+  = help: a type stands where a type is written, before '.', and after 'is' or 'match'
+
+error[E0212]: a function is not a value, so call it
+ --> test/fail/condition_not_a_value.phi:6:10
+  |
+6 |     loop main { }
+  |          ^^^^ missing the call
+  |
+  = help: there are no function values in the language
+

@@ -475,7 +475,8 @@ test "every base folds, wide values included" {
     try testing.expectEqual(@as(i128, 1_000_000), (try decodeNumber(arena, "1_000_000")).int);
     try testing.expectEqual(@as(i128, 255), (try decodeNumber(arena, "0xff")).int);
     try testing.expectEqual(@as(i128, 10), (try decodeNumber(arena, "0b1010")).int);
-    try testing.expectEqual(@as(i128, 1) << 64, (try decodeNumber(arena, "18446744073709551616")).int);
+    const past_u64 = try decodeNumber(arena, "18446744073709551616");
+    try testing.expectEqual(@as(i128, 1) << 64, past_u64.int);
     try testing.expectEqual(@as(f64, 3.0), (try decodeNumber(arena, "0x1.8p1")).float);
     try testing.expectEqual(@as(f64, 0.25), (try decodeNumber(arena, "2.5e-1")).float);
 }
@@ -485,13 +486,12 @@ test "every malformed shape is refused, the edges by their width" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const wide = try decodeNumber(arena, "170141183460469231731687303715884105728");
-    try testing.expectEqual(Diagnostic.Code.bad_number, wide.refused.code);
-    try testing.expectEqual(Diagnostic.Code.bad_number, (try decodeNumber(arena, "1e999")).refused.code);
-    try testing.expectEqual(Diagnostic.Code.bad_number, (try decodeNumber(arena, "09")).refused.code);
-    try testing.expectEqual(Diagnostic.Code.bad_number, (try decodeNumber(arena, "1__0")).refused.code);
-    try testing.expectEqual(Diagnostic.Code.bad_number, (try decodeNumber(arena, "0X1")).refused.code);
-    try testing.expectEqual(Diagnostic.Code.bad_number, (try decodeNumber(arena, "1$")).refused.code);
+    for ([_][]const u8{
+        "170141183460469231731687303715884105728", "1e999", "09", "1__0", "0X1", "1$",
+    }) |text| {
+        const refused = (try decodeNumber(arena, text)).refused;
+        try testing.expectEqual(Diagnostic.Code.bad_number, refused.code);
+    }
 }
 
 fn expectBytes(literal: []const u8, want: []const u8) !void {

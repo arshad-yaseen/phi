@@ -409,7 +409,7 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
         },
         .value_float => |it| .{
             .tag = .value_float,
-            .data = try pool.addExtra(gpa, &.{it.type.int()}, &wordsOf(@as(u64, @bitCast(it.value)))),
+            .data = try pool.addExtra(gpa, &.{it.type.int()}, &wordsOf(bitsOf(it.value))),
         },
     };
     try pool.items.append(gpa, item);
@@ -579,7 +579,7 @@ pub fn unionCovers(pool: *const Pool, wide: Index, narrow: Index) bool {
 }
 
 /// Borrowed from `extra`, stale at the next intern. A walk that interns reads
-/// by position through `unionMemberCount` and `unionMemberAt` instead.
+/// by position, through `membersOf` or `unionMemberAt`, instead.
 pub fn unionMembers(pool: *const Pool, index: Index) []const Index {
     assert(pool.isUnion(index));
     const data = pool.items.items(.data)[index.int()];
@@ -592,6 +592,24 @@ pub fn unionMemberCount(pool: *const Pool, index: Index) u32 {
 
 pub fn unionMemberAt(pool: *const Pool, index: Index, at: u32) Index {
     return pool.unionMembers(index)[at];
+}
+
+/// The members by position, each read fresh, so the walk may intern between them.
+pub const Members = struct {
+    pool: *const Pool,
+    index: Index,
+    at: u32 = 0,
+
+    pub fn next(it: *Members) ?Index {
+        if (it.at == it.pool.unionMemberCount(it.index)) return null;
+        defer it.at += 1;
+        return it.pool.unionMemberAt(it.index, it.at);
+    }
+};
+
+pub fn membersOf(pool: *const Pool, index: Index) Members {
+    assert(pool.isUnion(index));
+    return .{ .pool = pool, .index = index };
 }
 
 /// What a type leads with, which a union answers with its first member and every
@@ -776,11 +794,16 @@ fn exactFloat(value: i128, type_index: Index) ?f64 {
     return wide;
 }
 
-fn isSignedInt(index: Index) bool {
+pub fn isSignedInt(index: Index) bool {
     return switch (index) {
         .i8_type, .i16_type, .i32_type, .i64_type => true,
         else => false,
     };
+}
+
+/// A sized type that can be negated, an integer with a sign or a float.
+pub fn isSignedNumber(index: Index) bool {
+    return isSignedInt(index) or isSizedFloat(index);
 }
 
 /// The lowest value an integer type holds. Exact, because every width folds in 128 bits.
@@ -966,13 +989,11 @@ pub fn fit(
     if (type_index == .poison) return .{ .value = .poison };
     assert(pool.isType(type_index));
 
-    // the first fitting member decides, read by position because fitting interns
+    // the first fitting member decides
     if (pool.isUnion(type_index)) {
-        const count = pool.unionMemberCount(type_index);
         var wrong_size = false;
-        var at: u32 = 0;
-        while (at < count) : (at += 1) {
-            const member = pool.unionMemberAt(type_index, at);
+        var members = pool.membersOf(type_index);
+        while (members.next()) |member| {
             assert(pool.isUnion(member) == false);
             switch (try pool.fit(gpa, value, member, widen)) {
                 .value => |fitted| return .{ .value = try pool.intern(gpa, .{
@@ -1295,6 +1316,11 @@ fn extraWords(pool: *const Pool, start: u32, comptime count: u32) *const [count]
 }
 
 fn wordsOf(value: anytype) [@divExact(@bitSizeOf(@TypeOf(value)), 32)]u32 {
+    return @bitCast(value);
+}
+
+/// A float by its bits, which is how it is stored and hashed.
+fn bitsOf(value: f64) u64 {
     return @bitCast(value);
 }
 

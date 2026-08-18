@@ -14,16 +14,8 @@ pending: ?u32,
 
 pub const TokenList = std.MultiArrayList(Token);
 
-/// Set aside for tools.
-pub const Comment = struct {
-    kind: Kind,
-    /// No end is stored. The text runs to the end of the line.
-    start: u32,
-
-    pub const Kind = enum { plain, doc, file };
-};
-
-pub const CommentList = std.ArrayList(Comment);
+/// Comments, set aside for tools. Each runs from its start to the end of the line.
+pub const CommentList = std.ArrayList(Token);
 
 const Tokenizer = @This();
 
@@ -51,8 +43,8 @@ pub fn tokenizeAll(
     var tokenizer: Tokenizer = .init(source);
     while (true) {
         const token = tokenizer.next();
-        if (commentKind(token.tag)) |kind| {
-            try comments.append(gpa, .{ .kind = kind, .start = token.start });
+        if (token.tag.isComment()) {
+            try comments.append(gpa, token);
             continue;
         }
         try tokens.append(gpa, token);
@@ -63,20 +55,11 @@ pub fn tokenizeAll(
     assert(tokens.items(.tag)[tokens.len - 1] == .eof);
 }
 
-fn commentKind(tag: Token.Tag) ?Comment.Kind {
-    return switch (tag) {
-        .comment => .plain,
-        .doc_comment => .doc,
-        .file_doc_comment => .file,
-        else => null,
-    };
-}
-
 /// The next token, the held `;` first where a line break ended a statement.
 pub fn next(tokenizer: *Tokenizer) Token {
     const token = tokenizer.scan();
+    if (token.tag.isComment()) return token;
     switch (token.tag) {
-        .comment, .doc_comment, .file_doc_comment => return token,
         // a line opening with a selector, a range, or another `\\` continues the one above
         .dot, .dot_star, .dot_dot, .string_line => {},
         else => if (tokenizer.insertedSemi(token)) |semi| return semi,

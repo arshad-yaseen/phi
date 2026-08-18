@@ -732,13 +732,11 @@ const InstanceIndexContext = struct {
     }
 };
 
-pub const Report = Diagnostic.Report;
-
 pub fn reportNode(
     comp: *Compilation,
     module: Module.Index,
     node: AST.Node.Index,
-    report_value: Report,
+    report_value: Diagnostic.Report,
 ) Allocator.Error!void {
     @branchHint(.cold);
     const tree = comp.treeOf(module);
@@ -749,7 +747,7 @@ pub fn reportToken(
     comp: *Compilation,
     module: Module.Index,
     token: Token.Index,
-    report_value: Report,
+    report_value: Diagnostic.Report,
 ) Allocator.Error!void {
     @branchHint(.cold);
     const tree = comp.treeOf(module);
@@ -765,7 +763,7 @@ fn report(
     anchor: u32,
     anchor_kind: ReportAnchor,
     span: Diagnostic.Span,
-    report_value: Report,
+    report_value: Diagnostic.Report,
 ) Allocator.Error!void {
     @branchHint(.cold);
     assert(report_value.message.len > 0);

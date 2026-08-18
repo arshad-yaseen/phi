@@ -190,6 +190,13 @@ pub const Tag = enum(u8) {
         };
     }
 
+    pub fn isComment(tag: Tag) bool {
+        return switch (tag) {
+            .comment, .doc_comment, .file_doc_comment => true,
+            else => false,
+        };
+    }
+
     fn isKeyword(tag: Tag) bool {
         return std.mem.startsWith(u8, @tagName(tag), "kw_");
     }

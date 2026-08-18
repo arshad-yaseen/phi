@@ -396,14 +396,17 @@ fn addPair(
     });
 }
 
-/// A node whose payload sits in `extra`, from `start`.
 fn addExtraNode(
     self: *Parse,
     node_tag: Node.Tag,
     main_token: Token.Index,
     start: AST.ExtraIndex,
 ) Allocator.Error!Node.Index {
-    return self.addNode(.{ .tag = node_tag, .main_token = main_token, .data = .{ .extra = start } });
+    return self.addNode(.{
+        .tag = node_tag,
+        .main_token = main_token,
+        .data = .{ .extra = start },
+    });
 }
 
 fn hole(self: *Parse) Allocator.Error!Node.Index {
@@ -569,6 +572,24 @@ fn parseList(self: *Parse, list: List) Allocator.Error!void {
         self.token_index = item_end;
     }
     try self.expectClosing(list.closer, list.opener);
+}
+
+/// A node whose payload is `lead`, then the list, as `AST.Fields` reads it back.
+fn parseListNode(
+    self: *Parse,
+    list: List,
+    node_tag: Node.Tag,
+    main_token: Token.Index,
+    lead: []const Node.OptionalIndex,
+) Allocator.Error!Node.Index {
+    const top = self.scratch.items.len;
+    defer self.scratch.shrinkRetainingCapacity(top);
+    try self.parseList(list);
+
+    const start = self.extraStart();
+    for (lead) |node| try self.extraOpt(node);
+    try self.extraList(self.scratch.items[top..]);
+    return self.addExtraNode(node_tag, main_token, start);
 }
 
 // declarations
@@ -864,10 +885,6 @@ fn parseParam(self: *Parse) Allocator.Error!Node.Index {
     return self.parseTypedName(.param);
 }
 
-fn parseField(self: *Parse) Allocator.Error!Node.Index {
-    return self.parseTypedName(.field);
-}
-
 /// `name: Type`, a parameter or a field.
 fn parseTypedName(self: *Parse, node_tag: Node.Tag) Allocator.Error!Node.Index {
     assert(node_tag == .param or node_tag == .field);
@@ -882,7 +899,7 @@ fn parseTypedName(self: *Parse, node_tag: Node.Tag) Allocator.Error!Node.Index {
 /// A struct body holds fields and functions, and `pub` introduces a function.
 fn parseMember(self: *Parse) Allocator.Error!Node.Index {
     assert(starts_member.contains(self.current()));
-    if (self.at(.ident)) return self.parseField();
+    if (self.at(.ident)) return self.parseTypedName(.field);
 
     _ = self.eatToken(.kw_pub);
     if (self.at(.kw_fn)) return self.parseFnDecl(.written);
@@ -901,21 +918,14 @@ fn parseBlock(self: *Parse) Allocator.Error!Node.Index {
     defer self.leave();
 
     const lbrace = self.nextToken();
-    const top = self.scratch.items.len;
-    defer self.scratch.shrinkRetainingCapacity(top);
-
-    try self.parseList(.{
+    return self.parseListNode(.{
         .item = parseStatement,
         .starts = starts_stmt,
         .closer = .r_brace,
         .opener = lbrace,
         .code = .expected_statement,
         .expected = "a statement",
-    });
-
-    const start = self.extraStart();
-    try self.extraList(self.scratch.items[top..]);
-    return self.addExtraNode(.block, lbrace, start);
+    }, .block, lbrace, &.{});
 }
 
 fn parseStatement(self: *Parse) Allocator.Error!Node.Index {
@@ -1107,11 +1117,7 @@ fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
         return self.hole();
     }
     const lbrace = self.nextToken();
-
-    const top = self.scratch.items.len;
-    defer self.scratch.shrinkRetainingCapacity(top);
-
-    try self.parseList(.{
+    return self.parseListNode(.{
         .item = parseMatchArm,
         .starts = starts_arm,
         .closer = .r_brace,
@@ -1119,12 +1125,7 @@ fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
         .code = .expected_match_arm,
         .expected = "a match arm",
         .help = "an arm is 'Member => expression', or 'else =>' for the rest",
-    });
-
-    const start = self.extraStart();
-    try self.extraNode(scrutinee);
-    try self.extraList(self.scratch.items[top..]);
-    return self.addExtraNode(.match_expr, match_token, start);
+    }, .match_expr, match_token, &.{scrutinee.toOptional()});
 }
 
 /// `Member => body`, `A | B => body`, or `else => body`. A label is a type, never a binder.
@@ -1316,47 +1317,29 @@ fn parseSelector(self: *Parse, base: Node.Index) Allocator.Error!?Node.Index {
 
 fn parseCall(self: *Parse, callee: Node.Index) Allocator.Error!Node.Index {
     assert(self.at(.l_paren));
-    assert(callee.int() < self.nodes.len);
     const lparen = self.nextToken();
-    const top = self.scratch.items.len;
-    defer self.scratch.shrinkRetainingCapacity(top);
-
-    try self.parseList(.{
+    return self.parseListNode(.{
         .item = parseExpr,
         .starts = starts_expr,
         .closer = .r_paren,
         .opener = lparen,
         .code = .expected_expression,
         .expected = "an argument",
-    });
-
-    const start = self.extraStart();
-    try self.extraNode(callee);
-    try self.extraList(self.scratch.items[top..]);
-    return self.addExtraNode(.call, lparen, start);
+    }, .call, lparen, &.{callee.toOptional()});
 }
 
 /// `Box[i64]` and `row[0]` are one node. Only the checker can tell which.
 fn parseBracket(self: *Parse, base: Node.Index) Allocator.Error!Node.Index {
     assert(self.at(.l_bracket));
-    assert(base.int() < self.nodes.len);
     const lbracket = self.nextToken();
-    const top = self.scratch.items.len;
-    defer self.scratch.shrinkRetainingCapacity(top);
-
-    try self.parseList(.{
+    return self.parseListNode(.{
         .item = parseBracketItem,
         .starts = starts_bracket_item,
         .closer = .r_bracket,
         .opener = lbracket,
         .code = .expected_expression,
         .expected = "a type argument or an index",
-    });
-
-    const start = self.extraStart();
-    try self.extraNode(base);
-    try self.extraList(self.scratch.items[top..]);
-    return self.addExtraNode(.bracket, lbracket, start);
+    }, .bracket, lbracket, &.{base.toOptional()});
 }
 
 /// Only a type opens with `*` or `[`. This is the one place a range is written.
@@ -1450,22 +1433,14 @@ fn parseMultilineString(self: *Parse) Allocator.Error!Node.Index {
 fn parseArrayLiteral(self: *Parse) Allocator.Error!Node.Index {
     assert(self.at(.l_bracket));
     const lbracket = self.nextToken();
-
-    const top = self.scratch.items.len;
-    defer self.scratch.shrinkRetainingCapacity(top);
-
-    try self.parseList(.{
+    return self.parseListNode(.{
         .item = parseExpr,
         .starts = starts_expr,
         .closer = .r_bracket,
         .opener = lbracket,
         .code = .expected_expression,
         .expected = "an element",
-    });
-
-    const start = self.extraStart();
-    try self.extraList(self.scratch.items[top..]);
-    return self.addExtraNode(.array_literal, lbracket, start);
+    }, .array_literal, lbracket, &.{});
 }
 
 /// `Point.{ x: 1 }`, or `.{ x: 1 }` where the type is left to the context.
@@ -1476,23 +1451,14 @@ fn parseStructLiteral(
 ) Allocator.Error!Node.Index {
     assert(self.at(.l_brace));
     const lbrace = self.nextToken();
-
-    const top = self.scratch.items.len;
-    defer self.scratch.shrinkRetainingCapacity(top);
-
-    try self.parseList(.{
+    return self.parseListNode(.{
         .item = parseFieldInit,
         .starts = starts_name,
         .closer = .r_brace,
         .opener = lbrace,
         .code = .expected_field_value,
         .expected = "'field: value'",
-    });
-
-    const start = self.extraStart();
-    try self.extraOpt(type_expr);
-    try self.extraList(self.scratch.items[top..]);
-    return self.addExtraNode(.struct_literal, dot, start);
+    }, .struct_literal, dot, &.{type_expr});
 }
 
 fn parseFieldInit(self: *Parse) Allocator.Error!Node.Index {

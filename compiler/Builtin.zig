@@ -165,25 +165,22 @@ pub const Builtin = enum {
 
         var values: [args_max]Value = undefined;
         for (args, 0..) |argument, position| {
-            const value = try check.checkExpr(argument, null);
-            if (value == .diverged) return .diverged;
-            if (try check.valueOnly(argument, value) == false) return .poison;
-            if (value == .poison) return .poison;
-            values[position] = value;
+            values[position] = try check.checkValue(argument, null);
+            if (values[position].stops()) return values[position];
         }
 
         switch (builtin) {
             .ptr_cast => return ptrCast(check, args[0], types[0], values[0]),
             .int_cast => {
                 const written: ?Pool.Index = if (type_args.len == 1) types[0] else null;
-                const wanted = try destination(check, node, written, hint, int_cast_destination) orelse
+                const wanted = try destination(check, node, written, hint, int_cast_wants) orelse
                     return .poison;
                 return intCast(check, node, args[0], wanted, values[0]);
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
             .splat => {
-                const wanted = try destination(check, node, null, hint, splat_destination) orelse
+                const wanted = try destination(check, node, null, hint, splat_wants) orelse
                     return .poison;
                 return splat(check, node, args[0], wanted, values[0]);
             },
@@ -239,37 +236,36 @@ fn resolveTypes(
 
 /// What a builtin lands its result on, and how a report names it.
 const Destination = struct {
-    accepts: *const fn (*const Pool, Pool.Index) bool,
+    shape: enum { integer, array },
     /// `'@int_cast' converts between integers`, ahead of what it met instead.
     does: []const u8,
     label: []const u8,
     missing: []const u8,
     help: []const u8,
+
+    fn accepts(wants: Destination, pool: *const Pool, index: Pool.Index) bool {
+        return switch (wants.shape) {
+            .integer => Pool.isSizedInt(index),
+            .array => pool.keyOf(index) == .type_array,
+        };
+    }
 };
 
-const int_cast_destination: Destination = .{
-    .accepts = isSizedIntType,
+const int_cast_wants: Destination = .{
+    .shape = .integer,
     .does = "'@int_cast' converts between integers",
     .label = "not an integer type",
     .missing = "nothing here says what type '@int_cast' converts to",
     .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
 };
 
-const splat_destination: Destination = .{
-    .accepts = isArrayType,
+const splat_wants: Destination = .{
+    .shape = .array,
     .does = "'@splat' builds an array",
     .label = "not an array type",
     .missing = "nothing here says what array '@splat' builds",
     .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @splat(0)'",
 };
-
-fn isSizedIntType(_: *const Pool, index: Pool.Index) bool {
-    return Pool.isSizedInt(index);
-}
-
-fn isArrayType(pool: *const Pool, index: Pool.Index) bool {
-    return pool.keyOf(index) == .type_array;
-}
 
 /// The written type where there is one, else what the call lands on, which
 /// leads with the destination. Null once reported.
@@ -333,7 +329,6 @@ fn intCast(
 ) Allocator.Error!Value {
     const comp = check.comp;
     assert(Pool.isSizedInt(wanted));
-
     const found = check.typeOf(operand);
     if (Pool.isInteger(found) == false) {
         try check.fail(operand_node, .{
@@ -366,8 +361,7 @@ fn intCast(
         }) };
     }
 
-    const ref = try check.emitOne(node, .int_cast, result, Check.refOf(operand));
-    return Check.runtimeValue(ref, result);
+    return check.emitOneValue(node, .int_cast, result, Check.refOf(operand));
 }
 
 fn splat(
@@ -387,7 +381,8 @@ fn splat(
         return .poison;
     }
 
-    const repeated = try splatArray(check, node, wanted, operand.constant, 0) orelse return .poison;
+    const repeated = try splatArray(check, node, wanted, operand.constant, 0) orelse
+        return .poison;
     return .{ .constant = repeated };
 }
 
@@ -460,8 +455,7 @@ fn layoutOf(
         },
     };
 
-    const answer: u32 = if (builtin == .size_of) layout.size else layout.alignment;
-    return check.untypedInt(answer);
+    return check.untypedInt(if (builtin == .size_of) layout.size else layout.alignment);
 }
 
 /// An edge of an integer type, an untyped constant, so it meets any type it fits.
@@ -486,8 +480,7 @@ fn limitOf(
         return .poison;
     }
 
-    const edge = if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted);
-    return check.untypedInt(edge);
+    return check.untypedInt(if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted));
 }
 
 /// Retypes the pointee and keeps what the pointer may do.
@@ -498,12 +491,9 @@ fn ptrCast(
     operand: Value,
 ) Allocator.Error!Value {
     const found = check.typeOf(operand);
-
     const pointer = try check.pointerAt(node, found, "@ptr_cast", null) orelse return .poison;
-
     const result = try check.pointerTo(wanted, pointer.mutable);
-    const ref = try check.emitOne(node, .ptr_cast, result, Check.refOf(operand));
-    return Check.runtimeValue(ref, result);
+    return check.emitOneValue(node, .ptr_cast, result, Check.refOf(operand));
 }
 
 comptime {

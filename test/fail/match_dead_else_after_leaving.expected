@@ -1,0 +1,6 @@
+error[E0260]: every member is already handled, so 'else' can never run
+ --> test/fail/match_dead_else_after_leaving.phi:8:9
+  |
+8 |         else => {}
+  |         ^^^^^^^^^^ nothing left for it
+

@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
+const Diagnostic = @import("Diagnostic.zig");
 const Handle = @import("Handle.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
@@ -199,11 +200,7 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
                 .name_token = decl.name_token,
                 .type_params = @intCast(decl.type_params.len),
             },
-            .var_decl => |decl| .{
-                .kind = .let,
-                .node = node,
-                .name_token = decl.name_token,
-            },
+            .var_decl => |decl| .{ .kind = .let, .node = node, .name_token = decl.name_token },
             // the parser puts only declarations and holes at the root
             .err => continue,
             else => unreachable,
@@ -224,7 +221,7 @@ fn registerMembers(
 
     for (decl.members) |member| {
         switch (tree.viewOf(member)) {
-            .fn_decl => |fn_view| _ = try addMember(comp, module, index, struct_index, .{
+            .fn_decl => |fn_view| try addMember(comp, module, index, struct_index, .{
                 .kind = .fn_decl,
                 .node = member,
                 .name_token = fn_view.name_token,
@@ -246,6 +243,7 @@ const NewDecl = struct {
     type_params: u8 = 0,
 };
 
+/// A top-level declaration, poisoned where its name is one the file cannot bind.
 fn addDecl(
     comp: *Compilation,
     module: *Module,
@@ -253,14 +251,12 @@ fn addDecl(
     new: NewDecl,
 ) Allocator.Error!?Decl.Index {
     const tree = &module.tree;
-    const text = tree.tokenSlice(new.name_token);
     if (tree.tokenTag(new.name_token) != .ident) return null;
-
-    const name = try comp.pool.string(comp.gpa, text);
-    const decl_index = try appendDecl(comp, index, new, name, .none);
+    const text = tree.tokenSlice(new.name_token);
+    const decl_index = try appendDecl(comp, index, new, .none);
 
     // a name the file cannot have binds nothing, so the map keeps the first one
-    const refused: ?Compilation.Report = refused: {
+    const refused: ?Diagnostic.Report = refused: {
         if (isDiscard(text)) break :refused .{
             .code = .discard_reserved,
             .message = "'_' is not a name, and only discards a value",
@@ -275,7 +271,6 @@ fn addDecl(
             .label = "already taken",
             .help = "pick another name, and alias it with 'type' if you want a synonym",
         };
-
         const gop = module.names.getOrPutAssumeCapacity(text);
         if (gop.found_existing) {
             const first = comp.declAt(gop.value_ptr.*);
@@ -293,70 +288,68 @@ fn addDecl(
         gop.value_ptr.* = decl_index;
         break :refused null;
     };
-
-    if (refused) |report| {
-        try comp.reportToken(index, new.name_token, report);
-        comp.declPtr(decl_index).state = .poisoned;
-    }
+    if (refused) |report| try poison(comp, index, decl_index, new.name_token, report);
     return decl_index;
 }
 
+/// A member function, poisoned where it clashes with a field or an earlier member.
 fn addMember(
     comp: *Compilation,
     module: *Module,
     index: Module.Index,
     owner: Decl.Index,
     new: NewDecl,
-) Allocator.Error!?Decl.Index {
+) Allocator.Error!void {
     const tree = &module.tree;
-    if (tree.tokenTag(new.name_token) != .ident) return null;
+    if (tree.tokenTag(new.name_token) != .ident) return;
     const text = tree.tokenSlice(new.name_token);
-    const name = try comp.pool.string(comp.gpa, text);
+    const decl_index = try appendDecl(comp, index, new, owner.toOptional());
 
-    // a member clashes with a field or an earlier member
-    const clash: ?AST.Node.Index = clash: {
-        const owner_row = comp.declAt(owner);
-        const struct_view = tree.viewOf(owner_row.node).struct_decl;
-        for (struct_view.members) |other| {
-            if (other == new.node) break;
-            const other_name = switch (tree.viewOf(other)) {
-                .field => |field| field.name_token,
-                .fn_decl => |member_fn| member_fn.name_token,
-                .err => continue,
-                else => unreachable,
-            };
-            if (std.mem.eql(u8, tree.tokenSlice(other_name), text)) break :clash other;
-        }
-        break :clash null;
-    };
-
-    const decl_index = try appendDecl(comp, index, new, name, owner.toOptional());
-    if (clash) |first| {
-        try comp.reportToken(index, new.name_token, .{
+    for (tree.viewOf(comp.declAt(owner).node).struct_decl.members) |other| {
+        if (other == new.node) break;
+        const other_name = switch (tree.viewOf(other)) {
+            .field => |field| field.name_token,
+            .fn_decl => |member_fn| member_fn.name_token,
+            .err => continue,
+            else => unreachable,
+        };
+        if (std.mem.eql(u8, tree.tokenSlice(other_name), text) == false) continue;
+        try poison(comp, index, decl_index, new.name_token, .{
             .code = .redeclared,
             .message = try comp.fmt("'{s}' is declared twice in this struct", .{text}),
             .label = "declared again here",
-            .notes = try comp.noteOne(index, first, "first declared here"),
+            .notes = try comp.noteOne(index, other, "first declared here"),
         });
-        comp.declPtr(decl_index).state = .poisoned;
+        break;
     }
-    return decl_index;
+}
+
+fn poison(
+    comp: *Compilation,
+    index: Module.Index,
+    decl_index: Decl.Index,
+    name_token: Token.Index,
+    report: Diagnostic.Report,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try comp.reportToken(index, name_token, report);
+    comp.declPtr(decl_index).state = .poisoned;
 }
 
 fn appendDecl(
     comp: *Compilation,
     module_index: Module.Index,
     new: NewDecl,
-    name: Pool.String,
     owner: Decl.OptionalIndex,
 ) Allocator.Error!Decl.Index {
     if (comp.decls.items.len >= std.math.maxInt(u32)) return error.OutOfMemory;
     assert(new.type_params <= AST.type_params_max);
+    const tree = comp.treeOf(module_index);
     const index: Decl.Index = .from(comp.decls.items.len);
     try comp.decls.append(comp.gpa, .{
         .module = module_index,
         .node = new.node,
-        .name = name,
+        .name = try comp.pool.string(comp.gpa, tree.tokenSlice(new.name_token)),
         .owner = owner,
         .result = 0,
         .aux = 0,
@@ -452,7 +445,7 @@ fn pathText(
 
 fn reportStd(comp: *Compilation, module: Module.Index, token: Token.Index) Allocator.Error!bool {
     @branchHint(.cold);
-    const report: Compilation.Report = if (comp.std_dir == null) .{
+    const report: Diagnostic.Report = if (comp.std_dir == null) .{
         .code = .module_not_found,
         .message = "the standard library was not found",
         .label = "'std' has nowhere to point",
@@ -497,7 +490,11 @@ pub fn findExported(
     const module = comp.moduleAt(in);
     const name_text = comp.treeOf(origin.module).tokenSlice(name_token);
 
-    const found = memberOf(comp, module, name_text) orelse {
+    const decl_index: Decl.Index = found: {
+        // an import binds a name in its own file, so it is no part of what the file offers
+        if (module.findDecl(name_text)) |found| {
+            if (comp.declAt(found).kind != .import) break :found found;
+        }
         try comp.reportToken(origin.module, name_token, .{
             .code = .no_such_member,
             .message = try comp.fmt("'{s}' has no declaration named '{s}'", .{
@@ -509,25 +506,17 @@ pub fn findExported(
         return null;
     };
 
-    const decl = comp.declAt(found);
-    if (origin.module != in and declIsPub(comp, found) == false) {
+    if (origin.module != in and declIsPub(comp, decl_index) == false) {
         try comp.reportToken(origin.module, name_token, .{
             .code = .private,
             .message = try comp.fmt("'{s}' is private to its file", .{name_text}),
             .label = "not public",
             .help = "mark the declaration 'pub' to reach it from another file",
-            .notes = try comp.noteOne(decl.module, decl.node, "declared here"),
+            .notes = try comp.noteOne(in, comp.declAt(decl_index).node, "declared here"),
         });
         return null;
     }
-    return found;
-}
-
-/// An import binds a name in its own file, so it is no part of what the file offers.
-fn memberOf(comp: *const Compilation, module: *const Module, name_text: []const u8) ?Decl.Index {
-    const found = module.findDecl(name_text) orelse return null;
-    if (comp.declAt(found).kind == .import) return null;
-    return found;
+    return decl_index;
 }
 
 pub fn declIsPub(comp: *const Compilation, decl_index: Decl.Index) bool {

@@ -1,0 +1,10 @@
+type A
+type B
+
+fn f(x: A | B) {
+    match x {
+        A => return
+        B => return
+        else => {}
+    }
+}
