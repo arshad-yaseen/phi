@@ -1,0 +1,18 @@
+error[E0201]: nothing named 'missing' is in scope here
+ --> test/fail/or_broken_left.phi:2:13
+  |
+2 |     let n = missing() or return 0
+  |             ^^^^^^^ unknown name
+
+error[E0256]: 'or' splits a union, and this is u32
+ --> test/fail/or_broken_left.phi:8:13
+  |
+8 |     let m = n or return 0
+  |             ^ not a union
+
+error[E0201]: nothing named 'missing_too' is in scope here
+  --> test/fail/or_broken_left.phi:13:16
+   |
+13 |     let both = missing_too() and return true
+   |                ^^^^^^^^^^^ unknown name
+

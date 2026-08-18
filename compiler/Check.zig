@@ -3009,7 +3009,7 @@ fn checkShortCircuit(
     const bools = try check.boolType(view.lhs);
     const lhs_met = try check.coerce(lhs, bools, view.lhs);
     if (lhs_met == .poison) {
-        _ = try check.checkExpr(view.rhs, null);
+        try check.checkAside(view.rhs);
         return .poison;
     }
 
@@ -3055,12 +3055,13 @@ fn checkOr(check: *Check, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Er
     const lhs = try check.checkValue(view.lhs, hint);
     if (lhs == .diverged) return .diverged;
     if (lhs == .poison) {
-        _ = try check.checkExpr(view.rhs, null);
+        try check.checkAside(view.rhs);
         return .poison;
     }
     const found = check.typeOf(lhs);
     if (check.comp.pool.isUnion(found) == false) {
         try check.failNotUnion(view.lhs, found, "'or' splits a union");
+        try check.checkAside(view.rhs);
         return .poison;
     }
     if (check.builder == null) {
@@ -3068,6 +3069,18 @@ fn checkOr(check: *Check, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Er
         return check.checkOrFold(view.rhs, lhs.constant, found);
     }
     return check.checkOrSplit(view.lhs, refOf(lhs), found, view.rhs, .none);
+}
+
+/// Checks the right side of a broken `or` or `and` for its own reports.
+fn checkAside(check: *Check, node: Node.Index) Allocator.Error!void {
+    const builder = check.builder orelse {
+        _ = try check.checkExpr(node, null);
+        return;
+    };
+    const reachable = builder.reachable;
+    _ = try check.checkExpr(node, null);
+    try check.reopenDead();
+    builder.reachable = reachable;
 }
 
 fn checkOrFold(

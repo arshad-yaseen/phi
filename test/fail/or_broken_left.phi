@@ -1,0 +1,15 @@
+fn count() u32 {
+    let n = missing() or return 0
+    let after = n
+    return after
+}
+
+fn not_a_union(n: u32) u32 {
+    let m = n or return 0
+    return m
+}
+
+fn short_circuit() bool {
+    let both = missing_too() and return true
+    return both
+}

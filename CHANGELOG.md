@@ -18,6 +18,8 @@
 - A struct holding a unit type, or an array of one, builds to a binary. The
   compiler sized a unit at nothing while the C it wrote gave it a byte, so the
   C compiler refused the disagreement.
+- `x or return` with a broken `x` reports `x` alone. It used to take the
+  `return` as unconditional and report everything after it as unreachable.
 
 ## [0.4.0] - 2026-08-18
 
