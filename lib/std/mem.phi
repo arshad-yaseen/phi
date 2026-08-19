@@ -22,8 +22,8 @@ pub type Arena = {
         return p
     }
 
-    /// Room for `count` of `T`, every one holding `fill`.
-    pub fn alloc[T](self: *var Arena, count: u64, fill: T) []var T | OutOfMemory {
+    /// Room for `count` of `T`, every one holding `value`.
+    pub fn alloc[T](self: *var Arena, count: u64, value: T) []var T | OutOfMemory {
         let size = @size_of[T]()
         // more than any address space holds is refused, never overflowed
         if size != 0 and count > @max_int[u64]() / size {
@@ -31,9 +31,7 @@ pub type Arena = {
         }
         let bytes = self.take(count * size, @align_of[T]()) or return
         let items = @view(@ptr_cast[T](bytes.ptr), count)
-        loop i in 0..count {
-            items[i] = fill
-        }
+        fill(items, value)
         return items
     }
 
@@ -53,6 +51,13 @@ pub type Arena = {
         let bytes = self.buffer[start..end]
         debug.assert(@int_from_ptr(bytes.ptr) % alignment == 0)
         return bytes
+    }
+}
+
+/// Every element of `dst` set to `value`.
+pub fn fill[T](dst: []var T, value: T) {
+    loop i in 0..dst.len {
+        dst[i] = value
     }
 }
 

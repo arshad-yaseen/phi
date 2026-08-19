@@ -17,8 +17,9 @@
   something else already owns.
 - `std/mem` gains `Arena`, bump allocation over bytes the caller owns:
   `Arena.over(buffer)` makes one, `create[T](value)` and `alloc[T](count,
-  fill)` hand out one or many, each holding what was given, and `reset` takes
+  value)` hand out one or many, each holding what was given, and `reset` takes
   it all back at once. What does not fit answers `mem.OutOfMemory`.
+- `std/mem` gains `fill`, which sets every element of a view to one value.
 
 ### Compiler
 
