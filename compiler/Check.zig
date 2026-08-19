@@ -5297,7 +5297,7 @@ fn placeConstant(check: *const Check, place: Place) ?Pool.Index {
     if (refIsConstant(place.ref) == false) return null;
     const held = place.ref.unwrap().constant;
     return switch (check.comp.pool.keyOf(held)) {
-        .value_aggregate, .value_splat => held,
+        .value_aggregate, .value_repeat => held,
         else => null,
     };
 }

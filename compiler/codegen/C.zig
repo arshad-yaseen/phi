@@ -477,7 +477,7 @@ fn writeConstant(
             });
             try writeCastClose(writer, context);
         },
-        .value_aggregate, .value_splat => {
+        .value_aggregate, .value_repeat => {
             const type_index = pool.typeOfValue(index);
             // the checker lands every committed constant on a real type
             const of_struct = pool.keyOf(type_index) == .type_struct;
@@ -532,7 +532,7 @@ fn writeElements(backend: *C, writer: *Writer, index: Pool.Index, depth: u32) Fa
     const count = pool.aggregateLen(index);
 
     try writer.writeAll("{ .elems = {");
-    if (pool.keyOf(index) == .value_splat) {
+    if (pool.keyOf(index) == .value_repeat) {
         if (count > 0) {
             try writer.print(" [0 ... {d}] = ", .{count - 1});
             try backend.writeConstant(writer, pool.aggregateAt(index, 0), .initializer, depth + 1);
@@ -651,9 +651,9 @@ fn ensureStoredDeps(backend: *C, index: Pool.Index, depth: u32) Fail!void {
         .poison => unreachable,
         .value_slice => |it| try backend.ensureStored(it.data, depth + 1),
         .value_union => |it| try backend.ensureStoredDeps(it.value, depth + 1),
-        .value_aggregate, .value_splat => {
-            // one element stands for a whole splat
-            const count = if (pool.keyOf(index) == .value_splat)
+        .value_aggregate, .value_repeat => {
+            // one element stands for them all
+            const count = if (pool.keyOf(index) == .value_repeat)
                 @min(pool.aggregateLen(index), 1)
             else
                 pool.aggregateLen(index);

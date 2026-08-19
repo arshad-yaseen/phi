@@ -11,7 +11,7 @@ extern fn write(fd: i32, buf: *u8, len: u64) i64
 
 /// Text, or a number as decimal digits, written to standard output.
 pub fn print(value: []u8 | u64 | i64) {
-    var buf: [format_max]u8 = @splat(0)
+    var buf: [format_max]u8 = @repeat(0)
     write_all(match value {
         []u8 => value
         u64 => format_unsigned(buf[0..], value)

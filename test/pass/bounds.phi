@@ -1,5 +1,5 @@
 fn main() {
-    var data: [3]u8 = @splat(0)
+    var data: [3]u8 = @repeat(0)
     var index: u64 = 3
     data[index] = 1
 }

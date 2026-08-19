@@ -1,0 +1,40 @@
+error[E0242]: nothing here says what array '@repeat' builds
+ --> test/fail/repeat.phi:2:9
+  |
+2 |     _ = @repeat(0)
+  |         ^^^^^^^^^ no type in sight
+  |
+  = help: annotate what it feeds, as in 'var buffer: [20]u8 = @repeat(0)'
+
+error[E0211]: '@repeat' builds an array, and this lands on u32
+ --> test/fail/repeat.phi:6:12
+  |
+6 |     return @repeat(0)
+  |            ^^^^^^^^^ not an array type
+
+error[E0208]: 300 does not fit in u8, which is what '[2]u8' holds
+  --> test/fail/repeat.phi:10:12
+   |
+10 |     return @repeat(300)
+   |            ^^^^^^^^^^^ the wrong element
+
+error[E0214]: '@repeat' takes a constant, and this is settled at run time
+  --> test/fail/repeat.phi:14:20
+   |
+14 |     return @repeat(n)
+   |                    ^ not a constant
+   |
+   = help: write a loop to fill storage with something worked out as it runs
+
+error[E0213]: '@repeat' takes 1 argument, and this call has 2
+  --> test/fail/repeat.phi:18:12
+   |
+18 |     return @repeat(1, 2)
+   |            ^^^^^^^^^^^^ wrong number of arguments
+
+error[E0246]: '@repeat' takes 0 type arguments, and this writes 1
+  --> test/fail/repeat.phi:22:12
+   |
+22 |     return @repeat[u8](0)
+   |            ^^^^^^^^^^^^^ wrong number of type arguments
+

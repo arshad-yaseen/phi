@@ -27,7 +27,7 @@ let byte_size: u64 = @size_of[u32]()
 let byte_align: u64 = @align_of[u64]()
 let highest: u32 = @max_int[u16]()
 let lowest: i64 = @min_int[i32]()
-let zeroed: [4]u8 = @splat(0)
+let zeroed: [4]u8 = @repeat(0)
 
 let byte_is_u8 = Byte is u8
 let byte_is_u32 = Byte is u32

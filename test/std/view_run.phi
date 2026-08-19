@@ -2,7 +2,7 @@
 //! and an address reads as the number it is.
 
 fn main() {
-    var storage: [4]u32 = @splat(0)
+    var storage: [4]u32 = @repeat(0)
     let made = @view(&storage[0], 4)
     made[3] = 9
     if storage[3] != 9 { @trap() }

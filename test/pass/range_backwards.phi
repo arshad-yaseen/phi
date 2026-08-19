@@ -1,5 +1,5 @@
 fn main() {
-    var data: [4]u8 = @splat(0)
+    var data: [4]u8 = @repeat(0)
     var high: u64 = 3
     var low: u64 = 1
     _ = data[high..low]

@@ -149,7 +149,7 @@ pub const Key = union(enum) {
     /// A view of bytes the program owns, which is what a constant becomes on a `[]T`.
     value_slice: Viewed,
     /// An array whose every element is the same, held once. The length is in the type.
-    value_splat: Splat,
+    value_repeat: Repeat,
 
     pub const Pointer = struct { child: Index, mutable: bool };
     /// A length no layout can hold is refused where the size is asked, not here.
@@ -159,7 +159,7 @@ pub const Key = union(enum) {
     pub const Float = struct { type: Index, value: f64 };
     pub const Wrapped = struct { type: Index, value: Index };
     pub const Viewed = struct { type: Index, data: Index };
-    pub const Splat = struct { type: Index, element: Index };
+    pub const Repeat = struct { type: Index, element: Index };
     pub const Aggregate = struct { type: Index, elems: []const Index };
 
     fn hash(key: Key) u64 {
@@ -213,7 +213,7 @@ pub const ValueKey = union(enum) {
     value_unit: Index,
     value_union: Key.Wrapped,
     value_slice: Key.Viewed,
-    value_splat: Key.Splat,
+    value_repeat: Key.Repeat,
 };
 
 const Item = struct {
@@ -246,7 +246,7 @@ const Item = struct {
         /// `data` points at `extra`. The view type, then the array it views.
         value_slice,
         /// `data` points at `extra`. The array type, then the one element.
-        value_splat,
+        value_repeat,
     };
 };
 
@@ -367,11 +367,11 @@ pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.data.int()}),
             };
         },
-        .value_splat => |it| item: {
+        .value_repeat => |it| item: {
             assert(pool.keyOf(it.type) == .type_array);
             assert(pool.isType(it.element) == false);
             break :item .{
-                .tag = .value_splat,
+                .tag = .value_repeat,
                 .data = try pool.addExtra(gpa, &.{it.type.int()}, &.{it.element.int()}),
             };
         },
@@ -442,7 +442,7 @@ pub fn valueKey(pool: *const Pool, index: Index) ValueKey {
         .value_unit,
         .value_union,
         .value_slice,
-        .value_splat,
+        .value_repeat,
         => |payload, tag| @unionInit(ValueKey, @tagName(tag), payload),
         else => unreachable,
     };
@@ -479,7 +479,7 @@ pub fn keyOf(pool: *const Pool, index: Index) Key {
             .type = @enumFromInt(extra[data]),
             .data = @enumFromInt(extra[data + 1]),
         } },
-        .value_splat => .{ .value_splat = .{
+        .value_repeat => .{ .value_repeat = .{
             .type = @enumFromInt(extra[data]),
             .element = @enumFromInt(extra[data + 1]),
         } },
@@ -708,7 +708,7 @@ pub fn isType(pool: *const Pool, index: Index) bool {
         .type_simple, .type_pointer, .type_pointer_var, .type_array => true,
         .type_slice, .type_slice_var, .type_struct, .type_unit, .type_union => true,
         .value_int, .value_float, .value_aggregate => false,
-        .value_unit, .value_union, .value_slice, .value_splat => false,
+        .value_unit, .value_union, .value_slice, .value_repeat => false,
     };
 }
 
@@ -716,7 +716,7 @@ pub fn isType(pool: *const Pool, index: Index) bool {
 pub fn aggregateLen(pool: *const Pool, index: Index) u64 {
     return switch (pool.keyOf(index)) {
         .value_aggregate => |it| it.elems.len,
-        .value_splat => |it| pool.keyOf(it.type).type_array.len,
+        .value_repeat => |it| pool.keyOf(it.type).type_array.len,
         else => unreachable,
     };
 }
@@ -725,7 +725,7 @@ pub fn aggregateAt(pool: *const Pool, index: Index, at: u64) Index {
     assert(at < pool.aggregateLen(index));
     return switch (pool.keyOf(index)) {
         .value_aggregate => |it| it.elems[@intCast(at)],
-        .value_splat => |it| it.element,
+        .value_repeat => |it| it.element,
         else => unreachable,
     };
 }

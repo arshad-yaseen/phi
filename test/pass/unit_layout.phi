@@ -48,7 +48,7 @@ fn main() {
     io.print(h.n)
     io.print("\n")
 
-    var marks: [3]Marker = @splat(Marker)
+    var marks: [3]Marker = @repeat(Marker)
     marks[1] = tag(marks[0])
     let p = &marks[2]
     _ = p.*

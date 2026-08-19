@@ -1,26 +1,26 @@
 type none
 
 fn zeroed() [4]u8 {
-    let buffer: [4]u8 = @splat(0)
+    let buffer: [4]u8 = @repeat(0)
     return buffer
 }
 
 fn page() [64]u8 {
-    return @splat(0xAA)
+    return @repeat(0xAA)
 }
 
 fn grid() [2][3]u32 {
-    return @splat(7)
+    return @repeat(7)
 }
 
 fn buffered() u8 {
-    var buffer: [4]u8 = @splat(0)
+    var buffer: [4]u8 = @repeat(0)
     buffer[1] = 9
     return buffer[1]
 }
 
 fn absent() [2]u8 | none {
-    return @splat(3)
+    return @repeat(3)
 }
 
 fn written_out() [4]u8 {
@@ -28,7 +28,7 @@ fn written_out() [4]u8 {
 }
 
 fn folded() u8 {
-    let buffer: [8]u8 = @splat(3)
+    let buffer: [8]u8 = @repeat(3)
     return buffer[5]
 }
 

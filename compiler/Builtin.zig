@@ -22,7 +22,7 @@ pub const Builtin = enum {
     align_of,
     min_int,
     max_int,
-    splat,
+    repeat,
     trap,
 
     pub const Shape = struct {
@@ -37,7 +37,7 @@ pub const Builtin = enum {
             .view => .{ .types_min = 0, .types_max = 0, .args = 2 },
             .int_from_ptr => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .int_cast => .{ .types_min = 0, .types_max = 1, .args = 1 },
-            .splat => .{ .types_min = 0, .types_max = 0, .args = 1 },
+            .repeat => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .size_of, .align_of, .min_int, .max_int => .{
                 .types_min = 1,
                 .types_max = 1,
@@ -51,14 +51,14 @@ pub const Builtin = enum {
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr => true,
-            .int_cast, .size_of, .align_of, .min_int, .max_int, .splat, .trap => false,
+            .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat, .trap => false,
         };
     }
 
     pub fn needsBody(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr, .trap => true,
-            .int_cast, .size_of, .align_of, .min_int, .max_int, .splat => false,
+            .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat => false,
         };
     }
 
@@ -159,10 +159,10 @@ pub const Builtin = enum {
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
-            .splat => {
-                const wanted = try destination(check, node, null, hint, splat_wants) orelse
+            .repeat => {
+                const wanted = try destination(check, node, null, hint, repeat_wants) orelse
                     return .poison;
-                return splat(check, node, args[0], wanted, values[0]);
+                return repeat(check, node, args[0], wanted, values[0]);
             },
             .trap => {
                 try check.trap();
@@ -236,12 +236,12 @@ const int_cast_wants: Destination = .{
     .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
 };
 
-const splat_wants: Destination = .{
+const repeat_wants: Destination = .{
     .shape = .array,
-    .does = "'@splat' builds an array",
+    .does = "'@repeat' builds an array",
     .label = "not an array type",
-    .missing = "nothing here says what array '@splat' builds",
-    .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @splat(0)'",
+    .missing = "nothing here says what array '@repeat' builds",
+    .help = "annotate what it feeds, as in 'var buffer: [20]u8 = @repeat(0)'",
 };
 
 fn destination(
@@ -337,7 +337,7 @@ fn intCast(
     return check.emitOneValue(node, .int_cast, result, Check.refOf(operand));
 }
 
-fn splat(
+fn repeat(
     check: *Check,
     node: Node.Index,
     operand_node: Node.Index,
@@ -347,18 +347,18 @@ fn splat(
     if (operand != .constant) {
         return check.refuse(operand_node, .{
             .code = .not_constant,
-            .message = "'@splat' repeats a constant, and this is settled at run time",
+            .message = "'@repeat' takes a constant, and this is settled at run time",
             .label = "not a constant",
             .help = "write a loop to fill storage with something worked out as it runs",
         });
     }
 
-    const repeated = try splatArray(check, node, wanted, operand.constant, 0) orelse
+    const repeated = try repeatArray(check, node, wanted, operand.constant, 0) orelse
         return .poison;
     return .{ .constant = repeated };
 }
 
-fn splatArray(
+fn repeatArray(
     check: *Check,
     node: Node.Index,
     wanted: Pool.Index,
@@ -372,7 +372,7 @@ fn splatArray(
     const array = comp.pool.keyOf(wanted).type_array;
     const element: Pool.Index = element: {
         if (comp.pool.keyOf(array.child) == .type_array) {
-            break :element try splatArray(check, node, array.child, value, depth + 1) orelse
+            break :element try repeatArray(check, node, array.child, value, depth + 1) orelse
                 return null;
         }
         switch (try comp.pool.fit(comp.gpa, value, array.child, .allowed)) {
@@ -398,7 +398,7 @@ fn splatArray(
         });
     }
     return try comp.pool.intern(comp.gpa, .{
-        .value_splat = .{ .type = wanted, .element = element },
+        .value_repeat = .{ .type = wanted, .element = element },
     });
 }
 

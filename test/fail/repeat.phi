@@ -1,23 +1,23 @@
 fn no_type() {
-    _ = @splat(0)
+    _ = @repeat(0)
 }
 
 fn not_an_array() u32 {
-    return @splat(0)
+    return @repeat(0)
 }
 
 fn does_not_fit() [2]u8 {
-    return @splat(300)
+    return @repeat(300)
 }
 
 fn runtime_value(n: u8) [2]u8 {
-    return @splat(n)
+    return @repeat(n)
 }
 
 fn wrong_arity() [2]u8 {
-    return @splat(1, 2)
+    return @repeat(1, 2)
 }
 
 fn written_type() [2]u8 {
-    return @splat[u8](0)
+    return @repeat[u8](0)
 }

@@ -34,7 +34,7 @@ fn count(v: []u64 | none) u64 {
 }
 
 fn main() {
-    var storage: [4]u8 = @splat(7)
+    var storage: [4]u8 = @repeat(7)
     var counter: u32 = 42
     let sealed: u32 = 12345
     let wide: u64 = 5

@@ -138,7 +138,7 @@ fn writeConstant(
                 try writeType(comp, writer, it.type);
             }
         },
-        .value_aggregate, .value_splat => {
+        .value_aggregate, .value_repeat => {
             const type_index = comp.pool.typeOfValue(value);
             const fields: ?[]const Compilation.Row = switch (comp.pool.keyOf(type_index)) {
                 .type_struct => |instance| comp.instanceRows(instance),
