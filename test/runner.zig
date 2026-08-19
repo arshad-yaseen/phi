@@ -339,8 +339,14 @@ fn runBackend(
 
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = c_path, .data = c_text.written() });
 
+    // the alignment sanitizer, because `@ptr_cast` retypes an address the
+    // checker cannot prove is aligned for what it now claims lives there
     const compiled = (try runChecked(gpa, io, &.{
-        "zig", "cc", "-w", "-fno-strict-aliasing", c_path, "-o", binary_path,
+        "zig",                  "cc",
+        "-w",                   "-fno-strict-aliasing",
+        "-fsanitize=alignment", "-fno-sanitize-recover=alignment",
+        c_path,                 "-o",
+        binary_path,
     }, path, "zig cc refused the generated C", log)) orelse return false;
     gpa.free(compiled);
 
@@ -350,6 +356,14 @@ fn runBackend(
         defer gpa.free(result.stderr);
         if (result.term == .exited and result.term.exited == 0) {
             try log.print("{s}: expected the program to stop at a trap\n", .{path});
+            return false;
+        }
+        // a trap case already ends badly, so the sanitizer's own report needs saying
+        if (misaligned(result.stderr)) {
+            try log.print("{s}: reads or writes a misaligned address\n{s}", .{
+                path,
+                result.stderr,
+            });
             return false;
         }
         const shown = try programOutput(gpa, result.stdout);
@@ -366,6 +380,11 @@ fn runBackend(
     defer gpa.free(shown);
     if (try settle(gpa, io, stem, .out, shown, update, log) == false) ok = false;
     return ok;
+}
+
+/// What the alignment sanitizer says when it stops a program.
+fn misaligned(stderr: []const u8) bool {
+    return std.mem.indexOf(u8, stderr, "misaligned address") != null;
 }
 
 /// Windows text mode writes \r\n, so the goldens read platform newlines alike.
