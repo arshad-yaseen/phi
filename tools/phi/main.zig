@@ -34,7 +34,6 @@ const usage =
     \\  check <entry>   check the program and report what is wrong
     \\  ir    <entry>   print the typed IR
     \\  build <entry>   compile the program to a native binary
-    \\  run   <entry>   build the program, then run it
     \\
     \\options:
     \\  --std <dir>           where the standard library lives
@@ -47,7 +46,7 @@ const usage =
     \\
 ;
 
-const Command = enum { check, ir, build, run };
+const Command = enum { check, ir, build };
 
 const ColorChoice = enum { auto, on, off };
 
@@ -119,11 +118,11 @@ fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *W
             try log.print("checked in {f}\n", .{elapsed});
             return 0;
         },
-        .build, .run => return runBuild(init, &comp, request, log, color, start),
+        .build => return build(init, &comp, request, log, color, start),
     }
 }
 
-fn runBuild(
+fn build(
     init: std.process.Init,
     comp: *compiler.Compilation,
     request: Request,
@@ -178,31 +177,40 @@ fn runBuild(
         std.Io.Dir.cwd().deleteFile(init.io, c_path) catch {};
     }
 
-    if (request.command == .build) {
-        const elapsed = start.untilNow(init.io, clock);
-        assert(elapsed.nanoseconds >= 0);
+    const elapsed = start.untilNow(init.io, clock);
+    assert(elapsed.nanoseconds >= 0);
+
+    var size_buffer: [32]u8 = undefined;
+    if (binarySize(init.io, out_path)) |size| {
+        try log.print("built '{s}' ({s}) in {f}\n", .{
+            out_path,
+            sizeText(&size_buffer, size),
+            elapsed,
+        });
+    } else {
         try log.print("built '{s}' in {f}\n", .{ out_path, elapsed });
-        return 0;
     }
+    return 0;
+}
 
-    const program = if (std.fs.path.dirname(out_path) == null)
-        try std.fmt.allocPrint(arena, "./{s}", .{out_path})
-    else
-        out_path;
+fn binarySize(io: std.Io, path: []const u8) ?u64 {
+    assert(path.len > 0);
+    var file = std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only }) catch return null;
+    defer file.close(io);
+    const stat = file.stat(io) catch return null;
+    return stat.size;
+}
 
-    var child = try std.process.spawn(init.io, .{ .argv = &.{program} });
-    switch (try child.wait(init.io)) {
-        .exited => |code| return code,
-        .signal => |signal| {
-            try log.print("phi: the program stopped at a trap\n", .{});
-            // the shell convention, 128 plus the signal
-            return @intCast(128 + (@intFromEnum(signal) & 0x3f));
-        },
-        else => {
-            try log.print("phi: the program did not exit\n", .{});
-            return 2;
-        },
+fn sizeText(buffer: []u8, bytes: u64) []const u8 {
+    assert(buffer.len >= 32);
+    if (bytes < 1024) {
+        return std.fmt.bufPrint(buffer, "{d} B", .{bytes}) catch unreachable;
     }
+    const kib = @as(f64, @floatFromInt(bytes)) / 1024.0;
+    if (kib < 1024.0) {
+        return std.fmt.bufPrint(buffer, "{d:.1} KiB", .{kib}) catch unreachable;
+    }
+    return std.fmt.bufPrint(buffer, "{d:.1} MiB", .{kib / 1024.0}) catch unreachable;
 }
 
 fn compileC(

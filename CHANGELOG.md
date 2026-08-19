@@ -29,6 +29,12 @@
 - `x or return` with a broken `x` reports `x` alone. It used to take the
   `return` as unconditional and report everything after it as unreachable.
 
+### Command line
+
+- `phi run` retires. A binary is started by its own name, so `phi build` is
+  the whole step from source to program, and it closes naming the binary's
+  size beside the time.
+
 ## [0.4.0] - 2026-08-18
 
 0.3.0 gave a program something to hold. This release runs it: `phi build`

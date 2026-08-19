@@ -15,7 +15,8 @@ fn main() {
 ```
 
 ```console
-$ phi run main.phi
+$ phi build main.phi
+$ ./main
 Hello, world!
 ```
 
