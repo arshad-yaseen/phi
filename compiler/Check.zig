@@ -1,3 +1,5 @@
+// Type-check the AST, lowering function bodies to IR as we go.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
