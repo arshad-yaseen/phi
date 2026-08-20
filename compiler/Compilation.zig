@@ -13,7 +13,7 @@ const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Spell = @import("Spell.zig");
-const Target = @import("Target.zig");
+const Target = @import("Target.zig").Target;
 const Token = @import("Token.zig");
 
 const Decl = Module.Decl;
@@ -38,10 +38,9 @@ rows: std.ArrayList(Row) = .empty,
 rows_scratch: std.ArrayList(Row) = .empty,
 /// Bodies never nest, so one builder serves them all.
 body_builder: Check.Builder = .empty,
-/// What conditions proved about names, innermost last. Not the builder's,
-/// because a type and a top-level binding narrow with nothing to build in.
+/// What conditions proved, innermost last. Not the builder's: a type narrows too.
 narrows: std.ArrayList(Check.Narrow) = .empty,
-/// What conditions proved, gathered per condition, marked and restored.
+/// Gathered per condition, marked and restored.
 facts: std.ArrayList(Check.Fact) = .empty,
 operands: std.ArrayList(Check.Operand) = .empty,
 body_queue: std.ArrayList(Pool.Instance) = .empty,
@@ -364,8 +363,7 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
     comp.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
     defer _ = comp.stack.pop();
 
-    // a unit leaves the narrowing stacks as it found them, so what one branch
-    // proved never reaches an answer computed under it
+    // no unit sees what a branch above it proved
     const narrows_mark = comp.narrows.items.len;
     defer comp.narrows.shrinkRetainingCapacity(narrows_mark);
     const facts_mark = comp.facts.items.len;

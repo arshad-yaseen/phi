@@ -8,9 +8,7 @@
   did, so the arm that cannot run is never checked, its value carries out
   unchanged, and both stand where a program stands still: a top-level `let`
   takes `if` and `match`, and so does a type, `type long = match target.os { ... }`.
-- `std/c` names the C integer types, so an `extern fn` reads like the header it
-  came from. Only what C leaves open asks the target: `c.long` is 32 bits on
-  Windows and 64 elsewhere, and `c.char` is unsigned on Linux for ARM.
+- `std/c` names the C integer types.
 - `std/target` says what the program is built for. `target.os` and `target.arch`
   are settled constants over unit types, so `match target.os` picks its arm
   before anything runs and the arms it leaves never reach the binary, and
@@ -34,6 +32,8 @@
 
 ### Compiler
 
+- A view is laid out as an address and the count beside it rather than as two
+  addresses, which agreed only where an address was eight bytes wide.
 - An arm of an `if`, a loop, or a `match` that names a type where a value
   belongs is refused. It used to compile, leaving a broken value behind.
 - A struct holding a unit type, or an array of one, builds to a binary. The
@@ -44,6 +44,7 @@
 
 ### Command line
 
+- `--target <arch>-<os>` says what to build for.
 - `phi run` retires. A binary is started by its own name, so `phi build` is
   the whole step from source to program, and it closes naming the binary's
   size beside the time.

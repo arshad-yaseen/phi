@@ -56,8 +56,9 @@ fn format_signed(buf: []var u8, value: i64) []u8 {
 fn write_all(bytes: []u8) {
     var rest = bytes
     loop rest.len > 0 {
+        let asked = @int_cast[c.size_t](rest.len) or @max_int[c.size_t]()
         // a write that failed answers below zero, which no count of bytes reaches
-        let wrote = @int_cast[u64](write(stdout, rest.ptr, rest.len)) or return
+        let wrote = @int_cast[u64](write(stdout, rest.ptr, asked)) or return
         if wrote == 0 {
             return
         }

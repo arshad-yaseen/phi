@@ -63,8 +63,8 @@ fn ofBounded(
             // a written type is never void or untyped
             .void, .untyped_int, .untyped_float, .untyped_aggregate => unreachable,
         },
-        .type_pointer => addressed(comp, 1),
-        .type_slice => addressed(comp, 2),
+        .type_pointer => addressed(comp, 0),
+        .type_slice => addressed(comp, slice_len_size),
         .type_unit => .{ .size = 0, .alignment = 1 },
         .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
@@ -77,10 +77,16 @@ fn ofBounded(
     return found;
 }
 
-/// One address, or the two words a view lays end to end.
-fn addressed(comp: *const Compilation, words: u32) Layout {
-    const size = comp.target.pointerSize();
-    return .{ .size = words * size, .alignment = size };
+/// A view's count, which the IR types `u64` on every target.
+pub const slice_len_size = 8;
+
+fn addressed(comp: *const Compilation, beside: u32) Layout {
+    const address = comp.target.pointerSize();
+    const alignment = @max(address, beside);
+    return .{
+        .size = std.mem.alignForward(u32, address + beside, alignment),
+        .alignment = alignment,
+    };
 }
 
 fn ofArray(
@@ -123,8 +129,7 @@ fn ofStruct(
     return sized(std.mem.alignForward(u64, size, alignment), alignment);
 }
 
-/// Two members where one is a bare unit. The unit takes the zero address and
-/// the tag goes away.
+/// Two members, one a bare unit, which takes the zero address so the tag goes.
 ///
 ///   *Node | none      0x00007f2e51c04150                        the *Node
 ///                     0x0000000000000000                        none

@@ -2,12 +2,14 @@
 pub type linux
 pub type macos
 pub type windows
-pub type Os = linux | macos | windows
+pub type wasi
+pub type Os = linux | macos | windows | wasi
 
 /// The instruction set, named the same way.
 pub type x86_64
 pub type aarch64
-pub type Arch = x86_64 | aarch64
+pub type wasm32
+pub type Arch = x86_64 | aarch64 | wasm32
 
 pub let os: Os = @target_os()
 

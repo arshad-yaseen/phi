@@ -28,8 +28,7 @@ tree: *const AST,
 bindings: []const Binding,
 /// Null means constants only.
 builder: ?*Builder,
-/// Narrows below this belong to the unit that demanded this one, and are no
-/// part of its answer.
+/// Narrows below this belong to the unit that demanded this one.
 narrows_floor: u32,
 bool_type: Pool.Index,
 none_type: Pool.Index,
@@ -541,8 +540,7 @@ fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     return .poison;
 }
 
-/// A type may be a `match`, which settles before anything runs. One that does
-/// not settle picks a value, and the caller reports that where a type belongs.
+/// A `match` that settles. One that does not picks a value, which the caller reports.
 fn resolveMatchType(check: *Check, node: Node.Index) Allocator.Error!?Pool.Index {
     const chosen = try check.checkExpr(node, null);
     if (chosen.stops()) return .poison;
@@ -1255,8 +1253,7 @@ fn checkBlockValue(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator
     return value;
 }
 
-/// Where nothing runs, a block is the one expression it holds. Anything a
-/// statement would do needs somewhere to do it.
+/// Where nothing runs, a block is the one expression it holds.
 fn constantBlock(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     assert(check.builder == null);
     const statements = check.tree.viewOf(node).block;
@@ -1272,7 +1269,6 @@ fn constantBlock(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.E
 }
 
 /// The one arm a settled `if` or `match` enters, and the whole of what it is.
-/// Nothing else is checked, so an arm that cannot run never has to make sense.
 fn checkChosen(
     check: *Check,
     arm: Node.OptionalIndex,
@@ -1292,8 +1288,7 @@ fn checkChosen(
     return if (value == .diverged) .diverged else .void_value;
 }
 
-/// An `if` with no `else` has an edge that skips the arm, so what follows the
-/// `if` is reached even where the arm that ran left.
+/// An `if` with no `else` has an edge that skips the arm, so what follows is reached.
 fn fallsPast(check: *Check) Allocator.Error!void {
     // only an arm that left reaches here, and leaving takes a body
     const builder = check.body();
@@ -1540,8 +1535,7 @@ fn checkIf(
     return join.close(check, then_value == .diverged and else_value == .diverged);
 }
 
-/// Where the arms of an `if`, a loop, or a `match` leave their value. The first
-/// arm that does not leave names the type, and every arm after meets it.
+/// Where the arms of an `if`, a loop, or a `match` leave their value.
 const Join = struct {
     /// The keyword, for the message when nothing says what type this is.
     what: []const u8,
@@ -1598,8 +1592,7 @@ const Join = struct {
         try check.emitStore(at, join.slot, refOf(met));
     }
 
-    /// What the arms left behind. A later stage reads every type, so the slot is
-    /// typed whether or not the value is read.
+    /// What the arms left behind. The slot is typed even where nothing reads it.
     fn close(join: Join, check: *Check, diverged: bool) Allocator.Error!Value {
         if (join.carries == false) return .void_value;
         // a slot no arm typed holds a byte, which nothing reads
@@ -2759,8 +2752,7 @@ fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
             return if (resolved == .poison) .poison else .{ .named_type = resolved };
         },
         .err => return .poison,
-        // the parser keeps statements and declarations out of expression position, and
-        // a range inside the one bracket that takes it
+        // the parser keeps statements, declarations, and a stray range out of here
         .root, .import_decl, .struct_decl, .alias_decl, .unit_decl, .fn_decl => unreachable,
         .var_decl, .type_param, .param, .field, .assign, .defer_stmt => unreachable,
         .match_arm, .struct_field_init, .range_expr => unreachable,
@@ -5165,8 +5157,7 @@ fn crossedType(check: *Check, crossed: Place.Crossed, writable: bool) Allocator.
     };
 }
 
-/// The place a name reaches. Only a `var` has an address of its own, and only
-/// a name a branch proved carries a narrowed one.
+/// The place a name reaches. Only a `var` has an address of its own.
 fn localPlace(
     check: *const Check,
     node: Node.Index,
@@ -5360,8 +5351,7 @@ fn refIsConstant(ref: Ref) bool {
     return ref.unwrap() == .constant;
 }
 
-/// A view carries its own permission and leads with the address, so elements
-/// reach through its value. Storage is reached through its place instead.
+/// A view reaches elements through its value, storage through its place.
 fn elementsThrough(check: *Check, elements: Elements) Allocator.Error!?Place {
     if (elements.len != null) return check.placeThrough(elements.base, elements.pointer);
 
@@ -5744,8 +5734,7 @@ pub fn checkValue(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.
     return if (try check.valueOnly(node, value)) value else .poison;
 }
 
-/// What never settles, whatever it is written over. A branch is not here,
-/// because a settled one picks its arm instead of running.
+/// What never settles. A branch is not here, because a settled one picks its arm.
 fn runtimeOnly(tag: Node.Tag) ?[]const u8 {
     return switch (tag) {
         .loop_expr => "a loop",

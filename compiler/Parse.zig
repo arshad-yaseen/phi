@@ -1044,8 +1044,7 @@ fn parseLabeledLoop(self: *Parse) Allocator.Error!Node.Index {
     return self.parseLoop();
 }
 
-/// What the arms carry. A match stands where a value belongs and where a type
-/// does, and only its arms read differently.
+/// What the arms carry, which is all that differs between the two.
 const Arms = enum { value, type };
 
 fn parseMatch(self: *Parse, arms: Arms) Allocator.Error!Node.Index {

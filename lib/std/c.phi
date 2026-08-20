@@ -1,6 +1,5 @@
 import std/target
 
-/// Signed on every target but Linux on ARM, which is the surprise C leaves in.
 pub type char = match target.os {
     target.linux => match target.arch {
         target.aarch64 => u8
@@ -17,29 +16,29 @@ pub type ushort = u16
 pub type int = i32
 pub type uint = u32
 
-/// 32 bits on Windows and 64 elsewhere, which is the one width that moves.
 pub type long = match target.os {
     target.windows => i32
-    else => i64
+    else => intptr_t
 }
 
 pub type ulong = match target.os {
     target.windows => u32
-    else => u64
+    else => uintptr_t
 }
 
 pub type longlong = i64
 pub type ulonglong = u64
 
-/// What an address fits in, which is what C counts bytes with.
 pub type uintptr_t = match target.arch {
     target.x86_64 => u64
     target.aarch64 => u64
+    target.wasm32 => u32
 }
 
 pub type intptr_t = match target.arch {
     target.x86_64 => i64
     target.aarch64 => i64
+    target.wasm32 => i32
 }
 
 pub type size_t = uintptr_t

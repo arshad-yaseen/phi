@@ -5,6 +5,9 @@ const Writer = std.Io.Writer;
 const build_options = @import("build_options");
 const compiler = @import("compiler");
 
+const Build = @import("Build.zig");
+const Target = compiler.Target;
+
 pub fn main(init: std.process.Init) !u8 {
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     assert(args.len > 0);
@@ -36,6 +39,7 @@ const usage =
     \\  build <entry>   compile the program to a native binary
     \\
     \\options:
+    \\  --target <arch>-<os>  what to build for (default: this machine)
     \\  --std <dir>           where the standard library lives
     \\  --color auto|on|off   colour the output (default: auto)
     \\  --opt fast|small      what the C compiler optimizes for (default: fast)
@@ -50,24 +54,19 @@ const Command = enum { check, ir, build };
 
 const ColorChoice = enum { auto, on, off };
 
-const Optimize = enum { fast, small };
-
 const Request = struct {
     command: Command,
     path: []const u8,
     color: ColorChoice,
-    optimize: Optimize,
     std_dir: ?[]const u8,
-    out: ?[]const u8,
-    cc: ?[]const u8,
-    emit_c: bool,
+    build: Build.Options,
 };
 
 const clock: std.Io.Clock = .awake;
 
 fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *Writer) !u8 {
     const request = switch (try readArgs(args, out, log)) {
-        .ready => |request| request,
+        .ready => |ready| ready,
         .done => |status| return status,
     };
 
@@ -79,13 +78,9 @@ fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *W
         .cwd(),
         request.path,
     ) catch |err| switch (err) {
-        error.ReadFailed => {
-            try log.print("phi: cannot read '{s}'\n", .{request.path});
-            return 2;
-        },
+        error.ReadFailed => return say(log, "cannot read '{s}'", .{request.path}),
         error.SourceTooLarge => {
-            try log.print("phi: '{s}' is larger than the compiler can index\n", .{request.path});
-            return 2;
+            return say(log, "'{s}' is larger than the compiler can index", .{request.path});
         },
         error.OutOfMemory => return err,
     };
@@ -93,7 +88,8 @@ fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *W
     var comp: compiler.Compilation = undefined;
     try comp.init(init.gpa, init.io, .{
         .root_path = request.path,
-        .std_dir = request.std_dir orelse try findStd(init),
+        .std_dir = request.std_dir orelse try Build.stdDir(init.io, init.arena.allocator()),
+        .target = request.build.target,
     });
     defer comp.deinit();
 
@@ -110,95 +106,53 @@ fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *W
         return 1;
     }
 
-    switch (request.command) {
-        .check, .ir => {
-            if (request.command == .ir) try comp.dumpIR(out);
-            const elapsed = start.untilNow(init.io, clock);
-            assert(elapsed.nanoseconds >= 0);
-            try log.print("checked in {f}\n", .{elapsed});
-            return 0;
-        },
-        .build => return build(init, &comp, request, log, color, start),
+    if (request.command == .ir) try comp.dumpIR(out);
+    if (request.command != .build) {
+        try log.print("checked in {f}\n", .{start.untilNow(init.io, clock)});
+        return 0;
     }
+
+    const result = try Build.run(&comp, init.arena.allocator(), request.path, request.build);
+    return report(&comp, result, log, color, start.untilNow(init.io, clock));
 }
 
-fn build(
-    init: std.process.Init,
+fn report(
     comp: *compiler.Compilation,
-    request: Request,
+    result: Build.Result,
     log: *Writer,
     color: compiler.Diagnostic.Color,
-    start: std.Io.Timestamp,
+    elapsed: std.Io.Duration,
 ) !u8 {
-    const arena = init.arena.allocator();
-    assert(comp.hasErrors() == false);
-
-    const entry = switch (try compiler.codegen.C.entryOf(comp)) {
-        .instance => |instance| instance,
-        .missing => {
-            try log.print("phi: '{s}' has no 'fn main' to start from\n", .{request.path});
-            return 1;
+    switch (result) {
+        .built => |binary| {
+            const bytes = binary.size orelse {
+                try log.print("built '{s}' in {f}\n", .{ binary.path, elapsed });
+                return 0;
+            };
+            var buffer: [32]u8 = undefined;
+            try log.print("built '{s}' ({s}) in {f}\n", .{
+                binary.path,
+                sizeText(&buffer, bytes),
+                elapsed,
+            });
+            return 0;
         },
+        .no_entry => return say(log, "nothing to start from, so write 'fn main()'", .{}),
         .refused => {
             try comp.renderAll(log, color);
             return 1;
         },
-    };
-
-    var c_text: Writer.Allocating = .init(init.gpa);
-    defer c_text.deinit();
-    compiler.codegen.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
-        error.Refused => {
-            try comp.renderAll(log, color);
-            return 1;
+        .overwrites => |path| return say(log, "building '{s}' would overwrite the entry", .{path}),
+        .no_c_compiler => return say(log, "no C compiler found, so pass one with --cc <path>", .{}),
+        .c_refused => |path| {
+            return say(log, "the C compiler refused '{s}', which is kept to inspect", .{path});
         },
-        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-    };
-
-    const out_path = request.out orelse std.fs.path.stem(request.path);
-    assert(out_path.len > 0);
-    if (std.mem.eql(u8, out_path, request.path)) {
-        try log.print("phi: building '{s}' would overwrite the entry\n", .{out_path});
-        return 2;
     }
-
-    const c_path = try std.fmt.allocPrint(arena, "{s}.c", .{out_path});
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = c_path, .data = c_text.written() });
-
-    const status = compileC(init, request, c_path, out_path, log) catch |err| {
-        try log.print("phi: cannot run a C compiler: {t}\n", .{err});
-        return 2;
-    };
-    if (status != 0) {
-        try log.print("phi: the C compiler refused '{s}', which is kept to inspect\n", .{c_path});
-        return 2;
-    }
-    if (request.emit_c == false) {
-        std.Io.Dir.cwd().deleteFile(init.io, c_path) catch {};
-    }
-
-    const elapsed = start.untilNow(init.io, clock);
-    assert(elapsed.nanoseconds >= 0);
-
-    var size_buffer: [32]u8 = undefined;
-    if (binarySize(init.io, out_path)) |size| {
-        try log.print("built '{s}' ({s}) in {f}\n", .{
-            out_path,
-            sizeText(&size_buffer, size),
-            elapsed,
-        });
-    } else {
-        try log.print("built '{s}' in {f}\n", .{ out_path, elapsed });
-    }
-    return 0;
 }
 
-fn binarySize(io: std.Io, path: []const u8) ?u64 {
-    assert(path.len > 0);
-    var file = std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only }) catch return null;
-    defer file.close(io);
-    const stat = file.stat(io) catch return null;
-    return stat.size;
+fn say(log: *Writer, comptime template: []const u8, args: anytype) !u8 {
+    try log.print("phi: " ++ template ++ "\n", args);
+    return 2;
 }
 
 fn sizeText(buffer: []u8, bytes: u64) []const u8 {
@@ -213,62 +167,6 @@ fn sizeText(buffer: []u8, bytes: u64) []const u8 {
     return std.fmt.bufPrint(buffer, "{d:.1} MiB", .{kib / 1024.0}) catch unreachable;
 }
 
-fn compileC(
-    init: std.process.Init,
-    request: Request,
-    c_path: []const u8,
-    out_path: []const u8,
-    log: *Writer,
-) !u8 {
-    const candidates: []const []const u8 = if (request.cc) |chosen|
-        &.{chosen}
-    else
-        &.{ "cc", "clang", "gcc" };
-
-    const optimize: []const u8 = switch (request.optimize) {
-        .fast => "-O2",
-        .small => "-Os",
-    };
-
-    for (candidates) |candidate| {
-        const argv = [_][]const u8{
-            candidate, optimize, "-g", "-w", "-fno-strict-aliasing", c_path, "-o", out_path,
-        };
-        var child = std.process.spawn(init.io, .{ .argv = &argv }) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => return err,
-        };
-        return switch (try child.wait(init.io)) {
-            .exited => |code| code,
-            else => 1,
-        };
-    }
-
-    try log.print("phi: no C compiler found, so pass one with --cc <path>\n", .{});
-    return 2;
-}
-
-fn findStd(init: std.process.Init) !?[]const u8 {
-    const arena = init.arena.allocator();
-
-    if (std.process.executablePathAlloc(init.io, arena)) |exe_path| {
-        if (std.fs.path.dirname(exe_path)) |exe_dir| {
-            const beside = try std.fs.path.join(arena, &.{ exe_dir, "..", "lib", "std" });
-            if (dirExists(init.io, beside)) return beside;
-        }
-    } else |_| {}
-
-    if (dirExists(init.io, "lib/std")) return "lib/std";
-    return null;
-}
-
-fn dirExists(io: std.Io, path: []const u8) bool {
-    assert(path.len > 0);
-    var dir = std.Io.Dir.cwd().openDir(io, path, .{}) catch return false;
-    dir.close(io);
-    return true;
-}
-
 const ArgsResult = union(enum) { ready: Request, done: u8 };
 
 fn readArgs(args: []const [:0]const u8, out: *Writer, log: *Writer) !ArgsResult {
@@ -278,11 +176,8 @@ fn readArgs(args: []const [:0]const u8, out: *Writer, log: *Writer) !ArgsResult 
     var command: ?Command = null;
     var path: ?[]const u8 = null;
     var color: ColorChoice = .auto;
-    var optimize: Optimize = .fast;
     var std_dir: ?[]const u8 = null;
-    var out_path: ?[]const u8 = null;
-    var cc: ?[]const u8 = null;
-    var emit_c = false;
+    var options: Build.Options = .{};
 
     var index: u32 = 1;
     arguments: while (index < args.len) : (index += 1) {
@@ -293,27 +188,35 @@ fn readArgs(args: []const [:0]const u8, out: *Writer, log: *Writer) !ArgsResult 
             return .{ .done = 0 };
         }
         if (std.mem.eql(u8, argument, "--emit-c")) {
-            emit_c = true;
+            options.keep_c = true;
+            continue;
+        }
+        if (std.mem.eql(u8, argument, "--target")) {
+            index += 1;
+            if (index == args.len) return .{ .done = try misuse(log, "--target needs a triple") };
+            options.target = Target.parse(args[index]) orelse {
+                return .{ .done = try misuse(log, target_help) };
+            };
             continue;
         }
 
         inline for (.{
             .{ "--color", &color, "a setting", "--color takes auto, on, or off" },
-            .{ "--opt", &optimize, "a setting", "--opt takes fast or small" },
+            .{ "--opt", &options.optimize, "a setting", "--opt takes fast or small" },
             .{ "--std", &std_dir, "a directory", {} },
-            .{ "--out", &out_path, "a path", {} },
-            .{ "--cc", &cc, "a path", {} },
+            .{ "--out", &options.out, "a path", {} },
+            .{ "--cc", &options.cc, "a path", {} },
         }) |option| {
-            const name, const target, const wants, const takes = option;
+            const name, const slot, const wants, const takes = option;
             if (std.mem.eql(u8, argument, name)) {
                 index += 1;
                 if (index == args.len) {
                     return .{ .done = try misuse(log, name ++ " needs " ++ wants) };
                 }
                 if (@TypeOf(takes) == void) {
-                    target.* = args[index];
+                    slot.* = args[index];
                 } else {
-                    target.* = std.meta.stringToEnum(@TypeOf(target.*), args[index]) orelse {
+                    slot.* = std.meta.stringToEnum(@TypeOf(slot.*), args[index]) orelse {
                         return .{ .done = try misuse(log, takes) };
                     };
                 }
@@ -335,13 +238,12 @@ fn readArgs(args: []const [:0]const u8, out: *Writer, log: *Writer) !ArgsResult 
         .command = command orelse return .{ .done = try misuse(log, "no command given") },
         .path = path orelse return .{ .done = try misuse(log, "no entry given") },
         .color = color,
-        .optimize = optimize,
         .std_dir = std_dir,
-        .out = out_path,
-        .cc = cc,
-        .emit_c = emit_c,
+        .build = options,
     } };
 }
+
+const target_help = "--target takes <arch>-<os>, one of " ++ Target.spellings;
 
 fn misuse(log: *Writer, problem: []const u8) Writer.Error!u8 {
     assert(problem.len > 0);

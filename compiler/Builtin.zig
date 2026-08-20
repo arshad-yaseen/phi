@@ -8,7 +8,7 @@ const Compilation = @import("Compilation.zig");
 const Diagnostic = @import("Diagnostic.zig");
 const Layout = @import("Layout.zig");
 const Pool = @import("Pool.zig");
-const Target = @import("Target.zig");
+const Target = @import("Target.zig").Target;
 const Token = @import("Token.zig");
 
 const Closest = Compilation.Closest;
@@ -170,14 +170,14 @@ pub const Builtin = enum {
                 node,
                 hint,
                 target_os_wants,
-                @tagName(comp.target.os),
+                @tagName(comp.target.os()),
             ),
             .target_arch => return targetMember(
                 check,
                 node,
                 hint,
                 target_arch_wants,
-                @tagName(comp.target.arch),
+                @tagName(comp.target.arch()),
             ),
             .repeat => {
                 const wanted = try destination(check, node, null, hint, repeat_wants) orelse
@@ -333,8 +333,7 @@ fn failDestination(
     });
 }
 
-/// The member of the landing union the target spells. The library names the
-/// members and the compiler only picks one, so there is one vocabulary.
+/// The member the target spells, so the library names them and the compiler picks.
 fn targetMember(
     check: *Check,
     node: Node.Index,
