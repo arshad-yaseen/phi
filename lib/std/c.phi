@@ -1,6 +1,3 @@
-//! What C calls its integer types, so an `extern fn` reads like the header it
-//! came from. Only the widths C leaves open ask the target.
-
 import std/target
 
 /// Signed on every target but Linux on ARM, which is the surprise C leaves in.
