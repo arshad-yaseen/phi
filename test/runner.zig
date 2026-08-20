@@ -11,6 +11,10 @@ const compiler = @import("compiler");
 /// Cases under here compile as the standard library, and are their own std.
 const std_root = "test/std";
 
+/// The target a `.c` golden renders for. Std picks a module per platform, so the
+/// C of a machine that happened to run the tests is no golden at all.
+const c_target: compiler.Target = .x86_64_linux;
+
 /// What one golden asserts of its case.
 const Golden = enum {
     /// The parse tree. The case must parse clean. Nothing is compiled
@@ -20,7 +24,8 @@ const Golden = enum {
     expected,
     /// The typed IR. The case must compile.
     ir,
-    /// The C the backend emits. The case must compile, and have a `main`.
+    /// The C the backend emits, for `c_target`. The case must compile, and have
+    /// a `main`.
     c,
     /// What the program prints. Compiled with `zig cc`, run, must exit clean.
     out,
@@ -197,7 +202,7 @@ fn runParse(
     return settle(gpa, io, stem, .tree, actual.written(), update, log);
 }
 
-/// The whole pipeline, each present golden checked against one compilation.
+/// The whole pipeline. Every golden but `.c` reads one compilation for this machine.
 fn runCompile(
     gpa: Allocator,
     io: std.Io,
@@ -207,16 +212,9 @@ fn runCompile(
     update: bool,
     log: *Writer,
 ) !bool {
-    const source: compiler.Source = try .load(gpa, io, .cwd(), path);
-
-    const in_std = std.mem.startsWith(u8, path, std_root ++ "/");
     var comp: compiler.Compilation = undefined;
-    try comp.init(gpa, io, .{
-        .root_path = path,
-        .std_dir = if (in_std) std_root else "lib/std",
-    });
+    try compileCase(gpa, io, &comp, path, .host);
     defer comp.deinit();
-    try comp.compile(source);
 
     // the dump has to survive whatever tree recovery left behind
     var sink: Writer.Discarding = .init(&.{});
@@ -267,10 +265,11 @@ fn runCompile(
         }
     }
 
-    const wants_backend = goldens.intersectWith(GoldenSet.initMany(&.{
-        .c, .out, .trap,
-    })).count() > 0;
-    if (wants_backend) {
+    if (goldens.contains(.c)) {
+        if (try runEmitC(gpa, io, path, stem, update, log) == false) ok = false;
+    }
+
+    if (goldens.contains(.out) or goldens.contains(.trap)) {
         if (try runBackend(gpa, io, &comp, path, stem, goldens, update, log) == false) {
             ok = false;
         }
@@ -278,14 +277,52 @@ fn runCompile(
     return ok;
 }
 
-fn runBackend(
+/// The C of `c_target`, which every machine reads the same way.
+fn runEmitC(
+    gpa: Allocator,
+    io: std.Io,
+    path: []const u8,
+    stem: []const u8,
+    update: bool,
+    log: *Writer,
+) !bool {
+    var comp: compiler.Compilation = undefined;
+    try compileCase(gpa, io, &comp, path, c_target);
+    defer comp.deinit();
+
+    if (comp.hasErrors()) {
+        try log.print("{s}: expected to compile for {t}, but\n", .{ path, c_target });
+        try comp.renderAll(log, .off);
+        return false;
+    }
+
+    var c_text: Writer.Allocating = .init(gpa);
+    defer c_text.deinit();
+    if (try emitC(&comp, path, &c_text, log) == false) return false;
+    return settle(gpa, io, stem, .c, c_text.written(), update, log);
+}
+
+fn compileCase(
     gpa: Allocator,
     io: std.Io,
     comp: *compiler.Compilation,
     path: []const u8,
-    stem: []const u8,
-    goldens: GoldenSet,
-    update: bool,
+    target: compiler.Target,
+) !void {
+    const source: compiler.Source = try .load(gpa, io, .cwd(), path);
+    const in_std = std.mem.startsWith(u8, path, std_root ++ "/");
+    try comp.init(gpa, io, .{
+        .root_path = path,
+        .std_dir = if (in_std) std_root else "lib/std",
+        .target = target,
+    });
+    try comp.compile(source);
+}
+
+fn emitC(
+    comp: *compiler.Compilation,
+    path: []const u8,
+    into: *Writer.Allocating,
     log: *Writer,
 ) !bool {
     const entry = switch (try compiler.codegen.C.entryOf(comp)) {
@@ -299,27 +336,31 @@ fn runBackend(
             return false;
         },
     };
-
-    var c_text: Writer.Allocating = .init(gpa);
-    defer c_text.deinit();
-    compiler.codegen.C.emit(comp, entry, &c_text.writer) catch |err| switch (err) {
+    compiler.codegen.C.emit(comp, entry, &into.writer) catch |err| switch (err) {
         error.Refused => {
             try comp.renderAll(log, .off);
             return false;
         },
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
+    return true;
+}
+
+fn runBackend(
+    gpa: Allocator,
+    io: std.Io,
+    comp: *compiler.Compilation,
+    path: []const u8,
+    stem: []const u8,
+    goldens: GoldenSet,
+    update: bool,
+    log: *Writer,
+) !bool {
+    var c_text: Writer.Allocating = .init(gpa);
+    defer c_text.deinit();
+    if (try emitC(comp, path, &c_text, log) == false) return false;
 
     var ok = true;
-    if (goldens.contains(.c)) {
-        if (try settle(gpa, io, stem, .c, c_text.written(), update, log) == false) {
-            ok = false;
-        }
-    }
-
-    const runs = goldens.contains(.out) or goldens.contains(.trap);
-    if (runs == false) return ok;
-
     const work_dir = ".zig-cache/phi-exec";
     try std.Io.Dir.cwd().createDirPath(io, work_dir);
 

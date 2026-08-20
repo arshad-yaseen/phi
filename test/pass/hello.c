@@ -245,7 +245,7 @@ static pt50 p4_write(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     pt50 v2;
 
 b0:;
-#line 20 "lib/std/sys.phi"
+#line 19 "lib/std/sys.phi"
     v2 = p8_write_bytes(v0, v1);
     return v2;
 }
@@ -509,7 +509,7 @@ b12:;
     return v45;
 }
 
-#line 6 "lib/std/sys/macos.phi"
+#line 6 "lib/std/sys/linux.phi"
 // fn write_bytes
 static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     uint64_t v2;
@@ -527,41 +527,41 @@ static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     pt50 v17;
 
 b0:;
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     v2 = v1.len;
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     if ((uint64_t)v2 <= ((uint64_t)18446744073709551615ULL)) v3 = (pt50){ .m0 = (uint64_t)v2, .tag = 0 }; else v3 = (pt50){ .tag = 1 };
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     s4 = v3;
     if (v3.tag == 0) goto b2; else goto b1;
 b1:;
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     v6 = (pt50){ .m0 = ((uint64_t)18446744073709551615ULL), .tag = 0 };
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     s4 = v6;
     goto b2;
 b2:;
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     v8 = s4;
-#line 7 "lib/std/sys/macos.phi"
+#line 7 "lib/std/sys/linux.phi"
     v9 = v8.m0;
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     v10 = v1.ptr;
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     v11 = write(v0, v10, v9);
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     if (v11 >= 0 && (uint64_t)v11 <= ((uint64_t)18446744073709551615ULL)) v12 = (pt50){ .m0 = (uint64_t)v11, .tag = 0 }; else v12 = (pt50){ .tag = 1 };
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     s13 = v12;
     if (v12.tag == 0) goto b4; else goto b3;
 b3:;
     return ((pt50){ .tag = 1 });
 b4:;
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     v15 = s13;
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     v16 = v15.m0;
-#line 8 "lib/std/sys/macos.phi"
+#line 8 "lib/std/sys/linux.phi"
     v17 = (pt50){ .m0 = v16, .tag = 0 };
     return v17;
 }
