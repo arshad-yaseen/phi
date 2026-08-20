@@ -14,32 +14,6 @@ lib/std/     the standard library, shipped as source beside the binary
 test/        file tests, the golden's extension naming each assertion
 ```
 
-## Standard library
-
-```
-lib/std/
-    prelude.phi     what every file sees, with no import
-    target.phi      what the compiler knows about this build
-    debug.phi       what a program holds itself to
-    math.phi        numbers, past what the operators answer
-    mem.phi         memory, and the arenas that hand it out
-    fmt.phi         a value as text, into a buffer the caller owns
-    io.phi          what a program prints
-    sys.phi         the operating system, one face for every target
-    sys/c.phi       the C types this target's ABI settles
-    sys/linux.phi   one file per member of `target.Os`
-    sys/macos.phi
-    sys/wasi.phi
-    sys/windows.phi
-```
-
-One file is one module, and the path is what a user writes, so `lib/std/io.phi`
-is `import std/io`. An import binds a name in the file that wrote it and is no
-part of what that file offers, which means nothing re-exports and every name has
-exactly one home. The top of `lib/std` is therefore the whole public surface, and
-it stays short. A module earns a place there by being something a program reaches
-for, not by being somewhere to put code.
-
 ### Everything that knows about a machine is under `sys`
 
 - **An `extern fn` is written in `sys/<os>.phi` and nowhere else**, spelled the
