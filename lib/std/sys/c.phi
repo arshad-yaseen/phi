@@ -1,5 +1,4 @@
-//! The C integer types.
-//! Data models: https://en.cppreference.com/w/c/language/arithmetic_types
+//! https://en.cppreference.com/w/c/language/arithmetic_types
 
 import std/target
 

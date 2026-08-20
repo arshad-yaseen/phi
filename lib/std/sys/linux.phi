@@ -1,0 +1,9 @@
+import std/sys/c
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/write.html
+extern fn write(fd: c.int, buf: *u8, len: c.size_t) c.ssize_t
+
+pub fn write_bytes(fd: c.int, bytes: []u8) u64 | none {
+    let asked = @int_cast[c.size_t](bytes.len) or @max_int[c.size_t]()
+    return @int_cast[u64](write(fd, bytes.ptr, asked)) or return none
+}

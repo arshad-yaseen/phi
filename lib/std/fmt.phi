@@ -1,0 +1,48 @@
+import std/debug
+
+/// The most bytes `decimal` writes.
+pub let decimal_max: u64 = 21
+
+let digits: []u8 = "0123456789"
+
+/// `value` in decimal, written at the end of `buf` and answered as the part it filled.
+pub fn decimal(buf: []var u8, value: u64 | i64) []u8 {
+    debug.assert(buf.len >= decimal_max)
+    return match value {
+        u64 => decimal_unsigned(buf, value)
+        i64 => decimal_signed(buf, value)
+    }
+}
+
+fn decimal_unsigned(buf: []var u8, value: u64) []u8 {
+    var rest = value
+    var at = buf.len
+    loop {
+        at -= 1
+        buf[at] = digits[rest % 10]
+        rest /= 10
+        if rest == 0 {
+            break
+        }
+    }
+    return buf[at..]
+}
+
+fn decimal_signed(buf: []var u8, value: i64) []u8 {
+    // on the negative side, which every value has and the lowest value only has
+    var rest = if value < 0 { value } else { 0 - value }
+    var at = buf.len
+    loop {
+        at -= 1
+        buf[at] = digits[0 - rest % 10]
+        rest /= 10
+        if rest == 0 {
+            break
+        }
+    }
+    if value < 0 {
+        at -= 1
+        buf[at] = '-'
+    }
+    return buf[at..]
+}

@@ -1,0 +1,24 @@
+//! The operating system, one face for every target.
+
+import std/sys/c
+import std/sys/linux
+import std/sys/macos
+import std/sys/wasi
+import std/sys/windows
+import std/target
+
+pub type Fd = c.int
+
+pub let stdout: Fd = 1
+
+pub let stderr: Fd = 2
+
+/// How many of `bytes` the file took. None if the write failed.
+pub fn write(fd: Fd, bytes: []u8) u64 | none {
+    return match target.os {
+        target.linux => linux.write_bytes(fd, bytes)
+        target.macos => macos.write_bytes(fd, bytes)
+        target.wasi => wasi.write_bytes(fd, bytes)
+        target.windows => windows.write_bytes(fd, bytes)
+    }
+}

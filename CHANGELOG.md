@@ -6,7 +6,8 @@
 
 - A settled `if` or `match` picks its arm before anything runs, and stands in a
   top-level `let` and in a type.
-- `std/c` names the C integer types.
+- `std/sys` is where the standard library reaches the operating system.
+- `std/sys/c` names the C integer types.
 - `std/target` names the operating system, the architecture, and the width of an
   address.
 - A field without `pub` is private to its file.
@@ -15,6 +16,8 @@
 - `@splat` is now `@repeat`.
 - `std/mem` gains `Arena`, bump allocation over bytes the caller owns.
 - `std/mem` gains `fill`, which sets every element of a view to one value.
+- `std/fmt` writes a number as decimal digits into a buffer the caller owns.
+- `io.format_max` is now `fmt.decimal_max`.
 
 ### Compiler
 

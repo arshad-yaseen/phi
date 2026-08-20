@@ -19,25 +19,33 @@ typedef struct pt35 pt35;
 struct pt35 { uint8_t elems[21]; }; // [21]u8
 _Static_assert(sizeof(pt35) == 21, "phi sized [21]u8 at 21 bytes");
 _Static_assert(_Alignof(pt35) == 1, "phi aligned [21]u8 at 1 bytes");
-typedef struct pt53 pt53;
-struct pt53 { union { uint64_t m0; }; uint8_t tag; }; // u64 | none
-_Static_assert(sizeof(pt53) == 16, "phi sized u64 | none at 16 bytes");
-_Static_assert(_Alignof(pt53) == 8, "phi aligned u64 | none at 8 bytes");
-typedef struct pt74 pt74;
-struct pt74 { uint8_t elems[10]; }; // [10]u8
-_Static_assert(sizeof(pt74) == 10, "phi sized [10]u8 at 10 bytes");
-_Static_assert(_Alignof(pt74) == 1, "phi aligned [10]u8 at 1 bytes");
+typedef struct pt44 pt44;
+struct pt44 { union { uint64_t m0; int64_t m1; }; uint8_t tag; }; // u64 | i64
+_Static_assert(sizeof(pt44) == 16, "phi sized u64 | i64 at 16 bytes");
+_Static_assert(_Alignof(pt44) == 8, "phi aligned u64 | i64 at 8 bytes");
+typedef struct pt50 pt50;
+struct pt50 { union { uint64_t m0; }; uint8_t tag; }; // u64 | none
+_Static_assert(sizeof(pt50) == 16, "phi sized u64 | none at 16 bytes");
+_Static_assert(_Alignof(pt50) == 8, "phi aligned u64 | none at 8 bytes");
+typedef struct pt73 pt73;
+struct pt73 { uint8_t elems[10]; }; // [10]u8
+_Static_assert(sizeof(pt73) == 10, "phi sized [10]u8 at 10 bytes");
+_Static_assert(_Alignof(pt73) == 1, "phi aligned [10]u8 at 1 bytes");
 
 static const pt29 pd30 = { .elems = { ((uint8_t)72ULL), ((uint8_t)101ULL), ((uint8_t)108ULL), ((uint8_t)108ULL), ((uint8_t)111ULL), ((uint8_t)44ULL), ((uint8_t)32ULL), ((uint8_t)119ULL), ((uint8_t)111ULL), ((uint8_t)114ULL), ((uint8_t)108ULL), ((uint8_t)100ULL), ((uint8_t)33ULL), ((uint8_t)10ULL) } };
-static const pt74 pd75 = { .elems = { ((uint8_t)48ULL), ((uint8_t)49ULL), ((uint8_t)50ULL), ((uint8_t)51ULL), ((uint8_t)52ULL), ((uint8_t)53ULL), ((uint8_t)54ULL), ((uint8_t)55ULL), ((uint8_t)56ULL), ((uint8_t)57ULL) } };
+static const pt73 pd74 = { .elems = { ((uint8_t)48ULL), ((uint8_t)49ULL), ((uint8_t)50ULL), ((uint8_t)51ULL), ((uint8_t)52ULL), ((uint8_t)53ULL), ((uint8_t)54ULL), ((uint8_t)55ULL), ((uint8_t)56ULL), ((uint8_t)57ULL) } };
 
 extern int64_t write(int32_t, uint8_t*, uint64_t);
 
 static void p0_main(void);
 static void p1_print(pt16 v0 /* value */);
-static void p2_write_all(pt15 v0 /* bytes */);
-static pt15 p3_format_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */);
-static pt15 p4_format_signed(pt15 v0 /* buf */, int64_t v1 /* value */);
+static void p2_write_all(int32_t v0 /* fd */, pt15 v1 /* bytes */);
+static pt15 p3_decimal(pt15 v0 /* buf */, pt44 v1 /* value */);
+static pt50 p4_write(int32_t v0 /* fd */, pt15 v1 /* bytes */);
+static void p5_assert(uint8_t v0 /* ok */);
+static pt15 p6_decimal_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */);
+static pt15 p7_decimal_signed(pt15 v0 /* buf */, int64_t v1 /* value */);
+static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */);
 
 #line 3 "test/pass/hello.phi"
 // fn main
@@ -49,7 +57,7 @@ b0:;
     return;
 }
 
-#line 15 "lib/std/io.phi"
+#line 5 "lib/std/io.phi"
 // fn print
 static void p1_print(pt16 v0 /* value */) {
     pt35 s1; // buf
@@ -59,161 +67,209 @@ static void p1_print(pt16 v0 /* value */) {
     int v7;
     uint64_t v8;
     pt15 v9;
-    pt15 v10;
-    int64_t v12;
-    pt15 v13;
+    pt44 v10;
+    pt15 v11;
+    int64_t v13;
     pt15 v14;
+    pt44 v15;
     pt15 v16;
+    pt15 v18;
 
 b0:;
-#line 16 "lib/std/io.phi"
+#line 6 "lib/std/io.phi"
     s1 = ((pt35){ .elems = { [0 ... 20] = ((uint8_t)0ULL) } });
-#line 18 "lib/std/io.phi"
+#line 8 "lib/std/io.phi"
     v4 = v0.tag == 0;
     if (v4) goto b2; else goto b3;
 b1:;
-#line 17 "lib/std/io.phi"
-    v16 = s3;
-#line 17 "lib/std/io.phi"
-    p2_write_all(v16);
+#line 7 "lib/std/io.phi"
+    v18 = s3;
+#line 7 "lib/std/io.phi"
+    p2_write_all(((int32_t)1LL), v18);
     return;
 b2:;
-#line 18 "lib/std/io.phi"
+#line 8 "lib/std/io.phi"
     v5 = v0.m0;
-#line 18 "lib/std/io.phi"
+#line 8 "lib/std/io.phi"
     s3 = v5;
     goto b1;
 b3:;
-#line 19 "lib/std/io.phi"
+#line 9 "lib/std/io.phi"
     v7 = v0.tag == 1;
     if (v7) goto b4; else goto b5;
 b4:;
-#line 19 "lib/std/io.phi"
+#line 9 "lib/std/io.phi"
     v8 = v0.m1;
-#line 19 "lib/std/io.phi"
+#line 9 "lib/std/io.phi"
     v9 = (pt15){ (&s1)->elems + ((uint64_t)0ULL), (uint64_t)(((uint64_t)21ULL) - ((uint64_t)0ULL)) };
-#line 19 "lib/std/io.phi"
-    v10 = p3_format_unsigned(v9, v8);
-#line 19 "lib/std/io.phi"
-    s3 = v10;
+#line 9 "lib/std/io.phi"
+    v10 = (pt44){ .m0 = v8, .tag = 0 };
+#line 9 "lib/std/io.phi"
+    v11 = p3_decimal(v9, v10);
+#line 9 "lib/std/io.phi"
+    s3 = v11;
     goto b1;
 b5:;
     goto b6;
 b6:;
-#line 20 "lib/std/io.phi"
-    v12 = v0.m2;
-#line 20 "lib/std/io.phi"
-    v13 = (pt15){ (&s1)->elems + ((uint64_t)0ULL), (uint64_t)(((uint64_t)21ULL) - ((uint64_t)0ULL)) };
-#line 20 "lib/std/io.phi"
-    v14 = p4_format_signed(v13, v12);
-#line 20 "lib/std/io.phi"
-    s3 = v14;
+#line 10 "lib/std/io.phi"
+    v13 = v0.m2;
+#line 10 "lib/std/io.phi"
+    v14 = (pt15){ (&s1)->elems + ((uint64_t)0ULL), (uint64_t)(((uint64_t)21ULL) - ((uint64_t)0ULL)) };
+#line 10 "lib/std/io.phi"
+    v15 = (pt44){ .m1 = v13, .tag = 1 };
+#line 10 "lib/std/io.phi"
+    v16 = p3_decimal(v14, v15);
+#line 10 "lib/std/io.phi"
+    s3 = v16;
     goto b1;
 }
 
-#line 57 "lib/std/io.phi"
+#line 14 "lib/std/io.phi"
 // fn write_all
-static void p2_write_all(pt15 v0 /* bytes */) {
-    pt15 s1; // rest
-    pt15 v3;
-    uint64_t v4;
-    uint8_t v5;
-    pt15 v6;
-    uint64_t v7;
-    pt53 v8;
-    pt53 s9;
-    pt53 v11;
-    pt53 v13;
-    uint64_t v14;
-    pt15 v15;
-    uint8_t* v16;
-    int64_t v17;
-    pt53 v18;
-    pt53 s19;
-    pt53 v21;
-    uint64_t v22;
-    uint8_t v23;
-    pt15 v24;
-    uint64_t v25;
-    pt15 v27;
+static void p2_write_all(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
+    pt15 s2; // rest
+    pt15 v4;
+    uint64_t v5;
+    uint8_t v6;
+    pt15 v7;
+    pt50 v8;
+    pt50 s9;
+    pt50 v11;
+    uint64_t v12;
+    uint8_t v13;
+    pt15 v14;
+    uint64_t v15;
+    pt15 v17;
 
 b0:;
-#line 58 "lib/std/io.phi"
-    s1 = v0;
+#line 15 "lib/std/io.phi"
+    s2 = v1;
     goto b1;
 b1:;
-#line 59 "lib/std/io.phi"
-    v3 = s1;
-#line 59 "lib/std/io.phi"
-    v4 = v3.len;
-#line 59 "lib/std/io.phi"
-    v5 = !(v4 > ((uint64_t)0ULL));
-    if (v5 == 0) goto b2; else goto b3;
+#line 16 "lib/std/io.phi"
+    v4 = s2;
+#line 16 "lib/std/io.phi"
+    v5 = v4.len;
+#line 16 "lib/std/io.phi"
+    v6 = !(v5 > ((uint64_t)0ULL));
+    if (v6 == 0) goto b2; else goto b3;
 b2:;
-#line 60 "lib/std/io.phi"
-    v6 = s1;
-#line 60 "lib/std/io.phi"
-    v7 = v6.len;
-#line 60 "lib/std/io.phi"
-    if ((uint64_t)v7 <= ((uint64_t)18446744073709551615ULL)) v8 = (pt53){ .m0 = (uint64_t)v7, .tag = 0 }; else v8 = (pt53){ .tag = 1 };
-#line 60 "lib/std/io.phi"
+#line 17 "lib/std/io.phi"
+    v7 = s2;
+#line 17 "lib/std/io.phi"
+    v8 = p4_write(v0, v7);
+#line 17 "lib/std/io.phi"
     s9 = v8;
     if (v8.tag == 0) goto b5; else goto b4;
 b3:;
     return;
 b4:;
-#line 60 "lib/std/io.phi"
-    v11 = (pt53){ .m0 = ((uint64_t)18446744073709551615ULL), .tag = 0 };
-#line 60 "lib/std/io.phi"
-    s9 = v11;
-    goto b5;
+    return;
 b5:;
-#line 60 "lib/std/io.phi"
-    v13 = s9;
-#line 60 "lib/std/io.phi"
-    v14 = v13.m0;
-#line 62 "lib/std/io.phi"
-    v15 = s1;
-#line 62 "lib/std/io.phi"
-    v16 = v15.ptr;
-#line 62 "lib/std/io.phi"
-    v17 = write(((int32_t)1LL), v16, v14);
-#line 62 "lib/std/io.phi"
-    if (v17 >= 0 && (uint64_t)v17 <= ((uint64_t)18446744073709551615ULL)) v18 = (pt53){ .m0 = (uint64_t)v17, .tag = 0 }; else v18 = (pt53){ .tag = 1 };
-#line 62 "lib/std/io.phi"
-    s19 = v18;
-    if (v18.tag == 0) goto b7; else goto b6;
+#line 17 "lib/std/io.phi"
+    v11 = s9;
+#line 17 "lib/std/io.phi"
+    v12 = v11.m0;
+#line 18 "lib/std/io.phi"
+    v13 = !(v12 == ((uint64_t)0ULL));
+    if (v13 == 0) goto b6; else goto b7;
 b6:;
     return;
 b7:;
-#line 62 "lib/std/io.phi"
-    v21 = s19;
-#line 62 "lib/std/io.phi"
-    v22 = v21.m0;
-#line 63 "lib/std/io.phi"
-    v23 = !(v22 == ((uint64_t)0ULL));
-    if (v23 == 0) goto b8; else goto b9;
+    goto b8;
 b8:;
-    return;
-b9:;
-    goto b10;
-b10:;
-#line 66 "lib/std/io.phi"
-    v24 = s1;
-#line 66 "lib/std/io.phi"
-    v25 = v24.len;
-#line 66 "lib/std/io.phi"
-    if ((uint64_t)v22 > (uint64_t)v25) __builtin_trap();
-#line 66 "lib/std/io.phi"
-    v27 = (pt15){ v24.ptr + v22, (uint64_t)(v25 - v22) };
-#line 66 "lib/std/io.phi"
-    s1 = v27;
+#line 21 "lib/std/io.phi"
+    v14 = s2;
+#line 21 "lib/std/io.phi"
+    v15 = v14.len;
+#line 21 "lib/std/io.phi"
+    if ((uint64_t)v12 > (uint64_t)v15) __builtin_trap();
+#line 21 "lib/std/io.phi"
+    v17 = (pt15){ v14.ptr + v12, (uint64_t)(v15 - v12) };
+#line 21 "lib/std/io.phi"
+    s2 = v17;
     goto b1;
 }
 
-#line 24 "lib/std/io.phi"
-// fn format_unsigned
-static pt15 p3_format_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */) {
+#line 9 "lib/std/fmt.phi"
+// fn decimal
+static pt15 p3_decimal(pt15 v0 /* buf */, pt44 v1 /* value */) {
+    uint64_t v2;
+    uint8_t v3;
+    pt15 s5;
+    int v6;
+    uint64_t v7;
+    pt15 v8;
+    int64_t v10;
+    pt15 v11;
+    pt15 v13;
+
+b0:;
+#line 10 "lib/std/fmt.phi"
+    v2 = v0.len;
+#line 10 "lib/std/fmt.phi"
+    v3 = !(v2 >= ((uint64_t)21ULL));
+#line 10 "lib/std/fmt.phi"
+    p5_assert(v3);
+#line 12 "lib/std/fmt.phi"
+    v6 = v1.tag == 0;
+    if (v6) goto b2; else goto b3;
+b1:;
+#line 11 "lib/std/fmt.phi"
+    v13 = s5;
+    return v13;
+b2:;
+#line 12 "lib/std/fmt.phi"
+    v7 = v1.m0;
+#line 12 "lib/std/fmt.phi"
+    v8 = p6_decimal_unsigned(v0, v7);
+#line 12 "lib/std/fmt.phi"
+    s5 = v8;
+    goto b1;
+b3:;
+    goto b4;
+b4:;
+#line 13 "lib/std/fmt.phi"
+    v10 = v1.m1;
+#line 13 "lib/std/fmt.phi"
+    v11 = p7_decimal_signed(v0, v10);
+#line 13 "lib/std/fmt.phi"
+    s5 = v11;
+    goto b1;
+}
+
+#line 17 "lib/std/sys.phi"
+// fn write
+static pt50 p4_write(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
+    pt50 v2;
+
+b0:;
+#line 20 "lib/std/sys.phi"
+    v2 = p8_write_bytes(v0, v1);
+    return v2;
+}
+
+#line 2 "lib/std/debug.phi"
+// fn assert
+static void p5_assert(uint8_t v0 /* ok */) {
+    uint8_t v1;
+
+b0:;
+#line 3 "lib/std/debug.phi"
+    v1 = v0 ^ 1;
+    if (v1 == 0) goto b1; else goto b2;
+b1:;
+    __builtin_trap();
+b2:;
+    goto b3;
+b3:;
+    return;
+}
+
+#line 17 "lib/std/fmt.phi"
+// fn decimal_unsigned
+static pt15 p6_decimal_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */) {
     uint64_t s2; // rest
     uint64_t v4;
     uint64_t s5; // at
@@ -236,65 +292,65 @@ static pt15 p3_format_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */) {
     pt15 v29;
 
 b0:;
-#line 25 "lib/std/io.phi"
+#line 18 "lib/std/fmt.phi"
     s2 = v1;
-#line 26 "lib/std/io.phi"
+#line 19 "lib/std/fmt.phi"
     v4 = v0.len;
-#line 26 "lib/std/io.phi"
+#line 19 "lib/std/fmt.phi"
     s5 = v4;
     goto b1;
 b1:;
     goto b2;
 b2:;
-#line 28 "lib/std/io.phi"
+#line 21 "lib/std/fmt.phi"
     v7 = s5;
-#line 28 "lib/std/io.phi"
+#line 21 "lib/std/fmt.phi"
     if (__builtin_sub_overflow(v7, ((uint64_t)1ULL), &v8)) __builtin_trap();
-#line 28 "lib/std/io.phi"
+#line 21 "lib/std/fmt.phi"
     s5 = v8;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     v10 = s5;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     v11 = v0.len;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     if ((uint64_t)v10 >= (uint64_t)v11) __builtin_trap();
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     v13 = v0.ptr + v10;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     v14 = s2;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     if (((uint64_t)10ULL) == 0) __builtin_trap();
     v15 = v14 % ((uint64_t)10ULL);
-#line 29 "lib/std/io.phi"
-    v16 = ((pt15){ (uint8_t*)pd75.elems, 10 }).len;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
+    v16 = ((pt15){ (uint8_t*)pd74.elems, 10 }).len;
+#line 22 "lib/std/fmt.phi"
     if ((uint64_t)v15 >= (uint64_t)v16) __builtin_trap();
-#line 29 "lib/std/io.phi"
-    v18 = ((pt15){ (uint8_t*)pd75.elems, 10 }).ptr + v15;
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
+    v18 = ((pt15){ (uint8_t*)pd74.elems, 10 }).ptr + v15;
+#line 22 "lib/std/fmt.phi"
     v19 = (*v18);
-#line 29 "lib/std/io.phi"
+#line 22 "lib/std/fmt.phi"
     (*v13) = v19;
-#line 30 "lib/std/io.phi"
+#line 23 "lib/std/fmt.phi"
     v21 = s2;
-#line 30 "lib/std/io.phi"
+#line 23 "lib/std/fmt.phi"
     if (((uint64_t)10ULL) == 0) __builtin_trap();
     v22 = v21 / ((uint64_t)10ULL);
-#line 30 "lib/std/io.phi"
+#line 23 "lib/std/fmt.phi"
     s2 = v22;
-#line 31 "lib/std/io.phi"
+#line 24 "lib/std/fmt.phi"
     v24 = s2;
-#line 31 "lib/std/io.phi"
+#line 24 "lib/std/fmt.phi"
     v25 = !(v24 == ((uint64_t)0ULL));
     if (v25 == 0) goto b4; else goto b5;
 b3:;
-#line 35 "lib/std/io.phi"
+#line 28 "lib/std/fmt.phi"
     v26 = s5;
-#line 35 "lib/std/io.phi"
+#line 28 "lib/std/fmt.phi"
     v27 = v0.len;
-#line 35 "lib/std/io.phi"
+#line 28 "lib/std/fmt.phi"
     if ((uint64_t)v26 > (uint64_t)v27) __builtin_trap();
-#line 35 "lib/std/io.phi"
+#line 28 "lib/std/fmt.phi"
     v29 = (pt15){ v0.ptr + v26, (uint64_t)(v27 - v26) };
     return v29;
 b4:;
@@ -305,9 +361,9 @@ b6:;
     goto b1;
 }
 
-#line 38 "lib/std/io.phi"
-// fn format_signed
-static pt15 p4_format_signed(pt15 v0 /* buf */, int64_t v1 /* value */) {
+#line 31 "lib/std/fmt.phi"
+// fn decimal_signed
+static pt15 p7_decimal_signed(pt15 v0 /* buf */, int64_t v1 /* value */) {
     uint8_t v2;
     int64_t s3;
     int64_t v5;
@@ -341,78 +397,78 @@ static pt15 p4_format_signed(pt15 v0 /* buf */, int64_t v1 /* value */) {
     pt15 v45;
 
 b0:;
-#line 40 "lib/std/io.phi"
+#line 33 "lib/std/fmt.phi"
     v2 = !(v1 < ((int64_t)0LL));
     if (v2 == 0) goto b1; else goto b2;
 b1:;
-#line 40 "lib/std/io.phi"
+#line 33 "lib/std/fmt.phi"
     s3 = v1;
     goto b3;
 b2:;
-#line 40 "lib/std/io.phi"
+#line 33 "lib/std/fmt.phi"
     if (__builtin_sub_overflow(((int64_t)0LL), v1, &v5)) __builtin_trap();
-#line 40 "lib/std/io.phi"
+#line 33 "lib/std/fmt.phi"
     s3 = v5;
     goto b3;
 b3:;
-#line 40 "lib/std/io.phi"
+#line 33 "lib/std/fmt.phi"
     v7 = s3;
-#line 40 "lib/std/io.phi"
+#line 33 "lib/std/fmt.phi"
     s8 = v7;
-#line 41 "lib/std/io.phi"
+#line 34 "lib/std/fmt.phi"
     v10 = v0.len;
-#line 41 "lib/std/io.phi"
+#line 34 "lib/std/fmt.phi"
     s11 = v10;
     goto b4;
 b4:;
     goto b5;
 b5:;
-#line 43 "lib/std/io.phi"
+#line 36 "lib/std/fmt.phi"
     v13 = s11;
-#line 43 "lib/std/io.phi"
+#line 36 "lib/std/fmt.phi"
     if (__builtin_sub_overflow(v13, ((uint64_t)1ULL), &v14)) __builtin_trap();
-#line 43 "lib/std/io.phi"
+#line 36 "lib/std/fmt.phi"
     s11 = v14;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     v16 = s11;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     v17 = v0.len;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     if ((uint64_t)v16 >= (uint64_t)v17) __builtin_trap();
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     v19 = v0.ptr + v16;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     v20 = s8;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     if (((int64_t)10LL) == 0) __builtin_trap();
     v21 = (((int64_t)10LL) == -1) ? 0 : v20 % ((int64_t)10LL);
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     if (__builtin_sub_overflow(((int64_t)0LL), v21, &v22)) __builtin_trap();
-#line 44 "lib/std/io.phi"
-    v23 = ((pt15){ (uint8_t*)pd75.elems, 10 }).len;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
+    v23 = ((pt15){ (uint8_t*)pd74.elems, 10 }).len;
+#line 37 "lib/std/fmt.phi"
     if ((uint64_t)(int64_t)v22 >= (uint64_t)v23) __builtin_trap();
-#line 44 "lib/std/io.phi"
-    v25 = ((pt15){ (uint8_t*)pd75.elems, 10 }).ptr + v22;
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
+    v25 = ((pt15){ (uint8_t*)pd74.elems, 10 }).ptr + v22;
+#line 37 "lib/std/fmt.phi"
     v26 = (*v25);
-#line 44 "lib/std/io.phi"
+#line 37 "lib/std/fmt.phi"
     (*v19) = v26;
-#line 45 "lib/std/io.phi"
+#line 38 "lib/std/fmt.phi"
     v28 = s8;
-#line 45 "lib/std/io.phi"
+#line 38 "lib/std/fmt.phi"
     if (((int64_t)10LL) == 0) __builtin_trap();
     if (v28 == ((int64_t)(-9223372036854775807LL - 1)) && ((int64_t)10LL) == -1) __builtin_trap();
     v29 = v28 / ((int64_t)10LL);
-#line 45 "lib/std/io.phi"
+#line 38 "lib/std/fmt.phi"
     s8 = v29;
-#line 46 "lib/std/io.phi"
+#line 39 "lib/std/fmt.phi"
     v31 = s8;
-#line 46 "lib/std/io.phi"
+#line 39 "lib/std/fmt.phi"
     v32 = !(v31 == ((int64_t)0LL));
     if (v32 == 0) goto b7; else goto b8;
 b6:;
-#line 50 "lib/std/io.phi"
+#line 43 "lib/std/fmt.phi"
     v33 = !(v1 < ((int64_t)0LL));
     if (v33 == 0) goto b10; else goto b11;
 b7:;
@@ -422,35 +478,92 @@ b8:;
 b9:;
     goto b4;
 b10:;
-#line 51 "lib/std/io.phi"
+#line 44 "lib/std/fmt.phi"
     v34 = s11;
-#line 51 "lib/std/io.phi"
+#line 44 "lib/std/fmt.phi"
     if (__builtin_sub_overflow(v34, ((uint64_t)1ULL), &v35)) __builtin_trap();
-#line 51 "lib/std/io.phi"
+#line 44 "lib/std/fmt.phi"
     s11 = v35;
-#line 52 "lib/std/io.phi"
+#line 45 "lib/std/fmt.phi"
     v37 = s11;
-#line 52 "lib/std/io.phi"
+#line 45 "lib/std/fmt.phi"
     v38 = v0.len;
-#line 52 "lib/std/io.phi"
+#line 45 "lib/std/fmt.phi"
     if ((uint64_t)v37 >= (uint64_t)v38) __builtin_trap();
-#line 52 "lib/std/io.phi"
+#line 45 "lib/std/fmt.phi"
     v40 = v0.ptr + v37;
-#line 52 "lib/std/io.phi"
+#line 45 "lib/std/fmt.phi"
     (*v40) = ((uint8_t)45ULL);
     goto b12;
 b11:;
     goto b12;
 b12:;
-#line 54 "lib/std/io.phi"
+#line 47 "lib/std/fmt.phi"
     v42 = s11;
-#line 54 "lib/std/io.phi"
+#line 47 "lib/std/fmt.phi"
     v43 = v0.len;
-#line 54 "lib/std/io.phi"
+#line 47 "lib/std/fmt.phi"
     if ((uint64_t)v42 > (uint64_t)v43) __builtin_trap();
-#line 54 "lib/std/io.phi"
+#line 47 "lib/std/fmt.phi"
     v45 = (pt15){ v0.ptr + v42, (uint64_t)(v43 - v42) };
     return v45;
+}
+
+#line 6 "lib/std/sys/macos.phi"
+// fn write_bytes
+static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
+    uint64_t v2;
+    pt50 v3;
+    pt50 s4;
+    pt50 v6;
+    pt50 v8;
+    uint64_t v9;
+    uint8_t* v10;
+    int64_t v11;
+    pt50 v12;
+    pt50 s13;
+    pt50 v15;
+    uint64_t v16;
+    pt50 v17;
+
+b0:;
+#line 7 "lib/std/sys/macos.phi"
+    v2 = v1.len;
+#line 7 "lib/std/sys/macos.phi"
+    if ((uint64_t)v2 <= ((uint64_t)18446744073709551615ULL)) v3 = (pt50){ .m0 = (uint64_t)v2, .tag = 0 }; else v3 = (pt50){ .tag = 1 };
+#line 7 "lib/std/sys/macos.phi"
+    s4 = v3;
+    if (v3.tag == 0) goto b2; else goto b1;
+b1:;
+#line 7 "lib/std/sys/macos.phi"
+    v6 = (pt50){ .m0 = ((uint64_t)18446744073709551615ULL), .tag = 0 };
+#line 7 "lib/std/sys/macos.phi"
+    s4 = v6;
+    goto b2;
+b2:;
+#line 7 "lib/std/sys/macos.phi"
+    v8 = s4;
+#line 7 "lib/std/sys/macos.phi"
+    v9 = v8.m0;
+#line 8 "lib/std/sys/macos.phi"
+    v10 = v1.ptr;
+#line 8 "lib/std/sys/macos.phi"
+    v11 = write(v0, v10, v9);
+#line 8 "lib/std/sys/macos.phi"
+    if (v11 >= 0 && (uint64_t)v11 <= ((uint64_t)18446744073709551615ULL)) v12 = (pt50){ .m0 = (uint64_t)v11, .tag = 0 }; else v12 = (pt50){ .tag = 1 };
+#line 8 "lib/std/sys/macos.phi"
+    s13 = v12;
+    if (v12.tag == 0) goto b4; else goto b3;
+b3:;
+    return ((pt50){ .tag = 1 });
+b4:;
+#line 8 "lib/std/sys/macos.phi"
+    v15 = s13;
+#line 8 "lib/std/sys/macos.phi"
+    v16 = v15.m0;
+#line 8 "lib/std/sys/macos.phi"
+    v17 = (pt50){ .m0 = v16, .tag = 0 };
+    return v17;
 }
 
 int main(void) {

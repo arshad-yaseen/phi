@@ -1,0 +1,9 @@
+import std/sys/c
+
+/// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/write
+extern fn write(fd: c.int, buf: *u8, len: c.uint) c.int
+
+pub fn write_bytes(fd: c.int, bytes: []u8) u64 | none {
+    let asked = @int_cast[c.uint](bytes.len) or @max_int[c.uint]()
+    return @int_cast[u64](write(fd, bytes.ptr, asked)) or return none
+}
