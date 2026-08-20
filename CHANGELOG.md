@@ -7,7 +7,11 @@
 - A settled branch is the arm it picks. `if` now reads the way `match` already
   did, so the arm that cannot run is never checked, its value carries out
   unchanged, and both stand where a program stands still: a top-level `let`
-  takes `if` and `match`, and so does a type, `type Word = match flag { ... }`.
+  takes `if` and `match`, and so does a type, `type long = match target.os { ... }`.
+- `std/target` says what the program is built for. `target.os` and `target.arch`
+  are settled constants over unit types, so `match target.os` picks its arm
+  before anything runs and the arms it leaves never reach the binary, and
+  `target.pointer_bits` is how wide an address is.
 - A field without `pub` is private to its file, the way a method already is,
   so another file can neither reach it nor build the struct that holds it. A
   struct built elsewhere marks each field `pub`, or has its own file build it

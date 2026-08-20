@@ -5,8 +5,10 @@ const Allocator = std.mem.Allocator;
 const AST = @import("AST.zig");
 const Check = @import("Check.zig");
 const Compilation = @import("Compilation.zig");
+const Diagnostic = @import("Diagnostic.zig");
 const Layout = @import("Layout.zig");
 const Pool = @import("Pool.zig");
+const Target = @import("Target.zig");
 const Token = @import("Token.zig");
 
 const Closest = Compilation.Closest;
@@ -22,6 +24,8 @@ pub const Builtin = enum {
     align_of,
     min_int,
     max_int,
+    target_os,
+    target_arch,
     repeat,
     trap,
 
@@ -43,7 +47,7 @@ pub const Builtin = enum {
                 .types_max = 1,
                 .args = 0,
             },
-            .trap => .{ .types_min = 0, .types_max = 0, .args = 0 },
+            .target_os, .target_arch, .trap => .{ .types_min = 0, .types_max = 0, .args = 0 },
         };
     }
 
@@ -52,6 +56,7 @@ pub const Builtin = enum {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr => true,
             .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat, .trap => false,
+            .target_os, .target_arch => false,
         };
     }
 
@@ -59,6 +64,7 @@ pub const Builtin = enum {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr, .trap => true,
             .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat => false,
+            .target_os, .target_arch => false,
         };
     }
 
@@ -159,6 +165,20 @@ pub const Builtin = enum {
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
+            .target_os => return targetMember(
+                check,
+                node,
+                hint,
+                target_os_wants,
+                @tagName(comp.target.os),
+            ),
+            .target_arch => return targetMember(
+                check,
+                node,
+                hint,
+                target_arch_wants,
+                @tagName(comp.target.arch),
+            ),
             .repeat => {
                 const wanted = try destination(check, node, null, hint, repeat_wants) orelse
                     return .poison;
@@ -214,7 +234,7 @@ fn resolveTypes(
 }
 
 const Destination = struct {
-    shape: enum { integer, array },
+    shape: enum { integer, array, set },
     does: []const u8,
     label: []const u8,
     missing: []const u8,
@@ -224,6 +244,7 @@ const Destination = struct {
         return switch (wants.shape) {
             .integer => Pool.isSizedInt(index),
             .array => pool.keyOf(index) == .type_array,
+            .set => pool.isUnion(index),
         };
     }
 };
@@ -235,6 +256,20 @@ const int_cast_wants: Destination = .{
     .missing = "nothing here says what type '@int_cast' converts to",
     .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
 };
+
+fn targetWants(comptime name: []const u8, comptime example: []const u8) Destination {
+    return .{
+        .shape = .set,
+        .does = "'@" ++ name ++ "' answers a member of a union",
+        .label = "not a union",
+        .missing = "nothing here says which union '@" ++ name ++ "' lands on",
+        .help = "annotate what it feeds, as in '" ++ example ++ " = @" ++ name ++ "()'",
+    };
+}
+
+const target_os_wants: Destination = targetWants("target_os", "let os: Os");
+
+const target_arch_wants: Destination = targetWants("target_arch", "let arch: Arch");
 
 const repeat_wants: Destination = .{
     .shape = .array,
@@ -258,7 +293,11 @@ fn destination(
         return null;
     }
 
-    const landing = comp.pool.firstMember(hint orelse .void_type);
+    const wanted = hint orelse .void_type;
+    if (wants.accepts(&comp.pool, wanted)) return wanted;
+
+    // a union otherwise lands on its first member, the way a value entering it does
+    const landing = comp.pool.firstMember(wanted);
     if (wants.accepts(&comp.pool, landing)) return landing;
 
     // a type that cannot be the destination is not the same as no type at all
@@ -291,6 +330,44 @@ fn failDestination(
             try check.comp.typeName(found),
         }),
         .label = wants.label,
+    });
+}
+
+/// The member of the landing union the target spells. The library names the
+/// members and the compiler only picks one, so there is one vocabulary.
+fn targetMember(
+    check: *Check,
+    node: Node.Index,
+    hint: ?Pool.Index,
+    wants: Destination,
+    spelled: []const u8,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    const wanted = try destination(check, node, null, hint, wants) orelse return .poison;
+
+    var members = comp.pool.membersOf(wanted);
+    while (members.next()) |member| {
+        const named = switch (comp.pool.keyOf(member)) {
+            .type_unit => |decl| decl,
+            else => continue,
+        };
+        if (comp.pool.sameText(comp.declAt(named).name, spelled) == false) continue;
+
+        const held = try comp.pool.intern(comp.gpa, .{ .value_unit = member });
+        return .{ .constant = try comp.pool.intern(comp.gpa, .{
+            .value_union = .{ .type = wanted, .value = held },
+        }) };
+    }
+
+    return check.refuse(node, .{
+        .code = .not_a_member,
+        .message = try comp.fmt("this build targets '{s}', and {s} has no member named '{s}'", .{
+            spelled,
+            try comp.typeName(wanted),
+            spelled,
+        }),
+        .label = "no member for this target",
+        .help = try comp.fmt("declare 'type {s}' and list it among the members", .{spelled}),
     });
 }
 

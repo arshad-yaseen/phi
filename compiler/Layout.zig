@@ -11,9 +11,6 @@ alignment: u32,
 
 const Layout = @This();
 
-/// 64-bit, hardcoded for now
-pub const pointer_size = 8;
-
 pub const tag_size = 1;
 
 comptime {
@@ -66,8 +63,8 @@ fn ofBounded(
             // a written type is never void or untyped
             .void, .untyped_int, .untyped_float, .untyped_aggregate => unreachable,
         },
-        .type_pointer => .{ .size = pointer_size, .alignment = pointer_size },
-        .type_slice => .{ .size = 2 * pointer_size, .alignment = pointer_size },
+        .type_pointer => addressed(comp, 1),
+        .type_slice => addressed(comp, 2),
         .type_unit => .{ .size = 0, .alignment = 1 },
         .type_array => |array| try ofArray(comp, origin, array, depth),
         .type_struct => |instance| try ofStruct(comp, origin, instance, depth),
@@ -78,6 +75,12 @@ fn ofBounded(
     assert(found.size % found.alignment == 0);
     try comp.layouts.put(comp.gpa, index, found);
     return found;
+}
+
+/// One address, or the two words a view lays end to end.
+fn addressed(comp: *const Compilation, words: u32) Layout {
+    const size = comp.target.pointerSize();
+    return .{ .size = words * size, .alignment = size };
 }
 
 fn ofArray(

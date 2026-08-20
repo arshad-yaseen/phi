@@ -1,0 +1,17 @@
+/// The operating system. The compiler picks the member its build targets.
+pub type linux
+pub type macos
+pub type windows
+pub type Os = linux | macos | windows
+
+/// The instruction set, named the same way.
+pub type x86_64
+pub type aarch64
+pub type Arch = x86_64 | aarch64
+
+pub let os: Os = @target_os()
+
+pub let arch: Arch = @target_arch()
+
+/// How wide an address is, which the compiler answers by laying one out.
+pub let pointer_bits: u64 = @size_of[*u8]() * 8

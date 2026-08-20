@@ -13,6 +13,7 @@ const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Spell = @import("Spell.zig");
+const Target = @import("Target.zig");
 const Token = @import("Token.zig");
 
 const Decl = Module.Decl;
@@ -59,6 +60,7 @@ stack: std.ArrayList(Frame) = .empty,
 arena: std.heap.ArenaAllocator,
 
 loader: Loader,
+target: Target,
 root_dir: []const u8,
 root_stem: []const u8,
 std_dir: ?[]const u8,
@@ -183,6 +185,7 @@ pub const Entry = struct {
 pub const Options = struct {
     root_path: []const u8,
     std_dir: ?[]const u8,
+    target: Target = .host,
     record_expr_types: bool = false,
     loader: Loader = .disk,
 };
@@ -196,6 +199,7 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .pool = undefined,
         .arena = .init(gpa),
         .loader = options.loader,
+        .target = options.target,
         .root_dir = std.fs.path.dirname(options.root_path) orelse ".",
         .root_stem = std.fs.path.stem(options.root_path),
         .std_dir = options.std_dir,
@@ -973,8 +977,16 @@ fn pathInside(outer: []const u8, inner: []const u8) bool {
 const testing = std.testing;
 
 pub fn testCompile(comp: *Compilation, text: []const u8) !void {
+    return testCompileFor(comp, text, .host);
+}
+
+pub fn testCompileFor(comp: *Compilation, text: []const u8, target: Target) !void {
     const gpa = testing.allocator;
-    try comp.init(gpa, testing.io, .{ .root_path = "test.phi", .std_dir = null });
+    try comp.init(gpa, testing.io, .{
+        .root_path = "test.phi",
+        .std_dir = null,
+        .target = target,
+    });
     errdefer comp.deinit();
 
     const buffer = try gpa.alloc(u8, text.len + Source.padding);
