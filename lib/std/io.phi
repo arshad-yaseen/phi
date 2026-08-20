@@ -8,6 +8,7 @@ pub let format_max: u64 = 21
 
 let digits: []u8 = "0123456789"
 
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/write.html
 extern fn write(fd: c.int, buf: *u8, len: c.size_t) c.ssize_t
 
 /// Text, or a number as decimal digits, written to standard output.

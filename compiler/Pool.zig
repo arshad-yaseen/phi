@@ -1,4 +1,4 @@
-//! One item per type and per payload, so equality is index equality.
+//! One item per type and per payload.
 
 const std = @import("std");
 const assert = std.debug.assert;

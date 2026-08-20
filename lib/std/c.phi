@@ -1,5 +1,10 @@
+//! The C integer types.
+//! Data models: https://en.cppreference.com/w/c/language/arithmetic_types
+
 import std/target
 
+/// Signedness is implementation-defined, and AAPCS64 chooses unsigned.
+/// https://github.com/ARM-software/abi-aa/blob/main/aapcs64/aapcs64.rst
 pub type char = match target.os {
     target.linux => match target.arch {
         target.aarch64 => u8
@@ -16,6 +21,8 @@ pub type ushort = u16
 pub type int = i32
 pub type uint = u32
 
+/// 32 bits under LLP64, an address under LP64 and ILP32.
+/// https://learn.microsoft.com/en-us/windows/win32/winprog64/abstract-data-models
 pub type long = match target.os {
     target.windows => i32
     else => intptr_t
@@ -29,6 +36,7 @@ pub type ulong = match target.os {
 pub type longlong = i64
 pub type ulonglong = u64
 
+/// Wide enough to hold any address. ISO C23 draft N3220 7.22.1.4.
 pub type uintptr_t = match target.arch {
     target.x86_64 => u64
     target.aarch64 => u64
@@ -42,5 +50,9 @@ pub type intptr_t = match target.arch {
 }
 
 pub type size_t = uintptr_t
+
+/// POSIX, not ISO C.
+/// https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/sys_types.h.html
 pub type ssize_t = intptr_t
+
 pub type ptrdiff_t = intptr_t

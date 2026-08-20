@@ -874,6 +874,7 @@ pub const Closest = struct {
         }
     }
 
+    /// https://en.wikipedia.org/wiki/Levenshtein_distance
     fn distance(a: []const u8, b: []const u8) u32 {
         const cap = 40;
         const from = a[0..@min(a.len, cap)];
