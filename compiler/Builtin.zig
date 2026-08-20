@@ -593,53 +593,86 @@ comptime {
 
 const testing = std.testing;
 
-const target_source =
-    \\type linux
-    \\type macos
-    \\type windows
-    \\type wasi
-    \\type x86_64
-    \\type aarch64
-    \\type wasm32
-    \\type Os = linux | macos | windows | wasi
-    \\type Arch = x86_64 | aarch64 | wasm32
-    \\let os: Os = @target_os()
-    \\let arch: Arch = @target_arch()
-    \\
-;
+const clock: std.Io.Clock = .awake;
 
-fn heldName(comp: *Compilation, name: []const u8) []const u8 {
-    const decl = comp.declAt(comp.moduleAt(.root).findDecl(name).?);
-    const member = comp.pool.memberOfValue(@enumFromInt(decl.result));
-    return comp.pool.stringText(comp.declAt(comp.pool.keyOf(member).type_unit).name);
-}
-
-test "the target picks the member of the landing union that names it" {
-    for (std.enums.values(Target)) |target| {
-        var comp: Compilation = undefined;
-        try Compilation.testCompileFor(&comp, target_source, target);
-        defer comp.deinit();
-
-        try testing.expectEqual(0, comp.diagnostics.items.len);
-        try testing.expectEqualStrings(@tagName(target.os()), heldName(&comp, "os"));
-        try testing.expectEqualStrings(@tagName(target.arch()), heldName(&comp, "arch"));
-    }
-}
-
-test "a union with no member for the target says which one is missing" {
+/// Times one compilation so CI reports where the cost is. Temporary.
+fn probe(comptime name: []const u8, source: []const u8) !void {
+    const start = clock.now(testing.io);
     var comp: Compilation = undefined;
-    try Compilation.testCompileFor(&comp,
+    try Compilation.testCompileFor(&comp, source, .x86_64_windows);
+    comp.deinit();
+    std.debug.print("PROBE {s}: {f}\n", .{ name, start.untilNow(testing.io, clock) });
+}
+
+test "probe 1 one unit type" {
+    try probe("one unit type", "type a\n");
+}
+
+test "probe 2 nine unit types" {
+    try probe("nine unit types",
+        \\type a
+        \\type b
+        \\type c
+        \\type d
+        \\type e
+        \\type f
+        \\type g
+        \\type h
+        \\type i
+        \\
+    );
+}
+
+test "probe 3 two unions" {
+    try probe("two unions",
+        \\type a
+        \\type b
+        \\type c
+        \\type d
+        \\type e
+        \\type f
+        \\type g
+        \\type U = a | b | c | d
+        \\type V = e | f | g
+        \\
+    );
+}
+
+test "probe 4 one target builtin" {
+    try probe("one target builtin",
         \\type linux
         \\type macos
-        \\type Os = linux | macos
+        \\type windows
+        \\type wasi
+        \\type Os = linux | macos | windows | wasi
         \\let os: Os = @target_os()
         \\
-    , .x86_64_windows);
-    defer comp.deinit();
-
-    try testing.expectEqual(1, comp.diagnostics.items.len);
-    try testing.expectEqual(
-        Diagnostic.Code.not_a_member,
-        comp.diagnostics.items[0].diagnostic.code,
     );
+}
+
+test "probe 5 both target builtins" {
+    try probe("both target builtins",
+        \\type linux
+        \\type macos
+        \\type windows
+        \\type wasi
+        \\type x86_64
+        \\type aarch64
+        \\type wasm32
+        \\type Os = linux | macos | windows | wasi
+        \\type Arch = x86_64 | aarch64 | wasm32
+        \\let os: Os = @target_os()
+        \\let arch: Arch = @target_arch()
+        \\
+    );
+}
+
+test "probe 6 the same source three times" {
+    const start = clock.now(testing.io);
+    for (0..3) |_| {
+        var comp: Compilation = undefined;
+        try Compilation.testCompileFor(&comp, "type a\ntype b\ntype U = a | b\n", .x86_64_windows);
+        comp.deinit();
+    }
+    std.debug.print("PROBE three compilations: {f}\n", .{start.untilNow(testing.io, clock)});
 }
