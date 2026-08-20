@@ -1,13 +1,14 @@
+import std/c
 import std/debug
 
-let stdout: i32 = 1
+let stdout: c.int = 1
 
 /// The most bytes `format` writes.
 pub let format_max: u64 = 21
 
 let digits: []u8 = "0123456789"
 
-extern fn write(fd: i32, buf: *u8, len: u64) i64
+extern fn write(fd: c.int, buf: *u8, len: c.size_t) c.ssize_t
 
 /// Text, or a number as decimal digits, written to standard output.
 pub fn print(value: []u8 | u64 | i64) {

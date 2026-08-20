@@ -8,6 +8,9 @@
   did, so the arm that cannot run is never checked, its value carries out
   unchanged, and both stand where a program stands still: a top-level `let`
   takes `if` and `match`, and so does a type, `type long = match target.os { ... }`.
+- `std/c` names the C integer types, so an `extern fn` reads like the header it
+  came from. Only what C leaves open asks the target: `c.long` is 32 bits on
+  Windows and 64 elsewhere, and `c.char` is unsigned on Linux for ARM.
 - `std/target` says what the program is built for. `target.os` and `target.arch`
   are settled constants over unit types, so `match target.os` picks its arm
   before anything runs and the arms it leaves never reach the binary, and

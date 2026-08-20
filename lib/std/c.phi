@@ -1,0 +1,50 @@
+//! What C calls its integer types, so an `extern fn` reads like the header it
+//! came from. Only the widths C leaves open ask the target.
+
+import std/target
+
+/// Signed on every target but Linux on ARM, which is the surprise C leaves in.
+pub type char = match target.os {
+    target.linux => match target.arch {
+        target.aarch64 => u8
+        target.x86_64 => i8
+    }
+    else => i8
+}
+
+pub type uchar = u8
+
+pub type short = i16
+pub type ushort = u16
+
+pub type int = i32
+pub type uint = u32
+
+/// 32 bits on Windows and 64 elsewhere, which is the one width that moves.
+pub type long = match target.os {
+    target.windows => i32
+    else => i64
+}
+
+pub type ulong = match target.os {
+    target.windows => u32
+    else => u64
+}
+
+pub type longlong = i64
+pub type ulonglong = u64
+
+/// What an address fits in, which is what C counts bytes with.
+pub type uintptr_t = match target.arch {
+    target.x86_64 => u64
+    target.aarch64 => u64
+}
+
+pub type intptr_t = match target.arch {
+    target.x86_64 => i64
+    target.aarch64 => i64
+}
+
+pub type size_t = uintptr_t
+pub type ssize_t = intptr_t
+pub type ptrdiff_t = intptr_t
