@@ -287,8 +287,8 @@ b6:;
 #line 36 "lib/std/io.phi"
 // fn format_signed
 static pt15 p4_format_signed(pt15 v0 /* buf */, int64_t v1 /* value */) {
-    int64_t s2;
-    uint8_t v3;
+    uint8_t v2;
+    int64_t s3;
     int64_t v5;
     int64_t v7;
     int64_t s8; // rest
@@ -321,21 +321,21 @@ static pt15 p4_format_signed(pt15 v0 /* buf */, int64_t v1 /* value */) {
 
 b0:;
 #line 38 "lib/std/io.phi"
-    v3 = !(v1 < ((int64_t)0LL));
-    if (v3 == 0) goto b1; else goto b2;
+    v2 = !(v1 < ((int64_t)0LL));
+    if (v2 == 0) goto b1; else goto b2;
 b1:;
 #line 38 "lib/std/io.phi"
-    s2 = v1;
+    s3 = v1;
     goto b3;
 b2:;
 #line 38 "lib/std/io.phi"
     if (__builtin_sub_overflow(((int64_t)0LL), v1, &v5)) __builtin_trap();
 #line 38 "lib/std/io.phi"
-    s2 = v5;
+    s3 = v5;
     goto b3;
 b3:;
 #line 38 "lib/std/io.phi"
-    v7 = s2;
+    v7 = s3;
 #line 38 "lib/std/io.phi"
     s8 = v7;
 #line 39 "lib/std/io.phi"

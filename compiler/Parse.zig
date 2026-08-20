@@ -459,7 +459,7 @@ const starts_stmt = starts_expr.unionWith(TokenSet.initMany(&.{
 
 const starts_member = TokenSet.initMany(&.{ .ident, .kw_fn, .kw_pub });
 
-const starts_type = TokenSet.initMany(&.{ .ident, .star, .l_bracket });
+const starts_type = TokenSet.initMany(&.{ .ident, .star, .l_bracket, .kw_match });
 
 const starts_bracket_item = starts_expr.unionWith(TokenSet.initMany(&.{ .star, .l_bracket }));
 
@@ -1044,7 +1044,11 @@ fn parseLabeledLoop(self: *Parse) Allocator.Error!Node.Index {
     return self.parseLoop();
 }
 
-fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
+/// What the arms carry. A match stands where a value belongs and where a type
+/// does, and only its arms read differently.
+const Arms = enum { value, type };
+
+fn parseMatch(self: *Parse, arms: Arms) Allocator.Error!Node.Index {
     assert(self.at(.kw_match));
     if (self.enter() == false) return self.tooDeep();
     defer self.leave();
@@ -1058,7 +1062,10 @@ fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
     }
     const lbrace = self.nextToken();
     return self.parseListNode(.{
-        .item = parseMatchArm,
+        .item = switch (arms) {
+            .value => parseValueArm,
+            .type => parseTypeArm,
+        },
         .starts = starts_arm,
         .closer = .r_brace,
         .opener = lbrace,
@@ -1068,7 +1075,15 @@ fn parseMatch(self: *Parse) Allocator.Error!Node.Index {
     }, .match_expr, match_token, &.{scrutinee.toOptional()});
 }
 
-fn parseMatchArm(self: *Parse) Allocator.Error!Node.Index {
+fn parseValueArm(self: *Parse) Allocator.Error!Node.Index {
+    return self.parseMatchArm(.value);
+}
+
+fn parseTypeArm(self: *Parse) Allocator.Error!Node.Index {
+    return self.parseMatchArm(.type);
+}
+
+fn parseMatchArm(self: *Parse, arms: Arms) Allocator.Error!Node.Index {
     assert(starts_arm.contains(self.current()));
 
     const label: Node.OptionalIndex = if (self.eatToken(.kw_else) != null)
@@ -1089,7 +1104,10 @@ fn parseMatchArm(self: *Parse) Allocator.Error!Node.Index {
     self.in_condition = false;
     defer self.in_condition = outer;
 
-    const body = if (self.at(.l_brace)) try self.parseBlock() else try self.parseExpr();
+    const body = switch (arms) {
+        .value => if (self.at(.l_brace)) try self.parseBlock() else try self.parseExpr(),
+        .type => try self.parseType(),
+    };
     return self.addNode(.{
         .tag = .match_arm,
         .main_token = arrow,
@@ -1154,7 +1172,7 @@ fn parsePrefixExpr(self: *Parse) Allocator.Error!Node.Index {
     switch (self.current()) {
         .kw_if => return self.parseIf(),
         .kw_loop => return self.parseLoop(),
-        .kw_match => return self.parseMatch(),
+        .kw_match => return self.parseMatch(.value),
         .kw_return => return self.parseReturn(),
         .kw_break, .kw_continue => return self.parseLoopExit(),
         else => {},
@@ -1414,6 +1432,7 @@ fn parseTypeMember(self: *Parse) Allocator.Error!Node.Index {
     defer self.leave();
 
     switch (self.current()) {
+        .kw_match => return self.parseMatch(.type),
         .l_bracket => {
             if (self.peek(1) == .r_bracket) return self.parseSliceType();
             return self.parseArrayType();

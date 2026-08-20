@@ -2,22 +2,22 @@ fn sometimes(flag: true | false) u32
 b0:
   %0 = param flag : true | false
   %1 = local : *var true | false
-  branch %0, b4, b5
+  branch %0, b1, b2
 b1:
-  return 1:u32
-b2:
-  jump b3
-b3:
-  return 2:u32
-b4:
   return 9:u32
-b5:
+b2:
   %2 = not %0 : true | false
   %3 = store %1, %2
+  jump b3
+b3:
+  %4 = load %1 : true | false
+  branch %4, b4, b5
+b4:
+  return 1:u32
+b5:
   jump b6
 b6:
-  %4 = load %1 : true | false
-  branch %4, b1, b2
+  return 2:u32
 
 fn in_a_loop(flag: true | false) u32
 b0:

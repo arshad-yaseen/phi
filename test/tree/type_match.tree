@@ -1,0 +1,69 @@
+root
+  alias_decl Word
+    type: match_expr
+      on: ident flag
+      match_arm
+        label: ident A
+        body: ident u32
+      match_arm
+        label: ident B
+        body: pointer_type var
+          child: ident u8
+      match_arm else
+        body: slice_type
+          child: ident Word
+  alias_decl Nested
+    type: match_expr
+      on: ident outer
+      match_arm
+        label: ident A
+        body: match_expr
+          on: ident inner
+          match_arm
+            label: ident C
+            body: array_type
+              length: number_literal 4
+              child: ident u8
+          match_arm else
+            body: bracket
+              base: ident Box
+              arg: ident u8
+      match_arm else
+        body: ident u64
+  fn_decl takes
+    param n
+      type: match_expr
+        on: ident flag
+        match_arm
+          label: ident A
+          body: ident u32
+        match_arm else
+          body: ident u64
+    ret: match_expr
+      on: ident flag
+      match_arm
+        label: ident A
+        body: ident u8
+      match_arm else
+        body: ident u16
+    body: block
+      return_expr
+        value: number_literal 0
+  var_decl held let
+    type: match_expr
+      on: ident flag
+      match_arm
+        label: ident A
+        body: ident u32
+      match_arm else
+        body: ident u64
+    init: number_literal 1
+  struct_decl Held
+    field field
+      type: match_expr
+        on: ident flag
+        match_arm
+          label: ident A
+          body: ident u32
+        match_arm else
+          body: ident u64

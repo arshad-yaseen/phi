@@ -50,28 +50,28 @@ fn one_typed_arm(n: u32, wide: u64) u64
 b0:
   %0 = param n : u32
   %1 = param wide : u64
-  %2 = local : *var u64
-  %3 = cmp_gt %0, 10:u32 : true | false
-  branch %3, b1, b2
+  %2 = cmp_gt %0, 10:u32 : true | false
+  %3 = local : *var u64
+  branch %2, b1, b2
 b1:
-  %4 = store %2, 1:u64
+  %4 = store %3, 1:u64
   jump b3
 b2:
-  %5 = local : *var u64
-  %6 = cmp_gt %0, 5:u32 : true | false
-  branch %6, b4, b5
+  %5 = cmp_gt %0, 5:u32 : true | false
+  %6 = local : *var u64
+  branch %5, b4, b5
 b3:
-  %11 = load %2 : u64
+  %11 = load %3 : u64
   return %11
 b4:
-  %7 = store %5, %1
+  %7 = store %6, %1
   jump b6
 b5:
-  %8 = store %5, 3:u64
+  %8 = store %6, 3:u64
   jump b6
 b6:
-  %9 = load %5 : u64
-  %10 = store %2, %9
+  %9 = load %6 : u64
+  %10 = store %3, %9
   jump b3
 
 fn from_a_loop(limit: u32, wide: u64) u64

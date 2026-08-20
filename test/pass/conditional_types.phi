@@ -1,0 +1,48 @@
+type Small
+type Large
+type Size = Small | Large
+
+let chosen: Size = Large
+
+/// The arm that is not picked names a type this program never lays out.
+type Count = match chosen {
+    Small => u8
+    Large => u64
+}
+
+type Held = match chosen {
+    Small => [4]u8
+    else => []u8
+}
+
+/// A pointer stands as an arm body, so an arm is any type at all.
+type Address = match chosen {
+    Small => *u8
+    Large => *var u64
+}
+
+type Box[T] = {
+    item: T
+}
+
+let width: u64 = @size_of[Count]()
+
+fn takes(n: Count) Count {
+    return n
+}
+
+fn holds(items: Held) u64 {
+    return items.len
+}
+
+fn writes(p: Address) {
+    p.* = 9
+}
+
+fn boxed(b: Box[Count]) Count {
+    return b.item
+}
+
+fn field_of(b: Box[Held]) u64 {
+    return b.item.len
+}

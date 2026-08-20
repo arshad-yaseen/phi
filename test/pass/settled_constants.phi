@@ -1,0 +1,43 @@
+type A
+type B
+type Pick = A | B
+
+type Low
+type High
+type Level = Low | High
+
+let picked: Pick = B
+let level: Level = High
+let yes: bool = true
+
+let counted: u64 = match picked {
+    A => 1
+    B => 2
+}
+
+/// An arm may hold another match, which is how one fact narrows inside another.
+let nested: u64 = match picked {
+    A => 0
+    else => match level {
+        Low => 1
+        High => 40 + 2
+    }
+}
+
+let branched: u64 = if yes { 10 } else { 20 }
+
+let inverted: u64 = if not yes { 10 } else { 20 }
+
+/// A settled name narrows inside the arm that proved it, the way it does in a body.
+let held: u32 | none = 7
+
+let doubled: u32 = match held {
+    u32 => held * 2
+    none => 0
+}
+
+let guarded: u32 = if held is u32 { held + 1 } else { 0 }
+
+fn drive() u64 {
+    return counted + nested + branched + inverted + doubled + guarded
+}

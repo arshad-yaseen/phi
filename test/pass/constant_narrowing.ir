@@ -1,27 +1,15 @@
 fn held() u8
 b0:
-  jump b1
-b1:
   return 7:u8
 
 fn absent() u8
 b0:
-  jump b1
-b1:
-  jump b2
-b2:
   return 0:u8
 
 fn flipped() u8
 b0:
-  jump b1
-b1:
   return 1:u8
 
 fn bare() u8
 b0:
-  jump b1
-b1:
-  jump b2
-b2:
   return 0:u8

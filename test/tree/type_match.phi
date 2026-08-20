@@ -1,0 +1,25 @@
+// A match stands wherever a type is written, and its arms are types there.
+
+type Word = match flag {
+    A => u32
+    B => *var u8
+    else => []Word
+}
+
+type Nested = match outer {
+    A => match inner {
+        C => [4]u8
+        else => Box[u8]
+    }
+    else => u64
+}
+
+fn takes(n: match flag { A => u32, else => u64 }) match flag { A => u8, else => u16 } {
+    return 0
+}
+
+let held: match flag { A => u32, else => u64 } = 1
+
+type Held = {
+    field: match flag { A => u32, else => u64 }
+}

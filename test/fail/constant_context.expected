@@ -1,54 +1,54 @@
-error[E0214]: a top-level binding must be a constant, and an 'if' happens at run time
- --> test/fail/constant_context.phi:9:16
-  |
-9 | let branched = if true { 1 } else { 2 }
-  |                ^^^^^^^^^^^^^^^^^^^^^^ not a constant
-  |
-  = help: the constant set is literals, names of constants, operators, and parentheses
-
-error[E0214]: a top-level binding must be a constant, and 'return' happens at run time
-  --> test/fail/constant_context.phi:10:12
+error[E0214]: this must settle before anything runs, and a block that holds statements happens at run time
+  --> test/fail/constant_context.phi:10:23
    |
-10 | let left = return 1
+10 | let stated = if truth { let a = 1 } else { 2 }
+   |                       ^^^^^^^^^^^ not a constant
+   |
+   = help: the constant set is literals, names of constants, operators, and parentheses
+
+error[E0214]: this must settle before anything runs, and 'return' happens at run time
+  --> test/fail/constant_context.phi:11:12
+   |
+11 | let left = return 1
    |            ^^^^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: a top-level binding must be a constant, and 'break' happens at run time
-  --> test/fail/constant_context.phi:11:15
+error[E0214]: this must settle before anything runs, and 'break' happens at run time
+  --> test/fail/constant_context.phi:12:15
    |
-11 | let escaped = break
+12 | let escaped = break
    |               ^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: a top-level binding must be a constant, and 'continue' happens at run time
-  --> test/fail/constant_context.phi:12:15
+error[E0214]: this must settle before anything runs, and 'continue' happens at run time
+  --> test/fail/constant_context.phi:13:15
    |
-12 | let carried = continue
+13 | let carried = continue
    |               ^^^^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: a top-level binding must be a constant, and a call happens at run time
-  --> test/fail/constant_context.phi:13:14
+error[E0214]: this must settle before anything runs, and a call happens at run time
+  --> test/fail/constant_context.phi:14:14
    |
-13 | let called = answer()
+14 | let called = answer()
    |              ^^^^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: a top-level binding must be a constant, and '@trap' happens at run time
-  --> test/fail/constant_context.phi:14:15
+error[E0214]: this must settle before anything runs, and '@trap' happens at run time
+  --> test/fail/constant_context.phi:15:15
    |
-14 | let trapped = @trap()
+15 | let trapped = @trap()
    |               ^^^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
 error[E0202]: i64 has no fields to give
-  --> test/fail/constant_context.phi:15:13
+  --> test/fail/constant_context.phi:16:13
    |
-15 | let built = i64.{ x: 1 }
+16 | let built = i64.{ x: 1 }
    |             ^^^ not a struct
 

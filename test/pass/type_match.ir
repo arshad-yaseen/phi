@@ -109,10 +109,6 @@ b0:
 fn branched[f64](value: f64) u32
 b0:
   %0 = param value : f64
-  jump b1
-b1:
-  jump b2
-b2:
   return 0:u32
 
 fn statement_form[u32](value: u32)

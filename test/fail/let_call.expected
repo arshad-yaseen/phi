@@ -1,4 +1,4 @@
-error[E0214]: a top-level binding must be a constant, and a call happens at run time
+error[E0214]: this must settle before anything runs, and a call happens at run time
  --> test/fail/let_call.phi:5:14
   |
 5 | let cached = answer()

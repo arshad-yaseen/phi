@@ -37,6 +37,11 @@ rows: std.ArrayList(Row) = .empty,
 rows_scratch: std.ArrayList(Row) = .empty,
 /// Bodies never nest, so one builder serves them all.
 body_builder: Check.Builder = .empty,
+/// What conditions proved about names, innermost last. Not the builder's,
+/// because a type and a top-level binding narrow with nothing to build in.
+narrows: std.ArrayList(Check.Narrow) = .empty,
+/// What conditions proved, gathered per condition, marked and restored.
+facts: std.ArrayList(Check.Fact) = .empty,
 operands: std.ArrayList(Check.Operand) = .empty,
 body_queue: std.ArrayList(Pool.Instance) = .empty,
 funcs: std.ArrayList(IR.Func) = .empty,
@@ -219,6 +224,8 @@ pub fn deinit(comp: *Compilation) void {
     comp.blocks.deinit(gpa);
 
     comp.body_builder.deinit(gpa);
+    comp.narrows.deinit(gpa);
+    comp.facts.deinit(gpa);
     comp.operands.deinit(gpa);
     comp.body_queue.deinit(gpa);
     comp.pool.deinit(gpa);
@@ -352,6 +359,13 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
     assert(comp.stack.items.len < analyze_max);
     comp.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
     defer _ = comp.stack.pop();
+
+    // a unit leaves the narrowing stacks as it found them, so what one branch
+    // proved never reaches an answer computed under it
+    const narrows_mark = comp.narrows.items.len;
+    defer comp.narrows.shrinkRetainingCapacity(narrows_mark);
+    const facts_mark = comp.facts.items.len;
+    defer comp.facts.shrinkRetainingCapacity(facts_mark);
 
     const ok = switch (unit.kind) {
         .decl => try comp.runDecl(@enumFromInt(unit.index)),

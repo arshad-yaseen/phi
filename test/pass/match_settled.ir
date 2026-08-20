@@ -24,14 +24,10 @@ b0:
 
 fn narrowed_by_is() u32
 b0:
-  jump b1
-b1:
   return 11:u32
 
 fn top_level_by_is() u32
 b0:
-  jump b1
-b1:
   return 8081:u32
 
 fn top_level_by_match() u32

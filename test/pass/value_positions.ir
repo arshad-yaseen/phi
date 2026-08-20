@@ -2,17 +2,17 @@ fn returned_if(a: i64, b: i64) i64
 b0:
   %0 = param a : i64
   %1 = param b : i64
-  %2 = local : *var i64
-  %3 = cmp_gt %0, %1 : true | false
-  branch %3, b1, b2
+  %2 = cmp_gt %0, %1 : true | false
+  %3 = local : *var i64
+  branch %2, b1, b2
 b1:
-  %4 = store %2, %0
+  %4 = store %3, %0
   jump b3
 b2:
-  %5 = store %2, %1
+  %5 = store %3, %1
   jump b3
 b3:
-  %6 = load %2 : i64
+  %6 = load %3 : i64
   return %6
 
 fn tail_of_a_block(c: true | false) i64

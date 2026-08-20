@@ -4,6 +4,10 @@
 
 ### Language
 
+- A settled branch is the arm it picks. `if` now reads the way `match` already
+  did, so the arm that cannot run is never checked, its value carries out
+  unchanged, and both stand where a program stands still: a top-level `let`
+  takes `if` and `match`, and so does a type, `type Word = match flag { ... }`.
 - A field without `pub` is private to its file, the way a method already is,
   so another file can neither reach it nor build the struct that holds it. A
   struct built elsewhere marks each field `pub`, or has its own file build it
@@ -23,6 +27,8 @@
 
 ### Compiler
 
+- An arm of an `if`, a loop, or a `match` that names a type where a value
+  belongs is refused. It used to compile, leaving a broken value behind.
 - A struct holding a unit type, or an array of one, builds to a binary. The
   compiler sized a unit at nothing while the C it wrote gave it a byte, so the
   C compiler refused the disagreement.

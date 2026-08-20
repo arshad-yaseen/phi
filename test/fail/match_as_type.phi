@@ -1,0 +1,33 @@
+type A
+type B
+type Pick = A | B
+
+let picked: Pick = A
+let number: u64 = 7
+
+/// An arm that picks a value is not a type.
+type Valued = match picked {
+    A => number
+    B => number
+}
+
+/// Every member needs an arm, the way a value match does.
+type Partial = match picked {
+    A => u8
+}
+
+/// The arm already proved which member it is, so there is nothing left to ask.
+type Twice = match picked {
+    A => match picked {
+        A => u8
+        B => u16
+    }
+    B => u32
+}
+
+/// A type settles before anything runs, and a parameter does not.
+fn runs(p: Pick) u32 {
+    let held: match p { A => u32, B => u64 } = 1
+    _ = held
+    return 0
+}

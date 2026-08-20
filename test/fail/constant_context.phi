@@ -6,7 +6,8 @@ fn answer() i64 {
     return 42
 }
 
-let branched = if true { 1 } else { 2 }
+let truth: bool = true
+let stated = if truth { let a = 1 } else { 2 }
 let left = return 1
 let escaped = break
 let carried = continue

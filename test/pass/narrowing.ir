@@ -41,22 +41,22 @@ b0:
   %2 = union_is %1, u32 : true | false
   %3 = local : *var true | false
   %4 = store %3, %2
-  branch %2, b4, b5
+  branch %2, b1, b2
 b1:
-  %9 = union_narrow %1 : u32
-  return %9
-b2:
-  jump b3
-b3:
-  return 0:u32
-b4:
   %5 = union_narrow %1 : u32
   %6 = cmp_gt %5, 0:u32 : true | false
   %7 = store %3, %6
+  jump b2
+b2:
+  %8 = load %3 : true | false
+  branch %8, b3, b4
+b3:
+  %9 = union_narrow %1 : u32
+  return %9
+b4:
   jump b5
 b5:
-  %8 = load %3 : true | false
-  branch %8, b1, b2
+  return 0:u32
 
 fn negative(flag: true | false) u32
 b0:
