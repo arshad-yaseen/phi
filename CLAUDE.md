@@ -58,12 +58,17 @@ area: imperative summary
 
 - Lowercase after the colon, imperative mood, no trailing full stop.
 - Subject at most 50 characters so `git log --oneline` never wraps. Hard limit 72.
-- Blank line, then a body wrapped at 72 explaining **why**. The diff already says
-  what changed.
+- State what changed, in technical terms. No metaphor, no narrative, no
+  flourish. `target: add --target and wasm32-wasi`, not `target: build for a
+  machine that is not this one`.
+- Blank line, then a body wrapped at 72, only where the subject leaves something
+  a reader needs. Say what changed and, in one sentence, why. Do not recount how
+  the change was arrived at, what it revealed, or what it touched incidentally.
+- Most commits need no body. A body past five lines is saying too much.
 - One logical change per commit.
 - A pull request is squashed when it merges, so its title is the subject line
-  that lands on `main`. Write it to the rules above rather than as a sentence,
-  and give the description the **why** a body would have carried.
+  that lands on `main`, written to the rules above, and its description is what
+  a body would have carried.
 - No trailers of any kind. No `Co-Authored-By`, no `Generated with`, no tool or
   assistant attribution. A commit is authored by whoever committed it, and the
   message is for the next reader of `git blame`, not a record of who typed it.
@@ -76,10 +81,8 @@ area: imperative summary
 ```
 check: remove the two-arena rule
 
-The rule refused a second Arena parameter, but nothing else in the
-compiler enforced the memory model, so it rejected valid programs while
-the rules it belonged to went unchecked. The region checker reimposes it
-along with the rest.
+Nothing else enforced the memory model, so the rule rejected valid
+programs. The region checker reimposes it.
 ```
 
 Conventional Commits (`feat:`, `fix:`, `chore:`) is not used here. It exists to
@@ -88,28 +91,25 @@ would cost the area name and buy nothing.
 
 ## Changelog
 
-The changelog is read by someone deciding what an upgrade means, not by the
-reviewer of a diff. Every rule here follows from that.
+The changelog says what changed between two releases, for someone deciding what
+an upgrade means.
 
-- **An entry is a headline, not documentation.** One sentence, two at the
-  most. The diagnostic teaches its details and the design holds the why, so
-  an entry that needs a paragraph is trying to be one of those.
+- **One sentence per entry. State what changed and stop.** No reason, no
+  mechanism, no example, no history. `` - `std/c` names the C integer types. ``
+  is a whole entry.
+- **No entry explains itself.** The diagnostic teaches its details, the
+  reference documents the feature, and the git log holds the why. An entry that
+  needs a clause after the comma is documentation in the wrong file.
 - **Amend, never accumulate.** A change that refines something already under
-  `[Unreleased]` edits that entry rather than adding a new one. The git log
-  is the record of what happened. The changelog is the difference between
-  two releases, written once, in its final form.
+  `[Unreleased]` edits that entry rather than adding one beside it.
 - **A fix exists only against the last release.** A bug introduced and fixed
-  inside one cycle never shipped, so the feature's entry is written as
-  though the bug never was. "Used to crash" earns its place only when the
-  crash could be seen in a numbered release.
-- **Name a diagnostic code only when the code is the news**, a retirement or
-  a renumbering someone will search old logs for. An entry that lists codes
-  is an index, not a headline.
-- **A release section is a story, then lists.** A lede of a few sentences
-  says what the release is. Then `### Language`, `### Compiler`,
-  `### Command line`, and `### Distribution`, each present only when it has
-  entries, and the entries in a section share one shape so the list reads
-  in one rhythm.
+  inside one cycle never shipped, so the feature's entry is written as though
+  the bug never was.
+- **Name a diagnostic code only when the code is the news**, a retirement or a
+  renumbering someone will search old logs for.
+- **A release section is `### Language`, `### Compiler`, `### Command line`, and
+  `### Distribution`**, each present only when it has entries. A numbered
+  release opens with a sentence or two saying what it is.
 
 ## Releasing
 
