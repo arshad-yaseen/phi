@@ -2340,11 +2340,13 @@ fn applyFacts(check: *Check, range: Compilation.Range) Allocator.Error!void {
 }
 
 fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
-    const source: Ref = if (check.activeNarrow(fact.name)) |narrow|
-        narrow.ref
-    else
-        check.nameRef(fact.name);
-    const narrowed: Ref = switch (source.unwrap()) {
+    const active = check.activeNarrow(fact.name);
+    const source: Ref = if (active) |narrow| narrow.ref else check.nameRef(fact.name);
+    const found: Pool.Index = if (active) |narrow| narrow.type else check.nameType(fact.name);
+    assert(check.comp.pool.subsumes(found, fact.type));
+
+    // an arm naming every member proves what the name already is, which narrows nothing
+    const narrowed: Ref = if (found == fact.type) source else switch (source.unwrap()) {
         .constant => |constant| .fromConstant(try check.narrowConstant(constant, fact.type)),
         .inst => try check.emitOne(fact.node, .union_narrow, fact.type, source),
     };

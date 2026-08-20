@@ -26,6 +26,8 @@
   refused.
 - A struct holding a unit type, or an array of one, builds to a binary.
 - `x or return` with a broken `x` reports `x` alone.
+- A match arm that covers the whole union, `else` included, no longer stops the
+  compiler.
 
 ### Command line
 

@@ -1,0 +1,19 @@
+import std/io
+
+/// The arms above narrow nothing, so what the backend builds has to run.
+fn whole(value: u64 | i64) u64 | i64 {
+    return match value {
+        u64 | i64 => value
+    }
+}
+
+fn main() {
+    var seen: u64 | i64 = 7
+    match seen {
+        else => {}
+    }
+    io.print(whole(seen))
+    io.print("\n")
+    io.print(whole(0 - 7))
+    io.print("\n")
+}

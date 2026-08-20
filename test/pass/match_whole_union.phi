@@ -1,0 +1,25 @@
+type Timeout
+type NotFound
+
+fn fetch(bad: bool) u32 | Timeout | NotFound {
+    if bad {
+        return Timeout
+    }
+    return 1
+}
+
+/// An arm over every member proves what the name already is, so no narrow is emitted.
+fn any(bad: bool) u32 {
+    let r = fetch(bad)
+    match r {
+        else => {}
+    }
+    return 0
+}
+
+/// The whole union spelled out is that same arm, and the value arrives whole.
+fn whole(value: u64 | i64) u64 | i64 {
+    return match value {
+        u64 | i64 => value
+    }
+}
