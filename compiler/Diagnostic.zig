@@ -102,6 +102,8 @@ pub const Code = enum(u16) {
     analysis_too_deep = 249,
     instantiates_too_deep = 250,
     compile_error = 251,
+    comptime_trapped = 252,
+    comptime_too_long = 253,
 
     entry_signature = 301,
 };

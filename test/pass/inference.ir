@@ -1,3 +1,13 @@
+fn direct[Wide](value: Wide) Wide
+b0:
+  %0 = param value : Wide
+  return %0
+
+fn through[Wide](value: *var Wide) *var Wide
+b0:
+  %0 = param value : *var Wide
+  return %0
+
 fn drive(wide: Wide) i64
 b0:
   %0 = param wide : Wide
@@ -12,61 +22,15 @@ b0:
   %9 = add %6, %8 : i64
   return %9
 
-fn pinned_by_a_wrapper(xs: []u32, arr: [3]i16, p: *[]u8) u64
-b0:
-  %0 = param xs : []u32
-  %1 = param arr : [3]i16
-  %2 = param p : *[]u8
-  %3 = call counted[u32](%0) : u64
-  %4 = call triple[i16](%1) : u64
-  %5 = add %3, %4 : u64
-  %6 = call behind[u8](%2) : u64
-  %7 = add %5, %6 : u64
-  %8 = call both_ends[u32](%0, %0) : u64
-  %9 = add %7, %8 : u64
-  return %9
-
-fn pinned_by_the_second(n: u32) u32
-b0:
-  %0 = param n : u32
-  %1 = call pair[u32](1:u32, %0) : u32
-  return %1
-
-fn counted_bytes() u64
-b0:
-  %0 = call counted[u8]([104:u8, 101:u8, 108:u8, 108:u8, 111:u8]:[]u8) : u64
-  return %0
-
-fn deep_literal() u64
-b0:
-  %0 = call nested_view[u8]([[97:u8, 98:u8]:[]u8, [99:u8, 100:u8]:[]u8]:[][]u8) : u64
-  return %0
-
-fn takes_either(value: u64 | i64) u64
-b0:
-  %0 = param value : u64 | i64
-  return 1:u64
-
-fn skips_the_member_it_cannot_fit() u64
-b0:
-  %0 = call narrow_or_wide[i64](-7:i64) : i64
-  %1 = union_init %0, i64 : u64 | i64
-  %2 = call takes_either(%1) : u64
-  return %2
-
-fn direct[Wide](value: Wide) Wide
-b0:
-  %0 = param value : Wide
-  return %0
-
-fn through[Wide](value: *var Wide) *var Wide
-b0:
-  %0 = param value : *var Wide
-  return %0
-
 fn counted[u32](xs: []u32) u64
 b0:
   %0 = param xs : []u32
+  %1 = slice_len %0 : u64
+  return %1
+
+fn counted[u8](xs: []u8) u64
+b0:
+  %0 = param xs : []u8
   %1 = slice_len %0 : u64
   return %1
 
@@ -91,17 +55,36 @@ b0:
   %4 = add %2, %3 : u64
   return %4
 
+fn pinned_by_a_wrapper(xs: []u32, arr: [3]i16, p: *[]u8) u64
+b0:
+  %0 = param xs : []u32
+  %1 = param arr : [3]i16
+  %2 = param p : *[]u8
+  %3 = call counted[u32](%0) : u64
+  %4 = call triple[i16](%1) : u64
+  %5 = add %3, %4 : u64
+  %6 = call behind[u8](%2) : u64
+  %7 = add %5, %6 : u64
+  %8 = call both_ends[u32](%0, %0) : u64
+  %9 = add %7, %8 : u64
+  return %9
+
 fn pair[u32](a: u32, b: u32) u32
 b0:
   %0 = param a : u32
   %1 = param b : u32
   return %0
 
-fn counted[u8](xs: []u8) u64
+fn pinned_by_the_second(n: u32) u32
 b0:
-  %0 = param xs : []u8
-  %1 = slice_len %0 : u64
+  %0 = param n : u32
+  %1 = call pair[u32](1:u32, %0) : u32
   return %1
+
+fn counted_bytes() u64
+b0:
+  %0 = call counted[u8]([104:u8, 101:u8, 108:u8, 108:u8, 111:u8]:[]u8) : u64
+  return %0
 
 fn nested_view[u8](rows: [][]u8) u64
 b0:
@@ -109,7 +92,24 @@ b0:
   %1 = slice_len %0 : u64
   return %1
 
+fn deep_literal() u64
+b0:
+  %0 = call nested_view[u8]([[97:u8, 98:u8]:[]u8, [99:u8, 100:u8]:[]u8]:[][]u8) : u64
+  return %0
+
 fn narrow_or_wide[i64](n: i64) i64
 b0:
   %0 = param n : i64
   return %0
+
+fn takes_either(value: u64 | i64) u64
+b0:
+  %0 = param value : u64 | i64
+  return 1:u64
+
+fn skips_the_member_it_cannot_fit() u64
+b0:
+  %0 = call narrow_or_wide[i64](-7:i64) : i64
+  %1 = union_init %0, i64 : u64 | i64
+  %2 = call takes_either(%1) : u64
+  return %2

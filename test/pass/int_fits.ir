@@ -129,13 +129,6 @@ b2:
   %5 = union_narrow %4 : u8
   return %5
 
-fn drive(n: u64) u64
-b0:
-  %0 = param n : u64
-  %1 = call narrowed[u8](%0) : u8
-  %2 = call narrowed[u64](%0) : u64
-  return %2
-
 fn narrowed[u8](n: u64) u8
 b0:
   %0 = param n : u64
@@ -167,3 +160,10 @@ b2:
   %6 = load %2 : u64 | none
   %7 = union_narrow %6 : u64
   return %7
+
+fn drive(n: u64) u64
+b0:
+  %0 = param n : u64
+  %1 = call narrowed[u8](%0) : u8
+  %2 = call narrowed[u64](%0) : u64
+  return %2

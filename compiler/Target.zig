@@ -44,7 +44,6 @@ pub const Target = enum {
     }
 
     /// Linux takes musl so a program carries its own libc.
-    /// WASI: https://wasi.dev
     pub fn cTriple(target: Target) []const u8 {
         return switch (target) {
             .aarch64_macos => "aarch64-macos",

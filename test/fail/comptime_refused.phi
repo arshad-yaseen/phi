@@ -1,0 +1,28 @@
+import std/debug
+import std/mem
+
+fn forever(n: u64) u64 {
+    var i: u64 = n
+    loop {
+        i += 1
+    }
+}
+
+fn stops(n: u64) u64 {
+    debug.assert(n > 100)
+    return n
+}
+
+fn reads(text: []u8) u64 {
+    return text.len
+}
+
+fn deeper(n: u64) u64 {
+    return deeper(n + 1)
+}
+
+let spent: u64 = forever(1)
+let trapped: u64 = stops(1)
+let addressed: u64 = reads("ab")
+let recursed: u64 = deeper(0)
+let external: u64 = mem.align_up(3, 3)

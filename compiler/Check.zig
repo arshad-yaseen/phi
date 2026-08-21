@@ -1,4 +1,4 @@
-// Type-check the AST, lowering function bodies to IR as we go.
+//! Type-checks a declaration, lowering each function body to IR as it goes.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("AST.zig");
 const Compilation = @import("Compilation.zig");
+const Comptime = @import("Comptime.zig");
 const Diagnostic = @import("Diagnostic.zig");
 const Handle = @import("Handle.zig");
 const IR = @import("IR.zig");
@@ -53,7 +54,7 @@ const broken_ref: Ref = .fromConstant(.poison);
 
 pub const Operand = struct { value: Value, initializer: Node.OptionalIndex };
 
-/// What an expression turned out to be. A `named_` case is not a value.
+/// A `named_` case is not a value.
 pub const Value = union(enum) {
     constant: Pool.Index,
     runtime: Runtime,
@@ -66,12 +67,12 @@ pub const Value = union(enum) {
 
     const Runtime = struct { ref: Ref, type: Pool.Index };
 
-    /// A void result. Callers read the type, never the ref.
+    /// Callers read the type, never the ref.
     const void_value: Value = .{
         .runtime = .{ .ref = .fromConstant(.poison), .type = .void_type },
     };
 
-    /// Nothing more to do here. Poison has reported, and diverged has left.
+    /// Poison has reported, and diverged has left.
     pub fn stops(value: Value) bool {
         return value == .poison or value == .diverged;
     }
@@ -162,7 +163,7 @@ fn commitRows(comp: *Compilation, instance: Pool.Instance, mark: usize) Allocato
 
     const rows_start: u32 = @intCast(comp.rows.items.len);
     try comp.rows.appendSlice(comp.gpa, staged);
-    comp.instancePtr(instance).rows = .{ .start = rows_start, .len = @intCast(staged.len) };
+    comp.instancePtr(instance).rows = .since(rows_start, comp.rows.items.len);
 }
 
 /// What a struct embeds by value. A cycle means no size, which `ensure` reports.
@@ -878,7 +879,7 @@ pub const Builder = struct {
         return builder.blockAt(builder.current);
     }
 
-    fn clear(builder: *Builder) void {
+    pub fn clear(builder: *Builder) void {
         inline for (@typeInfo(Builder).@"struct".fields) |field| {
             if (@typeInfo(field.type) == .@"struct") {
                 @field(builder, field.name).clearRetainingCapacity();
@@ -902,11 +903,11 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     var check = context(comp, decl_index);
     try check.bindTypeParams(instance, &buffer);
 
-    const builder = &comp.body_builder;
-    assert(builder.insts.len == 0);
-    assert(builder.locals.items.len == 0);
-    assert(comp.facts.items.len == 0);
-    assert(comp.narrows.items.len == 0);
+    const facts_mark = comp.facts.items.len;
+    const narrows_mark = comp.narrows.items.len;
+
+    const builder = try comp.takeBuilder();
+    defer comp.releaseBuilder();
 
     builder.instance = instance;
     builder.return_type = comp.instanceType(instance);
@@ -914,7 +915,6 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     builder.defer_loops_floor = 0;
     builder.in_defer = false;
     builder.reachable = true;
-    defer builder.clear();
     check.builder = builder;
     try builder.insts.ensureTotalCapacity(comp.gpa, 64);
 
@@ -952,8 +952,8 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     }
     assert(builder.scopes.items.len == 0);
     // every gather site restores its mark, nothing outlives the body
-    assert(comp.facts.items.len == 0);
-    assert(comp.narrows.items.len == 0);
+    assert(comp.facts.items.len == facts_mark);
+    assert(comp.narrows.items.len == narrows_mark);
 
     try check.finishFunc();
     return true;
@@ -1573,7 +1573,7 @@ const Join = struct {
         return if (join.settled) join.result_type else null;
     }
 
-    /// An arm's value into the slot. An untyped constant waits there for the first arm with a type.
+    /// An arm's value into the slot, where an untyped one waits for the first arm with a type.
     fn take(join: *Join, check: *Check, value: Value, at: Node.Index) Allocator.Error!void {
         if (join.carries == false) return;
         if (value == .diverged) return;
@@ -1876,7 +1876,7 @@ const Subject = struct {
     /// The member or type the scrutinee is settled as, or null where only running tells.
     held: ?Pool.Index,
     ref: Ref,
-    /// The name the arms narrow, and the set they narrow it within, where the scrutinee is one.
+    /// The name the arms narrow, and the set they narrow it within.
     narrows: ?Narrows,
 
     const Narrows = struct { name: Name, set: Pool.Index };
@@ -2456,7 +2456,7 @@ fn labelWithin(
 }
 
 /// Two unit members, the first meaning yes. `bool` is declared, never built in.
-fn boolType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
+pub fn boolType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     if (check.bool_type == .poison) check.bool_type = try check.preludeType(node, .bool);
     return check.bool_type;
 }
@@ -4443,7 +4443,7 @@ fn emitExtra(
     return @enumFromInt(start);
 }
 
-/// Every call goes through here. Reads the substituted signature, never a body.
+/// Reads the substituted signature, never a body.
 fn checkCall(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     const view = check.tree.viewOf(node).call;
     if (view.args.len > call_args_max) {
@@ -4482,7 +4482,6 @@ fn checkCall(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error
         }
         return which.call(check, node, explicit orelse &.{}, view.args, hint);
     }
-    if (check.builder == null) return check.needRuntime(node, "a call");
     return check.checkCallResolved(node, callee, explicit, view.args, hint);
 }
 
@@ -4698,7 +4697,6 @@ fn checkCallResolved(
     );
     try comp.ensure(.of(.signature, instance), check.origin(node));
     if (comp.instanceAt(instance).rows_state != .done) return .poison;
-    try comp.enqueueBody(instance);
     const return_type = comp.instanceType(instance);
 
     const rows = comp.instanceAt(instance).rows;
@@ -4752,8 +4750,28 @@ fn checkCallResolved(
     assert(comp.operands.items.len == start + receiver_count + args.len);
 
     const operands = comp.operands.items[start..];
+    if (check.builder == null) return check.settleCall(node, instance, operands);
+
     const payload = try check.emitExtra(&.{ instance.int(), @intCast(operands.len) }, operands);
     return check.emitValue(node, .call, return_type, .{ .payload = payload });
+}
+
+/// A call where a constant is wanted is run rather than lowered.
+fn settleCall(
+    check: *Check,
+    node: Node.Index,
+    instance: Pool.Instance,
+    operands: []const Operand,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    const args = try comp.gpa.alloc(Pool.Index, operands.len);
+    defer comp.gpa.free(args);
+
+    for (operands, args) |operand, *argument| {
+        if (operand.value != .constant) return check.needRuntime(node, "this argument");
+        argument.* = operand.value.constant;
+    }
+    return Comptime.call(check, node, instance, args);
 }
 
 pub fn plural(count: u64) []const u8 {
@@ -5999,16 +6017,12 @@ fn finishFunc(check: *Check) Allocator.Error!void {
     const extra_start: u32 = @intCast(comp.inst_extra.items.len);
     try comp.inst_extra.appendSlice(gpa, builder.extra.items);
 
-    try comp.funcs.append(gpa, .{
+    try comp.commitFunc(.{
         .instance = builder.instance,
-        .insts = .{ .start = insts_start, .len = inst_count },
-        .extra = .{ .start = extra_start, .len = @intCast(builder.extra.items.len) },
-        .blocks = .{ .start = blocks_start, .len = live_blocks },
+        .insts = .since(insts_start, comp.insts.len),
+        .extra = .since(extra_start, comp.inst_extra.items.len),
+        .blocks = .since(blocks_start, comp.blocks.items.len),
     });
-
-    assert(comp.instanceAt(builder.instance).func == .none);
-    const index: IR.Func.Index = .from(comp.funcs.items.len - 1);
-    comp.instancePtr(builder.instance).func = index.toOptional();
 }
 
 fn finishFuncVisit(map: []u32, frontier: *std.ArrayList(u32), target: u32) void {

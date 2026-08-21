@@ -1,3 +1,9 @@
+fn Box[u32].get(self: Box[u32]) u32
+b0:
+  %0 = param self : Box[u32]
+  %1 = field_val %0, .item : u32
+  return %1
+
 fn find(n: u32) u32 | none
 b0:
   %0 = param n : u32
@@ -52,9 +58,3 @@ b2:
   %12 = call settle(%11) : u32
   %13 = add %10, %12 : u32
   return %13
-
-fn Box[u32].get(self: Box[u32]) u32
-b0:
-  %0 = param self : Box[u32]
-  %1 = field_val %0, .item : u32
-  return %1

@@ -9,8 +9,8 @@ _Static_assert(sizeof(pt15) == 16, "phi sized Point at 16 bytes");
 _Static_assert(_Alignof(pt15) == 8, "phi aligned Point at 8 bytes");
 
 static pt15 p1_make(int64_t v0 /* x */);
-static int64_t p2_slide(pt15 v0 /* p */);
-static void p3_main(void);
+static int64_t p3_slide(pt15 v0 /* p */);
+static void p0_main(void);
 
 #line 6 "test/pass/structs.phi"
 // fn make
@@ -28,7 +28,7 @@ b0:;
 
 #line 10 "test/pass/structs.phi"
 // fn slide
-static int64_t p2_slide(pt15 v0 /* p */) {
+static int64_t p3_slide(pt15 v0 /* p */) {
     int64_t v1;
     int64_t v2;
     int64_t v3;
@@ -45,7 +45,7 @@ b0:;
 
 #line 14 "test/pass/structs.phi"
 // fn main
-static void p3_main(void) {
+static void p0_main(void) {
     pt15 v0;
     pt15 s1; // p
     int64_t* v3;
@@ -73,11 +73,11 @@ b0:;
 #line 17 "test/pass/structs.phi"
     v8 = s1;
 #line 17 "test/pass/structs.phi"
-    v9 = p2_slide(v8);
+    v9 = p3_slide(v8);
     return;
 }
 
 int main(void) {
-    p3_main();
+    p0_main();
     return 0;
 }

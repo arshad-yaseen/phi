@@ -1,0 +1,24 @@
+// a call settles where a constant is wanted, so the program holds the answer
+fn twice(n: u64) u64 {
+    return n * 2
+}
+
+fn sum_to(n: u64) u64 {
+    var total: u64 = 0
+    loop i in 0..n {
+        total += i
+    }
+    return total
+}
+
+fn widest[T: Unsigned]() u64 {
+    return @max_int[T]()
+}
+
+let doubled: u64 = twice(21)
+let summed: u64 = sum_to(10)
+let widened: u64 = widest[u8]()
+
+fn drive() u64 {
+    return doubled + summed + widened
+}

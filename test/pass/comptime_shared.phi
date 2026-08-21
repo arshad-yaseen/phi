@@ -1,0 +1,13 @@
+import std/io
+
+// a function the compiler ran is still a function the program calls
+fn twice(n: u64) u64 {
+    return n * 2
+}
+
+let doubled: u64 = twice(21)
+
+fn main() {
+    io.print(twice(doubled))
+    io.print("\n")
+}

@@ -1,0 +1,9 @@
+fn main() u64
+b0:
+  %0 = local total : *var u64
+  %1 = store %0, 0:u64
+  %2 = load %0 : u64
+  %3 = add %2, 8:u64 : u64
+  %4 = store %0, %3
+  %5 = load %0 : u64
+  return %5

@@ -17,10 +17,7 @@ type Block = {
     used: u64, // bytes handed out, header included
 }
 
-fn header() u64 {
-    // TODO: a top-level `let` once CTFE arrives
-    return mem.align_up(@size_of[Block](), max_align)
-}
+let header: u64 = mem.align_up(@size_of[Block](), max_align)
 
 pub type Arena = {
     tail: *Block | none,

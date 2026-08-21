@@ -11,7 +11,6 @@ let stated = if truth { let a = 1 } else { 2 }
 let left = return 1
 let escaped = break
 let carried = continue
-let called = answer()
 let trapped = @trap()
 let built = i64.{ x: 1 }
 

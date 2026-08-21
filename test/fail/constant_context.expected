@@ -30,25 +30,17 @@ error[E0222]: this must settle before anything runs, and 'continue' happens at r
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0222]: this must settle before anything runs, and a call happens at run time
-  --> test/fail/constant_context.phi:14:14
-   |
-14 | let called = answer()
-   |              ^^^^^^^^ not a constant
-   |
-   = help: the constant set is literals, names of constants, operators, and parentheses
-
 error[E0222]: this must settle before anything runs, and '@trap' happens at run time
-  --> test/fail/constant_context.phi:15:15
+  --> test/fail/constant_context.phi:14:15
    |
-15 | let trapped = @trap()
+14 | let trapped = @trap()
    |               ^^^^^^^ not a constant
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
 error[E0208]: i64 has no fields to give
-  --> test/fail/constant_context.phi:16:13
+  --> test/fail/constant_context.phi:15:13
    |
-16 | let built = i64.{ x: 1 }
+15 | let built = i64.{ x: 1 }
    |             ^^^ not a struct
 

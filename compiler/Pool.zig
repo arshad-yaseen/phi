@@ -136,7 +136,7 @@ pub const Key = union(enum) {
     type_struct: Instance,
     /// A nominal unit type. Never generic, so the declaration is the identity.
     type_unit: Module.Decl.Index,
-    /// Ordered distinct members, none a union. Borrowed from `extra`, stale at the next intern.
+    /// Ordered distinct members, none a union. Stale at the next intern.
     type_union: []const Index,
 
     value_int: Int,
@@ -593,8 +593,7 @@ pub fn unionTail(pool: *Pool, gpa: Allocator, union_index: Index) Allocator.Erro
     return rest orelse unreachable; // a union holds two members or more
 }
 
-/// Borrowed from `extra`, stale at the next intern. A walk that interns reads
-/// by position, through `membersOf` or `unionMemberAt`, instead.
+/// Borrowed from `extra`, stale at the next intern. A walk that interns uses `membersOf`.
 pub fn unionMembers(pool: *const Pool, index: Index) []const Index {
     assert(pool.isUnion(index));
     const data = pool.items.items(.data)[index.int()];
@@ -627,8 +626,7 @@ pub fn membersOf(pool: *const Pool, index: Index) Members {
     return .{ .pool = pool, .index = index };
 }
 
-/// What a type leads with, which a union answers with its first member and every
-/// other type with itself.
+/// A union's first member, and any other type itself.
 pub fn firstMember(pool: *const Pool, index: Index) Index {
     if (pool.isUnion(index) == false) return index;
     return pool.unionMemberAt(index, 0);

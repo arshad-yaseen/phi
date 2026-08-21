@@ -1,0 +1,36 @@
+fn twice(n: u64) u64
+b0:
+  %0 = param n : u64
+  %1 = mul %0, 2:u64 : u64
+  return %1
+
+fn sum_to(n: u64) u64
+b0:
+  %0 = param n : u64
+  %1 = local total : *var u64
+  %2 = store %1, 0:u64
+  %3 = local i : *var u64
+  %4 = store %3, 0:u64
+  jump b1
+b1:
+  %5 = load %3 : u64
+  %6 = cmp_lt %5, %0
+  branch %6, b2, b3
+b2:
+  %7 = load %3 : u64
+  %8 = load %1 : u64
+  %9 = add %8, %7 : u64
+  %10 = store %1, %9
+  jump b4
+b3:
+  %14 = load %1 : u64
+  return %14
+b4:
+  %11 = load %3 : u64
+  %12 = add %11, 1:u64 : u64
+  %13 = store %3, %12
+  jump b1
+
+fn drive() u64
+b0:
+  return 342:u64

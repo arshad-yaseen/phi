@@ -1,3 +1,51 @@
+fn describe[i64](value: i64) u32
+b0:
+  %0 = param value : i64
+  return 1:u32
+
+fn describe[f64](value: f64) u32
+b0:
+  %0 = param value : f64
+  return 3:u32
+
+fn describe[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 1:u32
+
+fn describe[i8](value: i8) u32
+b0:
+  %0 = param value : i8
+  return 1:u32
+
+fn parity[u64](value: u64) u64
+b0:
+  %0 = param value : u64
+  %1 = bit_and %0, 1:u64 : u64
+  return %1
+
+fn parity[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  %1 = bit_and %0, 1:u32 : u32
+  return %1
+
+fn parity[i8](value: i8) i8
+b0:
+  %0 = param value : i8
+  %1 = mod %0, 2:i8 : i8
+  return %1
+
+fn signed[u32](value: u32) true | false
+b0:
+  %0 = param value : u32
+  return false
+
+fn signed[i8](value: i8) true | false
+b0:
+  %0 = param value : i8
+  return true
+
 fn literals() u64
 b0:
   %0 = call describe[i64](-7:i64) : u32
@@ -17,6 +65,22 @@ b0:
   %4 = call parity[u32](7:u32) : u32
   return %4
 
+fn Box[u32].doubled(self: Box[u32]) u32
+b0:
+  %0 = param self : Box[u32]
+  %1 = field_val %0, .item : u32
+  %2 = field_val %0, .item : u32
+  %3 = add %1, %2 : u32
+  return %3
+
+fn Box[f64].doubled(self: Box[f64]) f64
+b0:
+  %0 = param self : Box[f64]
+  %1 = field_val %0, .item : f64
+  %2 = field_val %0, .item : f64
+  %3 = add %1, %2 : f64
+  return %3
+
 fn boxed(n: u32, x: f64) f64
 b0:
   %0 = param n : u32
@@ -26,6 +90,11 @@ b0:
   %4 = call Box[u32].doubled(%2) : u32
   %5 = call Box[f64].doubled(%3) : f64
   return %5
+
+fn only_wide[u64](value: u64) u64
+b0:
+  %0 = param value : u64
+  return %0
 
 fn drive(n: u32, x: f64, s: i8, w: u64, maybe: u32 | none) u64
 b0:
@@ -47,72 +116,3 @@ b0:
   %15 = call only_wide[u64](%3) : u64
   %16 = call parity[u64](%3) : u64
   return %16
-
-fn describe[i64](value: i64) u32
-b0:
-  %0 = param value : i64
-  return 1:u32
-
-fn describe[f64](value: f64) u32
-b0:
-  %0 = param value : f64
-  return 3:u32
-
-fn parity[u64](value: u64) u64
-b0:
-  %0 = param value : u64
-  %1 = bit_and %0, 1:u64 : u64
-  return %1
-
-fn parity[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  %1 = bit_and %0, 1:u32 : u32
-  return %1
-
-fn Box[u32].doubled(self: Box[u32]) u32
-b0:
-  %0 = param self : Box[u32]
-  %1 = field_val %0, .item : u32
-  %2 = field_val %0, .item : u32
-  %3 = add %1, %2 : u32
-  return %3
-
-fn Box[f64].doubled(self: Box[f64]) f64
-b0:
-  %0 = param self : Box[f64]
-  %1 = field_val %0, .item : f64
-  %2 = field_val %0, .item : f64
-  %3 = add %1, %2 : f64
-  return %3
-
-fn describe[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  return 1:u32
-
-fn describe[i8](value: i8) u32
-b0:
-  %0 = param value : i8
-  return 1:u32
-
-fn parity[i8](value: i8) i8
-b0:
-  %0 = param value : i8
-  %1 = mod %0, 2:i8 : i8
-  return %1
-
-fn signed[u32](value: u32) true | false
-b0:
-  %0 = param value : u32
-  return false
-
-fn signed[i8](value: i8) true | false
-b0:
-  %0 = param value : i8
-  return true
-
-fn only_wide[u64](value: u64) u64
-b0:
-  %0 = param value : u64
-  return %0

@@ -6,6 +6,27 @@ fn the_false_edge() u32
 b0:
   return 2:u32
 
+fn on_a_type[f64](value: f64) u32
+b0:
+  %0 = param value : f64
+  return 2:u32
+
+fn on_a_type[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 1:u32
+
+fn the_dead_arm_is_not_checked[f64](value: f64) f64
+b0:
+  %0 = param value : f64
+  return %0
+
+fn the_dead_arm_is_not_checked[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  %1 = mod %0, 2:u32 : u32
+  return %1
+
 fn a_live_arm_flows() u32
 b0:
   %0 = local total : *var u32
@@ -33,24 +54,3 @@ b0:
   %8 = call a_live_arm_flows() : u32
   %9 = call no_else_falls_past() : u32
   return %9
-
-fn the_dead_arm_is_not_checked[f64](value: f64) f64
-b0:
-  %0 = param value : f64
-  return %0
-
-fn the_dead_arm_is_not_checked[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  %1 = mod %0, 2:u32 : u32
-  return %1
-
-fn on_a_type[f64](value: f64) u32
-b0:
-  %0 = param value : f64
-  return 2:u32
-
-fn on_a_type[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  return 1:u32

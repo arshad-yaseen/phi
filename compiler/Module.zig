@@ -19,7 +19,7 @@ source: Source,
 tree: AST,
 space: Space,
 decls: Range,
-/// Top-level names, keyed by source text, which outlives the map. Members go through their struct.
+/// Top-level names, keyed by source text. Members go through their struct.
 names: std.StringHashMapUnmanaged(Decl.Index),
 
 const Module = @This();
@@ -84,9 +84,16 @@ pub const Decl = struct {
     pub const Index = Handle.Index("decl");
     pub const OptionalIndex = Decl.Index.Optional;
 
+    /// The declarations a struct owns, which `result` and `aux` are the range of.
     pub fn members(decl: Decl) Compilation.Range {
         assert(decl.kind == .struct_decl);
         return .{ .start = decl.result, .len = decl.aux };
+    }
+
+    fn setMembers(decl: *Decl, range: Compilation.Range) void {
+        assert(decl.kind == .struct_decl);
+        decl.result = range.start;
+        decl.aux = range.len;
     }
 };
 
@@ -142,7 +149,7 @@ pub fn register(
     }
 
     try registerDecls(comp, module, index);
-    module.decls.len = @intCast(comp.decls.items.len - module.decls.start);
+    module.decls = .since(module.decls.start, comp.decls.items.len);
     return index;
 }
 
@@ -227,8 +234,7 @@ fn registerMembers(
         }
     }
 
-    comp.declPtr(struct_index).result = members_start;
-    comp.declPtr(struct_index).aux = @intCast(comp.decls.items.len - members_start);
+    comp.declPtr(struct_index).setMembers(.since(members_start, comp.decls.items.len));
 }
 
 const NewDecl = struct {
@@ -475,10 +481,9 @@ fn suggestIn(
     name: []const u8,
 ) Allocator.Error!?[]const u8 {
     var closest: Closest = .{ .target = name };
-    for (module.decls.start..module.decls.end()) |raw| {
-        const index: Decl.Index = .from(raw);
+    var walk = comp.ownDecls(module.decls);
+    while (walk.next()) |index| {
         const decl = comp.declAt(index);
-        if (decl.owner != .none) continue;
         if (decl.kind == .import) continue;
         if (declIsPub(comp, index) == false) continue;
         closest.consider(comp.pool.stringText(decl.name));

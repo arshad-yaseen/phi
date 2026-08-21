@@ -3,17 +3,17 @@
 
 _Static_assert(sizeof(void *) == 8, "phi lays an address out at 8 bytes");
 
-static int64_t p0_checked(int64_t v0 /* a */, int64_t v1 /* b */);
-static int64_t p1_divided(int64_t v0 /* a */, int64_t v1 /* b */);
-static uint32_t p2_shifted(uint32_t v0 /* a */, uint32_t v1 /* b */);
-static int32_t p3_negated(int32_t v0 /* a */);
-static uint8_t p4_compared(int64_t v0 /* a */, int64_t v1 /* b */);
-static double p5_floated(double v0 /* a */, double v1 /* b */);
-static void p6_main(void);
+static int64_t p1_checked(int64_t v0 /* a */, int64_t v1 /* b */);
+static int64_t p2_divided(int64_t v0 /* a */, int64_t v1 /* b */);
+static uint32_t p3_shifted(uint32_t v0 /* a */, uint32_t v1 /* b */);
+static int32_t p4_negated(int32_t v0 /* a */);
+static uint8_t p5_compared(int64_t v0 /* a */, int64_t v1 /* b */);
+static double p6_floated(double v0 /* a */, double v1 /* b */);
+static void p0_main(void);
 
 #line 1 "test/pass/checked_arithmetic.phi"
 // fn checked
-static int64_t p0_checked(int64_t v0 /* a */, int64_t v1 /* b */) {
+static int64_t p1_checked(int64_t v0 /* a */, int64_t v1 /* b */) {
     int64_t v2;
     int64_t v3;
     int64_t v4;
@@ -30,7 +30,7 @@ b0:;
 
 #line 5 "test/pass/checked_arithmetic.phi"
 // fn divided
-static int64_t p1_divided(int64_t v0 /* a */, int64_t v1 /* b */) {
+static int64_t p2_divided(int64_t v0 /* a */, int64_t v1 /* b */) {
     int64_t v2;
     int64_t v3;
     int64_t v4;
@@ -50,7 +50,7 @@ b0:;
 
 #line 9 "test/pass/checked_arithmetic.phi"
 // fn shifted
-static uint32_t p2_shifted(uint32_t v0 /* a */, uint32_t v1 /* b */) {
+static uint32_t p3_shifted(uint32_t v0 /* a */, uint32_t v1 /* b */) {
     uint32_t v2;
     uint32_t v3;
     uint32_t v4;
@@ -75,7 +75,7 @@ b0:;
 
 #line 13 "test/pass/checked_arithmetic.phi"
 // fn negated
-static int32_t p3_negated(int32_t v0 /* a */) {
+static int32_t p4_negated(int32_t v0 /* a */) {
     int32_t v1;
 
 b0:;
@@ -86,7 +86,7 @@ b0:;
 
 #line 17 "test/pass/checked_arithmetic.phi"
 // fn compared
-static uint8_t p4_compared(int64_t v0 /* a */, int64_t v1 /* b */) {
+static uint8_t p5_compared(int64_t v0 /* a */, int64_t v1 /* b */) {
     uint8_t v2;
 
 b0:;
@@ -97,7 +97,7 @@ b0:;
 
 #line 21 "test/pass/checked_arithmetic.phi"
 // fn floated
-static double p5_floated(double v0 /* a */, double v1 /* b */) {
+static double p6_floated(double v0 /* a */, double v1 /* b */) {
     double v2;
     double v3;
     double v4;
@@ -115,7 +115,7 @@ b0:;
 
 #line 25 "test/pass/checked_arithmetic.phi"
 // fn main
-static void p6_main(void) {
+static void p0_main(void) {
     int64_t v0;
     int64_t v1;
     uint32_t v2;
@@ -125,21 +125,21 @@ static void p6_main(void) {
 
 b0:;
 #line 26 "test/pass/checked_arithmetic.phi"
-    v0 = p0_checked(((int64_t)6LL), ((int64_t)7LL));
+    v0 = p1_checked(((int64_t)6LL), ((int64_t)7LL));
 #line 27 "test/pass/checked_arithmetic.phi"
-    v1 = p1_divided(((int64_t)6LL), ((int64_t)7LL));
+    v1 = p2_divided(((int64_t)6LL), ((int64_t)7LL));
 #line 28 "test/pass/checked_arithmetic.phi"
-    v2 = p2_shifted(((uint32_t)6ULL), ((uint32_t)7ULL));
+    v2 = p3_shifted(((uint32_t)6ULL), ((uint32_t)7ULL));
 #line 29 "test/pass/checked_arithmetic.phi"
-    v3 = p3_negated(((int32_t)6LL));
+    v3 = p4_negated(((int32_t)6LL));
 #line 30 "test/pass/checked_arithmetic.phi"
-    v4 = p4_compared(((int64_t)6LL), ((int64_t)7LL));
+    v4 = p5_compared(((int64_t)6LL), ((int64_t)7LL));
 #line 31 "test/pass/checked_arithmetic.phi"
-    v5 = p5_floated(((double)0x1.ap2), ((double)0x1.ep2));
+    v5 = p6_floated(((double)0x1.ap2), ((double)0x1.ep2));
     return;
 }
 
 int main(void) {
-    p6_main();
+    p0_main();
     return 0;
 }

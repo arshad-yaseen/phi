@@ -1,8 +1,0 @@
-error[E0222]: this must settle before anything runs, and a call happens at run time
- --> test/fail/let_call.phi:5:14
-  |
-5 | let cached = answer()
-  |              ^^^^^^^^ not a constant
-  |
-  = help: the constant set is literals, names of constants, operators, and parentheses
-

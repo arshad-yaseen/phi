@@ -1,3 +1,16 @@
+fn find(n: u32) u32 | none
+b0:
+  %0 = param n : u32
+  %1 = cmp_gt %0, 0:u32 : true | false
+  branch %1, b1, b2
+b1:
+  %2 = union_init %0, u32 : u32 | none
+  return %2
+b2:
+  jump b3
+b3:
+  return none
+
 fn settle(n: u32) u32
 b0:
   %0 = param n : u32
@@ -12,16 +25,3 @@ b2:
 b3:
   %4 = union_narrow %1 : none
   return 0:u32
-
-fn find(n: u32) u32 | none
-b0:
-  %0 = param n : u32
-  %1 = cmp_gt %0, 0:u32 : true | false
-  branch %1, b1, b2
-b1:
-  %2 = union_init %0, u32 : u32 | none
-  return %2
-b2:
-  jump b3
-b3:
-  return none

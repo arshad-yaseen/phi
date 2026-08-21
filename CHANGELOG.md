@@ -21,6 +21,11 @@
 - `@int_cast(n)` converts, and stops the program where the type does not hold
   the value.
 - `@int_fits(n)` is the `T | none` answer `@int_cast` used to give.
+- A call settles where a constant is wanted, so a `let`, an array length, and
+  a type argument may each ask a function for their value.
+- The compiler runs a call once for a set of arguments, so a constant may recurse.
+- `E0252` is a call the compiler ran that stopped the program, and `E0253` one
+  that took more than a thousand loops and calls to settle.
 - `io.print` finishes a run of bytes too long for one write.
 - `std/math` gains `min`, the smaller of two integers.
 - `mem.eql` is now `mem.equal`.
@@ -36,6 +41,7 @@
 - `x or return` with a broken `x` reports `x` alone.
 - `E0215` is a union that was not narrowed, wherever one is reached into,
   assigned, or handed on.
+- The typed IR and the generated C hold what the entry reaches, in source order.
 - Every diagnostic code is renumbered, closing the gaps the retired ones left.
 - A match arm that covers the whole union, `else` included, no longer stops the
   compiler.

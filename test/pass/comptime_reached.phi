@@ -1,0 +1,12 @@
+// a body reaching a constant runs a call, so one body builds inside another
+fn main() u64 {
+    var total: u64 = 0
+    total += room
+    return total
+}
+
+fn size() u64 {
+    return 4 + 4
+}
+
+let room: u64 = size()

@@ -1,3 +1,85 @@
+fn names[u32](value: u32) true | false
+b0:
+  %0 = param value : u32
+  return true
+
+fn names[f64](value: f64) true | false
+b0:
+  %0 = param value : f64
+  return false
+
+fn rejects[Point](value: Point) true | false
+b0:
+  %0 = param value : Point
+  return true
+
+fn parity[f64](value: f64) f64
+b0:
+  %0 = param value : f64
+  return %0
+
+fn parity[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  %1 = mod %0, 2:u32 : u32
+  return %1
+
+fn ranked[Point](value: Point) u32
+b0:
+  %0 = param value : Point
+  return 3:u32
+
+fn ranked[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 1:u32
+
+fn a_union_label[u32 | none](value: u32 | none) u32
+b0:
+  %0 = param value : u32 | none
+  return 1:u32
+
+fn closed[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 1:u32
+
+fn closed[u64](value: u64) u32
+b0:
+  %0 = param value : u64
+  return 2:u32
+
+fn a_block_arm[u32](value: u32) u32
+b0:
+  %0 = param value : u32
+  return 11:u32
+
+fn only_numbers[f64](value: f64) f64
+b0:
+  %0 = param value : f64
+  return %0
+
+fn only_numbers[Point](value: Point) Point
+b0:
+  %0 = param value : Point
+  trap
+
+fn statement_form[u32](value: u32)
+b0:
+  %0 = param value : u32
+  return
+
+fn branched[f64](value: f64) u32
+b0:
+  %0 = param value : f64
+  return 0:u32
+
+fn nested[u32, u8](a: u32, b: u8) u32
+b0:
+  %0 = param a : u32
+  %1 = param b : u8
+  return 1:u32
+
 fn aliases_are_one_type() true | false
 b0:
   return true
@@ -44,85 +126,3 @@ b0:
   %21 = call ranked[u32](%0) : u32
   %22 = add %20, %21 : u32
   return %22
-
-fn nested[u32, u8](a: u32, b: u8) u32
-b0:
-  %0 = param a : u32
-  %1 = param b : u8
-  return 1:u32
-
-fn closed[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  return 1:u32
-
-fn closed[u64](value: u64) u32
-b0:
-  %0 = param value : u64
-  return 2:u32
-
-fn names[u32](value: u32) true | false
-b0:
-  %0 = param value : u32
-  return true
-
-fn names[f64](value: f64) true | false
-b0:
-  %0 = param value : f64
-  return false
-
-fn rejects[Point](value: Point) true | false
-b0:
-  %0 = param value : Point
-  return true
-
-fn parity[f64](value: f64) f64
-b0:
-  %0 = param value : f64
-  return %0
-
-fn ranked[Point](value: Point) u32
-b0:
-  %0 = param value : Point
-  return 3:u32
-
-fn a_union_label[u32 | none](value: u32 | none) u32
-b0:
-  %0 = param value : u32 | none
-  return 1:u32
-
-fn a_block_arm[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  return 11:u32
-
-fn only_numbers[f64](value: f64) f64
-b0:
-  %0 = param value : f64
-  return %0
-
-fn only_numbers[Point](value: Point) Point
-b0:
-  %0 = param value : Point
-  trap
-
-fn branched[f64](value: f64) u32
-b0:
-  %0 = param value : f64
-  return 0:u32
-
-fn statement_form[u32](value: u32)
-b0:
-  %0 = param value : u32
-  return
-
-fn parity[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  %1 = mod %0, 2:u32 : u32
-  return %1
-
-fn ranked[u32](value: u32) u32
-b0:
-  %0 = param value : u32
-  return 1:u32

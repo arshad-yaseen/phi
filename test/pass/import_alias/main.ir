@@ -1,3 +1,9 @@
+fn twice(value: i64) i64
+b0:
+  %0 = param value : i64
+  %1 = mul %0, 2:i64 : i64
+  return %1
+
 fn drive(seed: i64) i64
 b0:
   %0 = param seed : i64
@@ -5,9 +11,3 @@ b0:
   %2 = call twice(%0) : i64
   %3 = add %1, %2 : i64
   return %3
-
-fn twice(value: i64) i64
-b0:
-  %0 = param value : i64
-  %1 = mul %0, 2:i64 : i64
-  return %1

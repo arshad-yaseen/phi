@@ -3,43 +3,43 @@
 
 _Static_assert(sizeof(void *) == 8, "phi lays an address out at 8 bytes");
 
-typedef struct pt18 pt18;
-struct pt18 { union { int64_t m0; }; uint8_t tag; }; // i64 | none | true
-_Static_assert(sizeof(pt18) == 16, "phi sized i64 | none | true at 16 bytes");
-_Static_assert(_Alignof(pt18) == 8, "phi aligned i64 | none | true at 8 bytes");
-typedef struct pt16 pt16;
-struct pt16 { union { int64_t m0; }; uint8_t tag; }; // i64 | none
-_Static_assert(sizeof(pt16) == 16, "phi sized i64 | none at 16 bytes");
-_Static_assert(_Alignof(pt16) == 8, "phi aligned i64 | none at 8 bytes");
 typedef struct pt17 pt17;
-struct pt17 { }; // true
-_Static_assert(sizeof(pt17) == 0, "phi sized true at 0 bytes");
-_Static_assert(_Alignof(pt17) == 1, "phi aligned true at 1 bytes");
+struct pt17 { union { int64_t m0; }; uint8_t tag; }; // i64 | none | true
+_Static_assert(sizeof(pt17) == 16, "phi sized i64 | none | true at 16 bytes");
+_Static_assert(_Alignof(pt17) == 8, "phi aligned i64 | none | true at 8 bytes");
+typedef struct pt18 pt18;
+struct pt18 { union { int64_t m0; }; uint8_t tag; }; // i64 | none
+_Static_assert(sizeof(pt18) == 16, "phi sized i64 | none at 16 bytes");
+_Static_assert(_Alignof(pt18) == 8, "phi aligned i64 | none at 8 bytes");
+typedef struct pt16 pt16;
+struct pt16 { }; // true
+_Static_assert(sizeof(pt16) == 0, "phi sized true at 0 bytes");
+_Static_assert(_Alignof(pt16) == 1, "phi aligned true at 1 bytes");
 
-static pt18 p0_widen(pt16 v0 /* x */);
-static pt16 p1_shed(pt18 v0 /* x */);
-static uint8_t p2_flags(uint8_t v0 /* b */);
-static void p3_main(void);
+static pt17 p2_widen(pt18 v0 /* x */);
+static pt18 p1_shed(pt17 v0 /* x */);
+static uint8_t p3_flags(uint8_t v0 /* b */);
+static void p0_main(void);
 
 #line 1 "test/pass/union_convert.phi"
 // fn widen
-static pt18 p0_widen(pt16 v0 /* x */) {
-    pt18 v1;
+static pt17 p2_widen(pt18 v0 /* x */) {
+    pt17 v1;
 
 b0:;
 #line 2 "test/pass/union_convert.phi"
-    if (v0.tag == 0) v1 = (pt18){ .m0 = v0.m0, .tag = 0 }; else
-    if (v0.tag == 1) v1 = (pt18){ .tag = 1 }; else
+    if (v0.tag == 0) v1 = (pt17){ .m0 = v0.m0, .tag = 0 }; else
+    if (v0.tag == 1) v1 = (pt17){ .tag = 1 }; else
     __builtin_trap();
     return v1;
 }
 
 #line 5 "test/pass/union_convert.phi"
 // fn shed
-static pt16 p1_shed(pt18 v0 /* x */) {
+static pt18 p1_shed(pt17 v0 /* x */) {
     uint8_t v1;
-    pt17 v2;
-    pt16 v3;
+    pt16 v2;
+    pt18 v3;
 
 b0:;
 #line 6 "test/pass/union_convert.phi"
@@ -47,21 +47,21 @@ b0:;
     if (v1 == 0) goto b1; else goto b2;
 b1:;
 #line 6 "test/pass/union_convert.phi"
-    v2 = (pt17){};
-    return ((pt16){ .tag = 1 });
+    v2 = (pt16){};
+    return ((pt18){ .tag = 1 });
 b2:;
     goto b3;
 b3:;
 #line 6 "test/pass/union_convert.phi"
-    if (v0.tag == 0) v3 = (pt16){ .m0 = v0.m0, .tag = 0 }; else
-    if (v0.tag == 1) v3 = (pt16){ .tag = 1 }; else
+    if (v0.tag == 0) v3 = (pt18){ .m0 = v0.m0, .tag = 0 }; else
+    if (v0.tag == 1) v3 = (pt18){ .tag = 1 }; else
     __builtin_trap();
     return v3;
 }
 
 #line 12 "test/pass/union_convert.phi"
 // fn flags
-static uint8_t p2_flags(uint8_t v0 /* b */) {
+static uint8_t p3_flags(uint8_t v0 /* b */) {
     uint8_t v1;
 
 b0:;
@@ -74,22 +74,22 @@ b0:;
 
 #line 16 "test/pass/union_convert.phi"
 // fn main
-static void p3_main(void) {
-    pt18 v0;
-    pt16 v1;
+static void p0_main(void) {
+    pt17 v0;
+    pt18 v1;
     uint8_t v2;
 
 b0:;
 #line 17 "test/pass/union_convert.phi"
-    v0 = p0_widen(((pt16){ .m0 = ((int64_t)7LL), .tag = 0 }));
+    v0 = p2_widen(((pt18){ .m0 = ((int64_t)7LL), .tag = 0 }));
 #line 17 "test/pass/union_convert.phi"
     v1 = p1_shed(v0);
 #line 18 "test/pass/union_convert.phi"
-    v2 = p2_flags(0);
+    v2 = p3_flags(0);
     return;
 }
 
 int main(void) {
-    p3_main();
+    p0_main();
     return 0;
 }

@@ -90,6 +90,16 @@ fn folded_negated() true | false
 b0:
   return false
 
+fn typed[u64](value: u64) true | false
+b0:
+  %0 = param value : u64
+  return true
+
+fn typed[u8](value: u8) true | false
+b0:
+  %0 = param value : u8
+  return false
+
 fn a_union_is_itself() true | false
 b0:
   return true
@@ -118,13 +128,3 @@ b0:
   %15 = load %11 : u8
   %16 = call typed[u8](%15) : true | false
   return %16
-
-fn typed[u64](value: u64) true | false
-b0:
-  %0 = param value : u64
-  return true
-
-fn typed[u8](value: u8) true | false
-b0:
-  %0 = param value : u8
-  return false

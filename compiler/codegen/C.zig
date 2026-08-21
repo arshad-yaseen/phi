@@ -54,9 +54,8 @@ pub const Entry = union(enum) {
 
 pub fn entryOf(comp: *Compilation) Allocator.Error!Entry {
     assert(comp.hasErrors() == false);
-    assert(comp.modules.items.len > 0);
 
-    const decl_index = comp.moduleAt(.root).findDecl("main") orelse return .missing;
+    const decl_index = comp.entryDecl() orelse return .missing;
     const decl = comp.declAt(decl_index);
 
     if (decl.kind != .fn_decl) {
@@ -153,10 +152,8 @@ pub fn emit(
 fn writeProgram(backend: *C, entry: Pool.Instance) Fail!void {
     const comp = backend.comp;
 
-    const instance_count = comp.instances.items.len;
-    var raw: u32 = 0;
-    while (raw < instance_count) : (raw += 1) {
-        const instance: Pool.Instance = .from(raw);
+    const instance_count = comp.instanceCount();
+    for (comp.program) |instance| {
         const func_index = comp.instanceAt(instance).func.unwrap() orelse continue;
 
         const decl = comp.declAt(comp.instanceDecl(instance));
@@ -165,8 +162,10 @@ fn writeProgram(backend: *C, entry: Pool.Instance) Fail!void {
         try backend.protos.writer.writeAll(";\n");
         try backend.writeFunc(instance, comp.funcAt(func_index));
     }
-    // bodies never commit past checking, so nothing added since carries one
-    for (comp.instances.items[instance_count..]) |late| assert(late.func == .none);
+    // bodies never commit past checking, so nothing registered since carries one
+    for (instance_count..comp.instanceCount()) |raw| {
+        assert(comp.instanceAt(@enumFromInt(raw)).func == .none);
+    }
 
     try backend.code.writer.writeAll("int main(void) {\n    ");
     try writeFuncName(backend.comp, &backend.code.writer, entry);
@@ -1356,7 +1355,7 @@ test "the entry is found, missed, or refused" {
         \\
     );
     defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
+    try testing.expectEqual(0, comp.diagnosticCount());
     try testing.expect(try entryOf(&comp) == .instance);
 
     var absent: Compilation = undefined;
@@ -1367,7 +1366,7 @@ test "the entry is found, missed, or refused" {
     );
     defer absent.deinit();
     try testing.expect(try entryOf(&absent) == .missing);
-    try testing.expectEqual(0, absent.diagnostics.items.len);
+    try testing.expectEqual(0, absent.diagnosticCount());
 
     var shaped: Compilation = undefined;
     try Compilation.testCompile(&shaped,
@@ -1378,5 +1377,5 @@ test "the entry is found, missed, or refused" {
     );
     defer shaped.deinit();
     try testing.expect(try entryOf(&shaped) == .refused);
-    try testing.expectEqual(2, shaped.diagnostics.items.len);
+    try testing.expectEqual(2, shaped.diagnosticCount());
 }

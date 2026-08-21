@@ -665,9 +665,9 @@ test "a union with no member for the target says which one is missing" {
     , .x86_64_windows);
     defer comp.deinit();
 
-    try testing.expectEqual(1, comp.diagnostics.items.len);
+    try testing.expectEqual(1, comp.diagnosticCount());
     try testing.expectEqual(
         Diagnostic.Code.not_a_member,
-        comp.diagnostics.items[0].diagnostic.code,
+        comp.diagnosticAt(0).code,
     );
 }

@@ -1,0 +1,34 @@
+error[E0253]: this call takes more than 1000 loops and calls to settle
+  --> test/fail/comptime_refused.phi:24:18
+   |
+24 | let spent: u64 = forever(1)
+   |                  ^^^^^^^^^ did not settle
+
+error[E0252]: this call stops the program, and the compiler ran it
+  --> test/fail/comptime_refused.phi:25:20
+   |
+25 | let trapped: u64 = stops(1)
+   |                    ^^^^^^^ stopped here
+   |
+   = help: a call that must settle before anything runs cannot trap
+
+error[E0222]: this must settle before anything runs, and reaching through an address happens at run time
+  --> test/fail/comptime_refused.phi:26:22
+   |
+26 | let addressed: u64 = reads("ab")
+   |                      ^^^^^^^^^^ not a constant
+
+error[E0253]: this call takes more than 1000 loops and calls to settle
+  --> test/fail/comptime_refused.phi:27:21
+   |
+27 | let recursed: u64 = deeper(0)
+   |                     ^^^^^^^^ did not settle
+
+error[E0252]: this call stops the program, and the compiler ran it
+  --> test/fail/comptime_refused.phi:28:21
+   |
+28 | let external: u64 = mem.align_up(3, 3)
+   |                     ^^^^^^^^^^^^^^^^^ stopped here
+   |
+   = help: a call that must settle before anything runs cannot trap
+
