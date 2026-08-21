@@ -1,0 +1,27 @@
+type Block = { prev: *Block | none, cap: u64 }
+
+fn through_a_var(head: *Block | none) u64 {
+    var it = head
+    if it is none {
+        return 0
+    }
+    return it.cap
+}
+
+fn through_a_field(self: *Block) u64 {
+    if self.prev is none {
+        return 0
+    }
+    return self.prev.cap
+}
+
+fn without_a_guard(head: *Block | none) *Block {
+    return head
+}
+
+fn to_a_smaller_union(r: u32 | Timeout | NotFound) Timeout | NotFound {
+    return r
+}
+
+type Timeout
+type NotFound

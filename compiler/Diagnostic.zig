@@ -101,6 +101,7 @@ pub const Code = enum(u16) {
     extern_signature = 264,
     extern_generic = 265,
     compile_error = 266,
+    not_narrowed = 267,
 
     entry_signature = 301,
 };

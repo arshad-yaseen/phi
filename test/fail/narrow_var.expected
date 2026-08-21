@@ -1,8 +1,8 @@
-error[E0206]: expected u32, found u32 | none
+error[E0267]: expected u32, found u32 | none
   --> test/fail/narrow_var.phi:10:16
    |
 10 |         return slot
    |                ^^^^ the wrong type
    |
-   = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
 

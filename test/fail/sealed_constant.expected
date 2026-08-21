@@ -14,11 +14,11 @@ error[E0206]: expected u32, found u64
    |
    = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
-error[E0206]: expected u8, found u32 | u8
+error[E0267]: expected u8, found u32 | u8
   --> test/fail/sealed_constant.phi:25:17
    |
 25 |     let d: u8 = a
    |                 ^ the wrong type
    |
-   = help: narrow it first, with a guard 'is u8 or return' or inside the branch that proved it, and never through a 'var'
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
 

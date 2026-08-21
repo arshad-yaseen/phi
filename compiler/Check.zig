@@ -3560,6 +3560,9 @@ fn methodOf(check: *Check, owner: Pool.Index, name_token: Token.Index) Allocator
     return null;
 }
 
+const narrow_help = "a 'let' narrows where a branch proves what it holds, so copy a 'var' " ++
+    "or a field into one first";
+
 fn reportNoMember(
     check: *Check,
     owner: Pool.Index,
@@ -3576,6 +3579,17 @@ fn reportNoMember(
             .message = "this array has no type yet, so it has no members to reach",
             .label = "no type in sight",
             .help = not_landed_help,
+        });
+    }
+
+    if (comp.pool.isUnion(owner)) {
+        return check.failToken(name_token, .{
+            .code = .not_narrowed,
+            .message = try comp.fmt("{s} is a union, and reaching '{s}' means narrowing it first", .{
+                try comp.typeName(owner), name_text,
+            }),
+            .label = "not narrowed",
+            .help = narrow_help,
         });
     }
 
@@ -5667,15 +5681,9 @@ fn reportMismatch(
     const found_name = try comp.typeName(found);
 
     const narrowable = found != .poison and wanted != .poison and
-        comp.pool.isUnion(found) and comp.pool.isUnion(wanted) == false and
-        comp.pool.unionHas(found, wanted);
+        comp.pool.isUnion(found) and comp.pool.subsumes(found, wanted);
     const help: []const u8 = help: {
-        if (narrowable) {
-            break :help try comp.fmt("narrow it first, with a guard 'is {s} or return' or " ++
-                "inside the branch that proved it, and never through a 'var'", .{
-                try comp.typeName(wanted),
-            });
-        }
+        if (narrowable) break :help narrow_help;
         if (Pool.isSizedInt(found) and Pool.isSizedInt(wanted)) {
             break :help "'@int_cast(...)' converts, and '@int_fits(...)' answers 'none' " ++
                 "where a value does not fit";
@@ -5696,7 +5704,7 @@ fn reportMismatch(
     };
 
     return check.refuse(node, .{
-        .code = .type_mismatch,
+        .code = if (narrowable) .not_narrowed else .type_mismatch,
         .message = try comp.fmt("expected {s}, found {s}", .{
             try comp.typeName(wanted),
             found_name,

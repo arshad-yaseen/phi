@@ -1,0 +1,32 @@
+error[E0267]: *Block | none is a union, and reaching 'cap' means narrowing it first
+ --> test/fail/narrow_union.phi:8:15
+  |
+8 |     return it.cap
+  |               ^^^ not narrowed
+  |
+  = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
+
+error[E0267]: *Block | none is a union, and reaching 'cap' means narrowing it first
+  --> test/fail/narrow_union.phi:15:22
+   |
+15 |     return self.prev.cap
+   |                      ^^^ not narrowed
+   |
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
+
+error[E0267]: expected *Block, found *Block | none
+  --> test/fail/narrow_union.phi:19:12
+   |
+19 |     return head
+   |            ^^^^ the wrong type
+   |
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
+
+error[E0267]: expected Timeout | NotFound, found u32 | Timeout | NotFound
+  --> test/fail/narrow_union.phi:23:12
+   |
+23 |     return r
+   |            ^ the wrong type
+   |
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
+

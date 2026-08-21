@@ -4,19 +4,19 @@ error[E0257]: 'Elsewhere' is not a member of 'u32 | Timeout | NotFound'
 15 |     if r is Timeout | Elsewhere {
    |             ^^^^^^^^^^^^^^^^^^^ not a member
 
-error[E0206]: expected u32, found u32 | Timeout | NotFound
+error[E0267]: expected u32, found u32 | Timeout | NotFound
   --> test/fail/is_sets.phi:18:12
    |
 18 |     return r
    |            ^ the wrong type
    |
-   = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
 
-error[E0206]: expected u32, found u32 | Timeout | NotFound
+error[E0267]: expected u32, found u32 | Timeout | NotFound
   --> test/fail/is_sets.phi:25:16
    |
 25 |         return r
    |                ^ the wrong type
    |
-   = help: narrow it first, with a guard 'is u32 or return' or inside the branch that proved it, and never through a 'var'
+   = help: a 'let' narrows where a branch proves what it holds, so copy a 'var' or a field into one first
 
