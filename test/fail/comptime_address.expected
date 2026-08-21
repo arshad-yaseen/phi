@@ -1,0 +1,18 @@
+error[E0222]: this must settle before anything runs, and taking an address happens at run time
+  --> test/fail/comptime_address.phi:24:20
+   |
+24 | let by_call: u64 = passed()
+   |                    ^^^^^^^^ not a constant
+
+error[E0222]: this must settle before anything runs, and taking an address happens at run time
+  --> test/fail/comptime_address.phi:25:21
+   |
+25 | let by_store: u64 = stored()
+   |                     ^^^^^^^^ not a constant
+
+error[E0222]: this must settle before anything runs, and taking an address happens at run time
+  --> test/fail/comptime_address.phi:26:27
+   |
+26 | let by_return: *var u64 = escaped()
+   |                           ^^^^^^^^^ not a constant
+

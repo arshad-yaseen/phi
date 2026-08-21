@@ -1,0 +1,26 @@
+// the compiler runs values alone, so an address that leaves a body is not one
+fn bump(p: *var u64) {
+    p.* += 1
+}
+
+fn passed() u64 {
+    var x: u64 = 1
+    bump(&x)
+    return x
+}
+
+fn stored() u64 {
+    var x: u64 = 1
+    var p = &x
+    p.* += 1
+    return x
+}
+
+fn escaped() *var u64 {
+    var x: u64 = 1
+    return &x
+}
+
+let by_call: u64 = passed()
+let by_store: u64 = stored()
+let by_return: *var u64 = escaped()

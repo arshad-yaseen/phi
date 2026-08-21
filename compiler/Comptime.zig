@@ -100,17 +100,34 @@ fn spend(evaluator: *Comptime) Error!void {
     if (evaluator.spent > budget) return evaluator.tooLong();
 }
 
-/// What each instruction answered, and what each `local` holds.
+/// One cell per instruction, what it answered, or for a `local` what it holds.
 const Frame = struct {
+    evaluator: *Comptime,
     func: IR.Func,
-    values: []Pool.Index,
-    slots: []Pool.Index,
+    cells: []Pool.Index,
 
-    fn at(frame: Frame, ref: IR.Ref) Pool.Index {
-        return switch (ref.unwrap()) {
-            .constant => |constant| constant,
-            .inst => |inst| frame.values[inst.int()],
+    fn at(frame: Frame, ref: IR.Ref) Error!Pool.Index {
+        const inst = switch (ref.unwrap()) {
+            .constant => |constant| return constant,
+            .inst => |inst| inst,
         };
+        // a local's ref is its address, which no constant spells
+        if (frame.tagOf(inst) == .local) return frame.evaluator.runtime("taking an address");
+        return frame.cells[inst.int()];
+    }
+
+    /// The cell a pointer reaches, which is a local's own and nothing else's.
+    fn slot(frame: Frame, ref: IR.Ref, what: []const u8) Error!*Pool.Index {
+        switch (ref.unwrap()) {
+            .inst => |inst| if (frame.tagOf(inst) == .local) return &frame.cells[inst.int()],
+            .constant => {},
+        }
+        return frame.evaluator.runtime(what);
+    }
+
+    fn tagOf(frame: Frame, inst: IR.Inst.Index) IR.Inst.Tag {
+        const tags = frame.evaluator.check.comp.insts.items(.tag);
+        return tags[frame.func.insts.at(inst.int())];
     }
 };
 
@@ -140,18 +157,14 @@ fn evaluate(
         return evaluator.runtime("a call");
     const func = comp.funcAt(func_index);
 
-    const cells = try comp.gpa.alloc(Pool.Index, 2 * func.insts.len);
+    const cells = try comp.gpa.alloc(Pool.Index, func.insts.len);
     defer comp.gpa.free(cells);
     @memset(cells, .poison);
-    const frame: Frame = .{
-        .func = func,
-        .values = cells[0..func.insts.len],
-        .slots = cells[func.insts.len..],
-    };
+    const frame: Frame = .{ .evaluator = evaluator, .func = func, .cells = cells };
 
     // the body opens with one `param` per row, which the call already settled
     assert(args.len <= func.insts.len);
-    @memcpy(frame.values[0..args.len], args);
+    @memcpy(cells[0..args.len], args);
 
     evaluator.depth += 1;
     defer evaluator.depth -= 1;
@@ -165,11 +178,11 @@ fn evaluate(
 
         const to: IR.Block.Index = switch (here.terminator) {
             .jump => |to| to,
-            .branch => |it| if (comp.pool.holdsFirst(frame.at(it.cond)))
+            .branch => |it| if (comp.pool.holdsFirst(try frame.at(it.cond)))
                 it.then_block
             else
                 it.else_block,
-            .ret => |ref| return if (ref == .none) .poison else frame.at(ref),
+            .ret => |ref| return if (ref == .none) .poison else try frame.at(ref),
             .trap => return evaluator.trapped(),
         };
         if (to.int() <= block) try evaluator.spend();
@@ -187,17 +200,10 @@ fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
         .param, .local => return,
         .store => {
             const it = inst.data.bin;
-            const slot = switch (it.lhs.unwrap()) {
-                .inst => |slot| slot,
-                .constant => return evaluator.runtime("a write through a pointer"),
-            };
-            frame.slots[slot.int()] = frame.at(it.rhs);
+            (try frame.slot(it.lhs, "a write through a pointer")).* = try frame.at(it.rhs);
             return;
         },
-        .load => switch (inst.data.un.unwrap()) {
-            .inst => |slot| frame.slots[slot.int()],
-            .constant => return evaluator.runtime("a read through a pointer"),
-        },
+        .load => (try frame.slot(inst.data.un, "a read through a pointer")).*,
 
         .add,
         .sub,
@@ -217,31 +223,35 @@ fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
         .cmp_ge,
         => |tag| folded: {
             const it = inst.data.bin;
-            const folded = try pool.fold(gpa, tag.binaryOp(), frame.at(it.lhs), frame.at(it.rhs));
-            break :folded try evaluator.settle(folded);
+            const lhs = try frame.at(it.lhs);
+            const rhs = try frame.at(it.rhs);
+            break :folded try evaluator.settle(try pool.fold(gpa, tag.binaryOp(), lhs, rhs));
         },
-        .negate => try evaluator.settle(try pool.foldNegate(gpa, frame.at(inst.data.un))),
-        .bit_not => try evaluator.settle(try pool.foldBitNot(gpa, frame.at(inst.data.un))),
-        .not => try pool.truth(gpa, evaluator.bools, !pool.holdsFirst(frame.at(inst.data.un))),
+        .negate => try evaluator.settle(try pool.foldNegate(gpa, try frame.at(inst.data.un))),
+        .bit_not => try evaluator.settle(try pool.foldBitNot(gpa, try frame.at(inst.data.un))),
+        .not => not: {
+            const holds = pool.holdsFirst(try frame.at(inst.data.un));
+            break :not try pool.truth(gpa, evaluator.bools, !holds);
+        },
 
         // the checker admitted this widening, so nothing here can lose a value
-        .widen => (try pool.fit(gpa, frame.at(inst.data.un), inst.type, .allowed)).value,
-        .int_cast => try pool.castInt(gpa, frame.at(inst.data.un), inst.type) orelse
+        .widen => (try pool.fit(gpa, try frame.at(inst.data.un), inst.type, .allowed)).value,
+        .int_cast => try pool.castInt(gpa, try frame.at(inst.data.un), inst.type) orelse
             return evaluator.trapped(),
         .int_fits => fitted: {
             const wanted = pool.unionMemberAt(inst.type, 0);
-            const held = try pool.castInt(gpa, frame.at(inst.data.un), wanted) orelse
+            const held = try pool.castInt(gpa, try frame.at(inst.data.un), wanted) orelse
                 try pool.unitValue(gpa, pool.unionMemberAt(inst.type, 1));
             break :fitted try pool.enter(gpa, inst.type, held);
         },
 
-        .union_init => try pool.enter(gpa, inst.type, frame.at(inst.data.probe.operand)),
+        .union_init => try pool.enter(gpa, inst.type, try frame.at(inst.data.probe.operand)),
         .union_is => was: {
-            const held = pool.memberOfValue(frame.at(inst.data.probe.operand));
+            const held = pool.memberOfValue(try frame.at(inst.data.probe.operand));
             const holds = pool.covers(inst.data.probe.member, held);
             break :was try pool.truth(gpa, evaluator.bools, holds);
         },
-        .union_narrow => try pool.narrowTo(gpa, frame.at(inst.data.un), inst.type),
+        .union_narrow => try pool.narrowTo(gpa, try frame.at(inst.data.un), inst.type),
 
         .call => try evaluator.callAt(frame, inst),
 
@@ -259,7 +269,7 @@ fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
         .aggregate_init,
         => return evaluator.runtime("reaching through an address"),
     };
-    frame.values[at] = answer;
+    frame.cells[at] = answer;
 }
 
 /// A fold the checker would take as a value. Anything else must stop the run.
@@ -280,6 +290,6 @@ fn callAt(evaluator: *Comptime, frame: Frame, inst: IR.Inst) Error!Pool.Index {
     const it = IR.callAt(evaluator.check.comp.funcExtra(frame.func), inst.data.payload);
     var args: Args = undefined;
     assert(it.args.len <= args.len);
-    for (it.args, args[0..it.args.len]) |argument, *slot| slot.* = frame.at(argument);
+    for (it.args, args[0..it.args.len]) |argument, *slot| slot.* = try frame.at(argument);
     return evaluator.run(it.callee, args[0..it.args.len]);
 }

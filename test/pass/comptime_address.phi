@@ -1,0 +1,16 @@
+import std/io
+
+// a pointer to a local stays inside its body, which the compiler follows
+fn twice() u64 {
+    var x: u64 = 1
+    let p = &x
+    p.* += 1
+    return x
+}
+
+let v: u64 = twice()
+
+fn main() {
+    io.print(v)
+    io.print("\n")
+}
