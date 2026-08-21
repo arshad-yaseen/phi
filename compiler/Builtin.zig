@@ -211,13 +211,8 @@ fn compileError(check: *Check, node: Node.Index, message: Node.Index) Allocator.
     const said = try messageText(check, message) orelse return check.refuse(message, .{
         .code = .compile_error,
         .message = "'@compile_error' says why in a string written at the call",
-        .label = "not a string written here",
-        .help = "give the reason, as in '@compile_error(\"no pages on this target\")'",
-    });
-    if (said.len == 0) return check.refuse(message, .{
-        .code = .compile_error,
-        .message = "'@compile_error' with an empty message refuses the build for no reason",
-        .label = "nothing to say",
+        .label = "no reason here",
+        .help = "give one, as in '@compile_error(\"no pages on this target\")'",
     });
     try check.fail(node, .{
         .code = .compile_error,
@@ -238,6 +233,7 @@ fn messageText(check: *Check, node: Node.Index) Allocator.Error!?[]const u8 {
         .bytes => |run| try out.appendSlice(check.comp.arena.allocator(), run),
         .refused => return null,
     };
+    if (out.items.len == 0) return null;
     return out.items;
 }
 
