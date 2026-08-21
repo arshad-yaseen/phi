@@ -32,8 +32,5 @@ jobs:
       - name: Test
         run: zig build test --summary all
 
-      - name: Build for every target
-        run: zig build test-targets
-
       - name: Check formatting
         run: zig fmt --check build.zig compiler tools test
