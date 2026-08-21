@@ -1,48 +1,20 @@
-fn substituted(n: u32) u8 {
-    return @int_cast(n) or 0
+fn total(n: u32) u64 {
+    return @int_cast[u64](n)
 }
 
-fn clamped(n: u32) u8 {
-    return @int_cast(n) or @max_int[u8]()
+fn narrows(n: u64) u32 {
+    return @int_cast[u32](n)
 }
 
-fn guarded(n: u32) u8 {
-    let small: u8 = @int_cast(n) or return 0
+fn signs(n: i32) i64 {
+    return @int_cast[i64](n)
+}
+
+fn constant() u8 {
+    return @int_cast[u8](200)
+}
+
+fn from_a_hint(n: u64) u16 {
+    let small: u16 = @int_cast(n)
     return small
-}
-
-fn handed_up(n: u64) u16 | none {
-    return @int_cast(n)
-}
-
-fn matched(n: u64) u16 {
-    return match @int_cast[u16](n) {
-        u16 => 1
-        none => 0
-    }
-}
-
-fn to_unsigned(n: i32) u32 {
-    return @int_cast(n) or 0
-}
-
-fn to_signed(n: u32) i32 {
-    return @int_cast(n) or 0
-}
-
-fn fits() u8 {
-    return @int_cast(200) or 0
-}
-
-fn does_not_fit() u8 {
-    return @int_cast(300) or 7
-}
-
-fn narrowed[T](n: u64) T {
-    return @int_cast[T](n) or 0
-}
-
-fn drive(n: u64) u64 {
-    _ = narrowed[u8](n)
-    return narrowed[u64](n)
 }

@@ -911,6 +911,7 @@ fn writeInst(backend: *C, local: Position) Fail!void {
             try backend.put(.{ assign(local), "(uint64_t)", inst.data.un, ";\n" });
         },
         .int_cast => try backend.writeIntCast(local, inst),
+        .int_fits => try backend.writeIntFits(local, inst),
 
         .union_init => try backend.writeUnionInit(local, inst),
         .union_is => try backend.writeUnionIs(local, inst),
@@ -1045,6 +1046,23 @@ fn writeNegate(backend: *C, local: Position, inst: IR.Inst) Fail!void {
 }
 
 fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
+    const wanted = inst.type;
+    const operand = inst.data.un;
+    const source = backend.typeOfRef(operand);
+    assert(Pool.isSizedInt(wanted));
+    assert(Pool.isSizedInt(source));
+
+    const holds_every = Pool.minInt(source) >= Pool.minInt(wanted) and
+        Pool.maxInt(source) <= Pool.maxInt(wanted);
+    if (holds_every == false) {
+        try backend.put(.{"    if (!("});
+        try backend.writeFitTest(operand, source, wanted);
+        try backend.put(.{")) __builtin_trap();\n"});
+    }
+    try backend.put(.{ assign(local), "(", wanted, ")", operand, ";\n" });
+}
+
+fn writeIntFits(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     const operand = inst.data.un;
 
@@ -1057,8 +1075,14 @@ fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const source = backend.typeOfRef(operand);
     assert(Pool.isSizedInt(source));
 
-    // the fit test, in 64 bits, with the signs the two types actually have
     try backend.put(.{"    if ("});
+    try backend.writeFitTest(operand, source, wanted);
+    try backend.put(.{ ") ", value(local), " = (", inst.type, "){ .m0 = (", wanted, ")", operand });
+    try backend.put(.{ ", .tag = 0 }; else ", value(local), " = (", inst.type });
+    try backend.put(.{"){ .tag = 1 };\n"});
+}
+
+fn writeFitTest(backend: *C, operand: Ref, source: Pool.Index, wanted: Pool.Index) Fail!void {
     if (Pool.isSignedInt(source)) {
         if (Pool.isSignedInt(wanted)) {
             try backend.put(.{ "(int64_t)", operand, " >= ", int(.i64_type, Pool.minInt(wanted)) });
@@ -1071,10 +1095,6 @@ fn writeIntCast(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     } else {
         try backend.put(.{ "(uint64_t)", operand, " <= ", int(.u64_type, Pool.maxInt(wanted)) });
     }
-
-    try backend.put(.{ ") ", value(local), " = (", inst.type, "){ .m0 = (", wanted, ")", operand });
-    try backend.put(.{ ", .tag = 0 }; else ", value(local), " = (", inst.type });
-    try backend.put(.{"){ .tag = 1 };\n"});
 }
 
 const MemberValue = union(enum) { direct: Ref, held: Ref };

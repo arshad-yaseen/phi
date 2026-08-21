@@ -4,8 +4,3 @@ pub fn assert(ok: bool) {
         @trap()
     }
 }
-
-/// A case the program has ruled out. Reaching one stops the program.
-pub fn impossible[T]() T {
-    @trap()
-}

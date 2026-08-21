@@ -166,6 +166,7 @@ pub const Inst = struct {
         widen,
         /// The value when the type holds it, the union's other member when not.
         int_cast,
+        int_fits,
 
         /// A value entering a union, with the member the checker admitted it as.
         union_init,
@@ -183,7 +184,7 @@ pub const Inst = struct {
                 .union_is, .union_init => .probe,
                 .call, .slice_make, .aggregate_init => .payload,
                 .load, .slice_len, .slice_ptr, .negate, .not, .bit_not => .un,
-                .ptr_cast, .int_from_ptr, .widen, .int_cast => .un,
+                .ptr_cast, .int_from_ptr, .widen, .int_cast, .int_fits => .un,
                 .union_narrow => .un,
                 .store, .elem_ptr, .slice_from, .bounds_check, .order_check => .bin,
                 .add, .sub, .mul, .div, .mod => .bin,

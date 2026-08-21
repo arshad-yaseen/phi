@@ -33,14 +33,13 @@ extern fn madvise(addr: *u8 | none, len: c.size_t, advice: c.int) c.int
 extern fn write(fd: c.int, buf: *u8, len: c.size_t) c.ssize_t
 
 pub fn page_size() u64 {
-    return @int_cast[u64](sysconf(SC_PAGESIZE)) or debug.impossible()
+    return @int_cast[u64](sysconf(SC_PAGESIZE))
 }
 
 pub fn map_pages(bytes: u64) []var u8 | none {
-    let len = @int_cast[c.size_t](bytes) or return none
+    let len = @int_fits[c.size_t](bytes) or return none
     let flags = MAP_PRIVATE | MAP_ANONYMOUS
     let base = mmap(none, len, PROT_READ | PROT_WRITE, flags, -1, 0) or return none
-    // MAP_FAILED, an address of all ones
     if @int_from_ptr(base) == MAP_FAILED {
         return none
     }
@@ -48,19 +47,16 @@ pub fn map_pages(bytes: u64) []var u8 | none {
 }
 
 pub fn unmap_pages(pages: []var u8) {
-    let len = @int_cast[c.size_t](pages.len) or debug.impossible()
-    debug.assert(munmap(pages.ptr, len) == 0)
+    debug.assert(munmap(pages.ptr, @int_cast[c.size_t](pages.len)) == 0)
 }
 
 pub fn release_pages(pages: []var u8) {
-    let len = @int_cast[c.size_t](pages.len) or debug.impossible()
-    _ = madvise(pages.ptr, len, MADV_FREE)
+    _ = madvise(pages.ptr, @int_cast[c.size_t](pages.len), MADV_FREE)
 }
 
 let count_max: u64 = 0x7ffff000
 
 pub fn write_bytes(fd: c.int, bytes: []u8) u64 | none {
-    let asked = math.min(bytes.len, count_max)
-    let len = @int_cast[c.size_t](asked) or debug.impossible()
-    return @int_cast[u64](write(fd, bytes.ptr, len)) or return none
+    let asked = @int_cast[c.size_t](math.min(bytes.len, count_max))
+    return @int_fits[u64](write(fd, bytes.ptr, asked)) or return none
 }

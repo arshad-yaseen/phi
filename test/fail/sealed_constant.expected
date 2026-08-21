@@ -4,7 +4,7 @@ error[E0206]: expected u32, found u64
 10 |         u32 => return a + b
    |                       ^^^^^ the wrong type
    |
-   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+   = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
 error[E0206]: expected u32, found u64
   --> test/fail/sealed_constant.phi:19:18
@@ -12,7 +12,7 @@ error[E0206]: expected u32, found u64
 19 |     let c: u32 = b
    |                  ^ the wrong type
    |
-   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+   = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
 error[E0206]: expected u8, found u32 | u8
   --> test/fail/sealed_constant.phi:25:17

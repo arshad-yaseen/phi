@@ -47,7 +47,6 @@ static pt15 p6_decimal_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */);
 static pt15 p7_decimal_signed(pt15 v0 /* buf */, int64_t v1 /* value */);
 static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */);
 static uint64_t p9_min(uint64_t v0 /* a */, uint64_t v1 /* b */);
-static uint64_t p10_impossible(void);
 
 #line 3 "test/pass/hello.phi"
 // fn main
@@ -241,13 +240,13 @@ b4:;
     goto b1;
 }
 
-#line 17 "lib/std/sys.phi"
+#line 15 "lib/std/sys.phi"
 // fn write
 static pt50 p4_write(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     pt50 v2;
 
 b0:;
-#line 19 "lib/std/sys.phi"
+#line 17 "lib/std/sys.phi"
     v2 = p8_write_bytes(v0, v1);
     return v2;
 }
@@ -511,67 +510,46 @@ b12:;
     return v45;
 }
 
-#line 65 "lib/std/sys/linux.phi"
+#line 59 "lib/std/sys/linux.phi"
 // fn write_bytes
 static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     uint64_t v2;
     uint64_t v3;
-    pt50 v4;
-    pt50 s5;
-    uint64_t v7;
-    pt50 v8;
+    uint64_t v4;
+    uint8_t* v5;
+    int64_t v6;
+    pt50 v7;
+    pt50 s8;
     pt50 v10;
     uint64_t v11;
-    uint8_t* v12;
-    int64_t v13;
-    pt50 v14;
-    pt50 s15;
-    pt50 v17;
-    uint64_t v18;
-    pt50 v19;
+    pt50 v12;
 
 b0:;
-#line 67 "lib/std/sys/linux.phi"
+#line 60 "lib/std/sys/linux.phi"
     v2 = v1.len;
-#line 67 "lib/std/sys/linux.phi"
+#line 60 "lib/std/sys/linux.phi"
     v3 = p9_min(v2, ((uint64_t)2147479552ULL));
-#line 68 "lib/std/sys/linux.phi"
-    if ((uint64_t)v3 <= ((uint64_t)18446744073709551615ULL)) v4 = (pt50){ .m0 = (uint64_t)v3, .tag = 0 }; else v4 = (pt50){ .tag = 1 };
-#line 68 "lib/std/sys/linux.phi"
-    s5 = v4;
-    if (v4.tag == 0) goto b2; else goto b1;
+#line 60 "lib/std/sys/linux.phi"
+    v4 = (uint64_t)v3;
+#line 61 "lib/std/sys/linux.phi"
+    v5 = v1.ptr;
+#line 61 "lib/std/sys/linux.phi"
+    v6 = write(v0, v5, v4);
+#line 61 "lib/std/sys/linux.phi"
+    if (v6 >= 0 && (uint64_t)v6 <= ((uint64_t)18446744073709551615ULL)) v7 = (pt50){ .m0 = (uint64_t)v6, .tag = 0 }; else v7 = (pt50){ .tag = 1 };
+#line 61 "lib/std/sys/linux.phi"
+    s8 = v7;
+    if (v7.tag == 0) goto b2; else goto b1;
 b1:;
-#line 68 "lib/std/sys/linux.phi"
-    v7 = p10_impossible();
-#line 68 "lib/std/sys/linux.phi"
-    v8 = (pt50){ .m0 = v7, .tag = 0 };
-#line 68 "lib/std/sys/linux.phi"
-    s5 = v8;
-    goto b2;
-b2:;
-#line 68 "lib/std/sys/linux.phi"
-    v10 = s5;
-#line 68 "lib/std/sys/linux.phi"
-    v11 = v10.m0;
-#line 69 "lib/std/sys/linux.phi"
-    v12 = v1.ptr;
-#line 69 "lib/std/sys/linux.phi"
-    v13 = write(v0, v12, v11);
-#line 69 "lib/std/sys/linux.phi"
-    if (v13 >= 0 && (uint64_t)v13 <= ((uint64_t)18446744073709551615ULL)) v14 = (pt50){ .m0 = (uint64_t)v13, .tag = 0 }; else v14 = (pt50){ .tag = 1 };
-#line 69 "lib/std/sys/linux.phi"
-    s15 = v14;
-    if (v14.tag == 0) goto b4; else goto b3;
-b3:;
     return ((pt50){ .tag = 1 });
-b4:;
-#line 69 "lib/std/sys/linux.phi"
-    v17 = s15;
-#line 69 "lib/std/sys/linux.phi"
-    v18 = v17.m0;
-#line 69 "lib/std/sys/linux.phi"
-    v19 = (pt50){ .m0 = v18, .tag = 0 };
-    return v19;
+b2:;
+#line 61 "lib/std/sys/linux.phi"
+    v10 = s8;
+#line 61 "lib/std/sys/linux.phi"
+    v11 = v10.m0;
+#line 61 "lib/std/sys/linux.phi"
+    v12 = (pt50){ .m0 = v11, .tag = 0 };
+    return v12;
 }
 
 #line 7 "lib/std/math.phi"
@@ -597,14 +575,6 @@ b3:;
 #line 8 "lib/std/math.phi"
     v6 = s3;
     return v6;
-}
-
-#line 9 "lib/std/debug.phi"
-// fn impossible[u64]
-static uint64_t p10_impossible(void) {
-
-b0:;
-    __builtin_trap();
 }
 
 int main(void) {

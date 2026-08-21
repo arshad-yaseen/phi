@@ -1,0 +1,8 @@
+import std/io
+
+fn main() {
+    var wide: u64 = 4294967296
+    io.print("before\n")
+    let narrow: u32 = @int_cast(wide)
+    io.print(narrow)
+}

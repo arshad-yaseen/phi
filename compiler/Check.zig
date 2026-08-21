@@ -5677,7 +5677,8 @@ fn reportMismatch(
             });
         }
         if (Pool.isSizedInt(found) and Pool.isSizedInt(wanted)) {
-            break :help "not every value fits, so '@int_cast(...)' gives 'none' where one does not";
+            break :help "'@int_cast(...)' converts, and '@int_fits(...)' answers 'none' " ++
+                "where a value does not fit";
         }
         if (comp.pool.keyOf(wanted) == .type_slice) {
             const view = comp.pool.keyOf(wanted).type_slice;

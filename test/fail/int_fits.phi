@@ -1,25 +1,25 @@
 fn no_landing(n: u32) u32 {
-    if @int_cast(n) is u8 {
+    if @int_fits(n) is u8 {
         return 1
     }
     return 0
 }
 
 fn discarded(n: u32) u32 {
-    _ = @int_cast(n)
+    _ = @int_fits(n)
     return 0
 }
 
 fn lands_on_a_float(n: u32) f64 {
-    return @int_cast(n) or 0
+    return @int_fits(n) or 0
 }
 
 fn not_an_integer_type(n: u32) u32 {
-    return @int_cast[f32](n) or 0
+    return @int_fits[f32](n) or 0
 }
 
 fn not_a_number(p: *u32) u32 {
-    return @int_cast[u8](p) or 0
+    return @int_fits[u8](p) or 0
 }
 
 fn narrows(n: u64) u8 {

@@ -21,6 +21,7 @@ pub const Builtin = enum {
     view,
     int_from_ptr,
     int_cast,
+    int_fits,
     size_of,
     align_of,
     min_int,
@@ -42,7 +43,7 @@ pub const Builtin = enum {
             .ptr_cast => .{ .types_min = 1, .types_max = 1, .args = 1 },
             .view => .{ .types_min = 0, .types_max = 0, .args = 2 },
             .int_from_ptr => .{ .types_min = 0, .types_max = 0, .args = 1 },
-            .int_cast => .{ .types_min = 0, .types_max = 1, .args = 1 },
+            .int_cast, .int_fits => .{ .types_min = 0, .types_max = 1, .args = 1 },
             .repeat => .{ .types_min = 0, .types_max = 0, .args = 1 },
             .size_of, .align_of, .min_int, .max_int => .{
                 .types_min = 1,
@@ -58,15 +59,15 @@ pub const Builtin = enum {
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr => true,
-            .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat, .trap => false,
-            .target_os, .target_arch, .compile_error => false,
+            .int_cast, .int_fits, .size_of, .align_of, .min_int, .max_int => false,
+            .repeat, .trap, .target_os, .target_arch, .compile_error => false,
         };
     }
 
     pub fn needsBody(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr, .trap => true,
-            .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat => false,
+            .int_cast, .int_fits, .size_of, .align_of, .min_int, .max_int, .repeat => false,
             .target_os, .target_arch, .compile_error => false,
         };
     }
@@ -160,11 +161,21 @@ pub const Builtin = enum {
             .ptr_cast => return ptrCast(check, args[0], types[0], values[0]),
             .view => return view(check, node, args, values[0..2]),
             .int_from_ptr => return intFromPtr(check, node, args[0], values[0]),
-            .int_cast => {
+            .int_cast, .int_fits => {
                 const written: ?Pool.Index = if (type_args.len == 1) types[0] else null;
-                const wanted = try destination(check, node, written, hint, int_cast_wants) orelse
+                const wants = if (builtin == .int_cast) int_cast_wants else int_fits_wants;
+                const wanted = try destination(check, node, written, hint, wants) orelse
                     return .poison;
-                return intCast(check, node, args[0], wanted, values[0]);
+                const found = check.typeOf(values[0]);
+                if (Pool.isInteger(found) == false) return check.refuse(args[0], .{
+                    .code = .bad_operand,
+                    .message = try comp.fmt("'@{t}' converts a number, and this is {s}", .{
+                        builtin, try comp.typeName(found),
+                    }),
+                    .label = "not a number",
+                });
+                if (builtin == .int_cast) return intCast(check, node, args[0], wanted, values[0]);
+                return intFits(check, node, wanted, values[0]);
             },
             .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
             .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
@@ -213,7 +224,6 @@ fn compileError(check: *Check, node: Node.Index, message: Node.Index) Allocator.
         .message = said,
         .label = "the program refuses this build",
     });
-    // a refused build leaves, so the body it sat in owes nothing more
     if (check.builder == null) return .poison;
     try check.trap();
     return .diverged;
@@ -288,13 +298,18 @@ const Destination = struct {
     }
 };
 
-const int_cast_wants: Destination = .{
-    .shape = .integer,
-    .does = "'@int_cast' converts between integers",
-    .label = "not an integer type",
-    .missing = "nothing here says what type '@int_cast' converts to",
-    .help = "write it, as in '@int_cast[u8](n)', or annotate what the call feeds",
-};
+const int_cast_wants: Destination = convertWants("int_cast");
+const int_fits_wants: Destination = convertWants("int_fits");
+
+fn convertWants(comptime name: []const u8) Destination {
+    return .{
+        .shape = .integer,
+        .does = "'@" ++ name ++ "' converts between integers",
+        .label = "not an integer type",
+        .missing = "nothing here says what type '@" ++ name ++ "' converts to",
+        .help = "write it, as in '@" ++ name ++ "[u8](n)', or annotate what the call feeds",
+    };
+}
 
 fn targetWants(comptime name: []const u8, comptime example: []const u8) Destination {
     return .{
@@ -418,17 +433,30 @@ fn intCast(
 ) Allocator.Error!Value {
     const comp = check.comp;
     assert(Pool.isSizedInt(wanted));
-    const found = check.typeOf(operand);
-    if (Pool.isInteger(found) == false) {
-        return check.refuse(operand_node, .{
-            .code = .bad_operand,
-            .message = try comp.fmt("'@int_cast' converts a number, and this is {s}", .{
-                try comp.typeName(found),
-            }),
-            .label = "not a number",
-        });
+    if (operand != .constant) {
+        return check.emitOneValue(node, .int_cast, wanted, Check.refOf(operand));
     }
 
+    const written = comp.pool.keyOf(operand.constant).value_int.value;
+    if (Pool.fitsInt(written, wanted) == false) return check.refuse(operand_node, .{
+        .code = .out_of_range,
+        .message = try comp.fmt("{s} does not hold {d}", .{ try comp.typeName(wanted), written }),
+        .label = "does not fit",
+        .help = "'@int_fits' answers 'none' where a value does not fit",
+    });
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{
+        .value_int = .{ .type = wanted, .value = written },
+    }) };
+}
+
+fn intFits(
+    check: *Check,
+    node: Node.Index,
+    wanted: Pool.Index,
+    operand: Value,
+) Allocator.Error!Value {
+    const comp = check.comp;
+    assert(Pool.isSizedInt(wanted));
     const absent = try check.noneType(node);
     if (absent == .poison) return .poison;
     const result = switch (try comp.pool.unite(comp.gpa, &.{ wanted, absent })) {
@@ -436,20 +464,18 @@ fn intCast(
         // an integer type is never `none`, and two members are never too wide
         .duplicate, .too_wide => unreachable,
     };
-
-    if (operand == .constant) {
-        assert(comp.pool.keyOf(operand.constant) == .value_int);
-        const written = comp.pool.keyOf(operand.constant).value_int.value;
-        const member = if (Pool.fitsInt(written, wanted))
-            try comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = wanted, .value = written } })
-        else
-            try comp.pool.intern(comp.gpa, .{ .value_unit = absent });
-        return .{ .constant = try comp.pool.intern(comp.gpa, .{
-            .value_union = .{ .type = result, .value = member },
-        }) };
+    if (operand != .constant) {
+        return check.emitOneValue(node, .int_fits, result, Check.refOf(operand));
     }
 
-    return check.emitOneValue(node, .int_cast, result, Check.refOf(operand));
+    const written = comp.pool.keyOf(operand.constant).value_int.value;
+    const member = if (Pool.fitsInt(written, wanted))
+        try comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = wanted, .value = written } })
+    else
+        try comp.pool.intern(comp.gpa, .{ .value_unit = absent });
+    return .{ .constant = try comp.pool.intern(comp.gpa, .{
+        .value_union = .{ .type = result, .value = member },
+    }) };
 }
 
 fn repeat(

@@ -20,5 +20,5 @@ error[E0206]: expected i64, found u64
 10 |     return n
    |            ^ the wrong type
    |
-   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+   = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 

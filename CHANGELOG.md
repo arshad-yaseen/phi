@@ -19,11 +19,12 @@
 - `std/sys` hands out pages with `page_size`, `map_pages`, `unmap_pages`, and
   `release_pages`.
 - `@compile_error("why")` refuses a build wherever it is reached.
+- `@int_cast(n)` converts, and stops the program where the type does not hold
+  the value.
+- `@int_fits(n)` is the `T | none` answer `@int_cast` used to give.
 - `io.print` finishes a run of bytes too long for one write.
 - `std/math` gains `min`, the smaller of two integers.
 - `mem.eql` is now `mem.equal`.
-- `debug.impossible()` stands where a case the program has ruled out would
-  answer.
 - `std/fmt` writes a number as decimal digits into a buffer the caller owns.
 - `io.format_max` is now `fmt.decimal_max`.
 

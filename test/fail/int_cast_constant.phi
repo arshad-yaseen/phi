@@ -1,0 +1,7 @@
+fn too_wide() u8 {
+    return @int_cast[u8](300)
+}
+
+fn negative_into_unsigned() u32 {
+    return @int_cast[u32](0 - 1)
+}

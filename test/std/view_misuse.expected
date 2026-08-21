@@ -18,7 +18,7 @@ error[E0206]: expected u64, found i64
 14 |     return @view(p, count)
    |                     ^^^^^ the wrong type
    |
-   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+   = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
 error[E0206]: '@int_from_ptr' needs a pointer, and this is u64
   --> test/std/view_misuse.phi:18:26

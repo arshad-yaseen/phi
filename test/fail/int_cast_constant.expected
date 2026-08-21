@@ -1,0 +1,16 @@
+error[E0262]: u8 does not hold 300
+ --> test/fail/int_cast_constant.phi:2:26
+  |
+2 |     return @int_cast[u8](300)
+  |                          ^^^ does not fit
+  |
+  = help: '@int_fits' answers 'none' where a value does not fit
+
+error[E0262]: u32 does not hold -1
+ --> test/fail/int_cast_constant.phi:6:27
+  |
+6 |     return @int_cast[u32](0 - 1)
+  |                           ^^^^^ does not fit
+  |
+  = help: '@int_fits' answers 'none' where a value does not fit
+

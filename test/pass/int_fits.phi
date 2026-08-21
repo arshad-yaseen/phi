@@ -1,0 +1,48 @@
+fn substituted(n: u32) u8 {
+    return @int_fits(n) or 0
+}
+
+fn clamped(n: u32) u8 {
+    return @int_fits(n) or @max_int[u8]()
+}
+
+fn guarded(n: u32) u8 {
+    let small: u8 = @int_fits(n) or return 0
+    return small
+}
+
+fn handed_up(n: u64) u16 | none {
+    return @int_fits(n)
+}
+
+fn matched(n: u64) u16 {
+    return match @int_fits[u16](n) {
+        u16 => 1
+        none => 0
+    }
+}
+
+fn to_unsigned(n: i32) u32 {
+    return @int_fits(n) or 0
+}
+
+fn to_signed(n: u32) i32 {
+    return @int_fits(n) or 0
+}
+
+fn fits() u8 {
+    return @int_fits(200) or 0
+}
+
+fn does_not_fit() u8 {
+    return @int_fits(300) or 7
+}
+
+fn narrowed[T](n: u64) T {
+    return @int_fits[T](n) or 0
+}
+
+fn drive(n: u64) u64 {
+    _ = narrowed[u8](n)
+    return narrowed[u64](n)
+}

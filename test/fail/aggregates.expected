@@ -18,5 +18,5 @@ error[E0206]: expected u32, found u64
 10 |     let pair: [2]u32 = [1, n]
    |                            ^ the wrong type
    |
-   = help: not every value fits, so '@int_cast(...)' gives 'none' where one does not
+   = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
