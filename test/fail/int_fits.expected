@@ -1,4 +1,4 @@
-error[E0242]: nothing here says what type '@int_fits' converts to
+error[E0225]: nothing here says what type '@int_fits' converts to
  --> test/fail/int_fits.phi:2:8
   |
 2 |     if @int_fits(n) is u8 {
@@ -6,7 +6,7 @@ error[E0242]: nothing here says what type '@int_fits' converts to
   |
   = help: write it, as in '@int_fits[u8](n)', or annotate what the call feeds
 
-error[E0242]: nothing here says what type '@int_fits' converts to
+error[E0225]: nothing here says what type '@int_fits' converts to
  --> test/fail/int_fits.phi:9:9
   |
 9 |     _ = @int_fits(n)
@@ -14,25 +14,25 @@ error[E0242]: nothing here says what type '@int_fits' converts to
   |
   = help: write it, as in '@int_fits[u8](n)', or annotate what the call feeds
 
-error[E0211]: '@int_fits' converts between integers, and this lands on f64
+error[E0219]: '@int_fits' converts between integers, and this lands on f64
   --> test/fail/int_fits.phi:14:12
    |
 14 |     return @int_fits(n) or 0
    |            ^^^^^^^^^^^ not an integer type
 
-error[E0211]: '@int_fits' converts between integers, and this is f32
+error[E0219]: '@int_fits' converts between integers, and this is f32
   --> test/fail/int_fits.phi:18:12
    |
 18 |     return @int_fits[f32](n) or 0
    |            ^^^^^^^^^^^^^^^^ not an integer type
 
-error[E0211]: '@int_fits' converts a number, and this is *u32
+error[E0219]: '@int_fits' converts a number, and this is *u32
   --> test/fail/int_fits.phi:22:26
    |
 22 |     return @int_fits[u8](p) or 0
    |                          ^ not a number
 
-error[E0206]: expected u8, found u64
+error[E0214]: expected u8, found u64
   --> test/fail/int_fits.phi:26:12
    |
 26 |     return n

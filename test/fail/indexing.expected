@@ -1,22 +1,22 @@
-error[E0262]: this index is 4, and [4]u32 holds 4 elements
+error[E0218]: this index is 4, and [4]u32 holds 4 elements
  --> test/fail/indexing.phi:8:14
   |
 8 |     return a[4]
   |              ^ past the last element
 
-error[E0262]: an index counts from zero, and this one is -1
+error[E0218]: an index counts from zero, and this one is -1
   --> test/fail/indexing.phi:12:14
    |
 12 |     return a[-1]
    |              ^^ before the first element
 
-error[E0262]: this index is 9, and [4]u32 holds 4 elements
+error[E0218]: this index is 9, and [4]u32 holds 4 elements
   --> test/fail/indexing.phi:16:18
    |
 16 |     return table[9]
    |                  ^ past the last element
 
-error[E0252]: Point cannot be indexed
+error[E0213]: Point cannot be indexed
   --> test/fail/indexing.phi:20:12
    |
 20 |     return p[0]
@@ -24,7 +24,7 @@ error[E0252]: Point cannot be indexed
    |
    = help: an index reaches an element, and an array is what holds elements
 
-error[E0252]: this array has no type yet, so it has no elements to reach
+error[E0213]: this array has no type yet, so it has no elements to reach
   --> test/fail/indexing.phi:25:12
    |
 25 |     return loose[0]
@@ -32,7 +32,7 @@ error[E0252]: this array has no type yet, so it has no elements to reach
    |
    = help: give it a type, as in 'let a: [3]u32 = [1, 2, 3]', and everything it holds can be reached
 
-error[E0211]: an index is a count, and this is an untyped float
+error[E0219]: an index is a count, and this is an untyped float
   --> test/fail/indexing.phi:29:14
    |
 29 |     return a[1.5]
@@ -40,7 +40,7 @@ error[E0211]: an index is a count, and this is an untyped float
    |
    = help: any integer indexes, and nothing else does
 
-error[E0221]: 'a' was bound with 'let', so it cannot change
+error[E0240]: 'a' was bound with 'let', so it cannot change
   --> test/fail/indexing.phi:34:5
    |
 34 |     a[0] = 9
@@ -53,7 +53,7 @@ note: bound here
 33 |     let a: [4]u32 = [1, 2, 3, 4]
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error[E0221]: 'a' is a parameter, and a parameter is a copy that dies with the call
+error[E0240]: 'a' is a parameter, and a parameter is a copy that dies with the call
   --> test/fail/indexing.phi:38:5
    |
 38 |     a[0] = 9
@@ -61,7 +61,7 @@ error[E0221]: 'a' is a parameter, and a parameter is a copy that dies with the c
    |
    = help: take '*var T' to write the caller's value, or copy it into a 'var' first
 
-error[E0222]: this writes through a '*[4]u32', which is read-only
+error[E0241]: this writes through a '*[4]u32', which is read-only
   --> test/fail/indexing.phi:42:5
    |
 42 |     p[0] = 9
@@ -69,7 +69,7 @@ error[E0222]: this writes through a '*[4]u32', which is read-only
    |
    = help: take '*var [4]u32' to write through it
 
-error[E0213]: an index is one value, and this writes 2
+error[E0223]: an index is one value, and this writes 2
   --> test/fail/indexing.phi:46:12
    |
 46 |     return g[1, 2]
@@ -77,7 +77,7 @@ error[E0213]: an index is one value, and this writes 2
    |
    = help: reach through one step at a time, as in 'grid[1][2]'
 
-error[E0219]: this array has no type yet, so it has no members to reach
+error[E0230]: this array has no type yet, so it has no members to reach
   --> test/fail/indexing.phi:51:18
    |
 51 |     return loose.len

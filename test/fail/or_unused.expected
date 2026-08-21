@@ -1,4 +1,4 @@
-error[E0230]: this u32 goes nowhere
+error[E0235]: this u32 goes nowhere
  --> test/fail/or_unused.phi:4:5
   |
 4 |     r or 0

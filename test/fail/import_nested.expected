@@ -1,4 +1,4 @@
-error[E0235]: no module named 'shaeps/circle' in 'test/fail'
+error[E0206]: no module named 'shaeps/circle' in 'test/fail'
  --> test/fail/import_nested.phi:1:1
   |
 1 | import shaeps/circle

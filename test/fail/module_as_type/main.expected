@@ -1,4 +1,4 @@
-error[E0202]: 'helper' is a module, not a type
+error[E0208]: 'helper' is a module, not a type
  --> test/fail/module_as_type/main.phi:3:21
   |
 3 | fn from_a_module(a: helper) i64 {

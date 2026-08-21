@@ -1,4 +1,4 @@
-error[E0244]: '_' is not a name, and only discards a value
+error[E0205]: '_' is not a name, and only discards a value
  --> test/fail/discard_reserved.phi:2:5
   |
 2 |     let _ = 5
@@ -6,7 +6,7 @@ error[E0244]: '_' is not a name, and only discards a value
   |
   = help: write '_ = expression' to drop a value on purpose
 
-error[E0244]: '_' is not a name, and only discards a value
+error[E0205]: '_' is not a name, and only discards a value
  --> test/fail/discard_reserved.phi:7:16
   |
 7 |     return n + _
@@ -14,7 +14,7 @@ error[E0244]: '_' is not a name, and only discards a value
   |
   = help: write '_ = expression' to drop a value on purpose
 
-error[E0244]: '_' is not a name, and only discards a value
+error[E0205]: '_' is not a name, and only discards a value
   --> test/fail/discard_reserved.phi:11:5
    |
 11 |     _.x = n

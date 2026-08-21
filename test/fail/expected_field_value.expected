@@ -1,4 +1,4 @@
-error[E0218]: this literal leaves out 'x'
+error[E0229]: this literal leaves out 'x'
  --> test/fail/expected_field_value.phi:6:13
   |
 6 |     let p = Point.{ 1 }

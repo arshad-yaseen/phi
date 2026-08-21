@@ -1,22 +1,22 @@
-error[E0247]: 'a' is not a decimal digit
+error[E0244]: 'a' is not a decimal digit
  --> test/fail/bad_number.phi:1:18
   |
 1 | let unreadable = 12abc
   |                  ^^^^^ not a digit
 
-error[E0247]: this number needs more than 128 bits, the width constants fold in
+error[E0244]: this number needs more than 128 bits, the width constants fold in
  --> test/fail/bad_number.phi:2:16
   |
 2 | let too_wide = 170141183460469231731687303715884105728
   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ too large
 
-error[E0247]: this number is too large for a float
+error[E0244]: this number is too large for a float
  --> test/fail/bad_number.phi:3:25
   |
 3 | let too_large_a_float = 1e999
   |                         ^^^^^ does not fit
 
-error[E0247]: a decimal number cannot start with zero
+error[E0244]: a decimal number cannot start with zero
  --> test/fail/bad_number.phi:4:16
   |
 4 | let zero_led = 09
@@ -24,43 +24,43 @@ error[E0247]: a decimal number cannot start with zero
   |
   = help: write the '0o' prefix if octal was meant, or drop the zero
 
-error[E0247]: a base prefix is lowercase: '0x', '0o', or '0b'
+error[E0244]: a base prefix is lowercase: '0x', '0o', or '0b'
  --> test/fail/bad_number.phi:5:16
   |
 5 | let shouting = 0X1f
   |                ^^^^ uppercase prefix
 
-error[E0247]: a base prefix needs digits after it
+error[E0244]: a base prefix needs digits after it
  --> test/fail/bad_number.phi:6:19
   |
 6 | let bare_prefix = 0x
   |                   ^^ no digits
 
-error[E0247]: '_' separates digits, so one sits between two of them
+error[E0244]: '_' separates digits, so one sits between two of them
  --> test/fail/bad_number.phi:7:19
   |
 7 | let split_twice = 1__000
   |                   ^^^^^^ misplaced '_'
 
-error[E0247]: '_' separates digits, so one sits between two of them
+error[E0244]: '_' separates digits, so one sits between two of them
  --> test/fail/bad_number.phi:8:16
   |
 8 | let dangling = 1000_
   |                ^^^^^ misplaced '_'
 
-error[E0247]: a number holds one '.'
+error[E0244]: a number holds one '.'
  --> test/fail/bad_number.phi:9:20
   |
 9 | let dotted_twice = 1.2.3
   |                    ^^^^^ a second '.'
 
-error[E0247]: '2' is not a binary digit
+error[E0244]: '2' is not a binary digit
   --> test/fail/bad_number.phi:10:19
    |
 10 | let wrong_digit = 0b12
    |                   ^^^^ not a digit
 
-error[E0247]: this number ends before its digits do
+error[E0244]: this number ends before its digits do
   --> test/fail/bad_number.phi:11:17
    |
 11 | let cut_short = 1e

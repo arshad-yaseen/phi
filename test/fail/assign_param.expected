@@ -1,4 +1,4 @@
-error[E0221]: 'value' is a parameter, and a parameter is a copy that dies with the call
+error[E0240]: 'value' is a parameter, and a parameter is a copy that dies with the call
  --> test/fail/assign_param.phi:2:5
   |
 2 |     value = value + 1

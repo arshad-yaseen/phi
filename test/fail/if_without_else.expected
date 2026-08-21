@@ -1,4 +1,4 @@
-error[E0206]: this 'if' has no 'else', so one path through it produces nothing
+error[E0214]: this 'if' has no 'else', so one path through it produces nothing
  --> test/fail/if_without_else.phi:6:18
   |
 6 |     let n: i64 = if c { 1 }

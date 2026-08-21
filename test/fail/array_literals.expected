@@ -1,16 +1,16 @@
-error[E0208]: this literal has 2 elements, and [3]u32 holds 3
+error[E0217]: this literal has 2 elements, and [3]u32 holds 3
  --> test/fail/array_literals.phi:2:25
   |
 2 |     let three: [3]u32 = [1, 2]
   |                         ^^^^^ the wrong number of elements
 
-error[E0208]: this literal has 4 elements, and [3]u32 holds 3
+error[E0217]: this literal has 4 elements, and [3]u32 holds 3
  --> test/fail/array_literals.phi:6:25
   |
 6 |     let three: [3]u32 = [1, 2, 3, 4]
   |                         ^^^^^^^^^^^ the wrong number of elements
 
-error[E0208]: 300 does not fit in u8
+error[E0217]: 300 does not fit in u8
   --> test/fail/array_literals.phi:10:28
    |
 10 |     let bytes: [2]u8 = [1, 300]
@@ -18,7 +18,7 @@ error[E0208]: 300 does not fit in u8
    |
    = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
-error[E0215]: 'loose' needs a type before it can vary
+error[E0221]: 'loose' needs a type before it can vary
   --> test/fail/array_literals.phi:14:5
    |
 14 |     var loose = [1, 2]
@@ -26,7 +26,7 @@ error[E0215]: 'loose' needs a type before it can vary
    |
    = help: write 'var loose: [2]u32 = ...', or whichever type is meant
 
-error[E0206]: expected u32, found an untyped array
+error[E0214]: expected u32, found an untyped array
   --> test/fail/array_literals.phi:22:20
    |
 22 |     let sum: u32 = [1, 2]

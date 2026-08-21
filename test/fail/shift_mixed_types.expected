@@ -1,4 +1,4 @@
-error[E0207]: '<<' mixes u32 and i32
+error[E0216]: '<<' mixes u32 and i32
  --> test/fail/shift_mixed_types.phi:2:18
   |
 2 |     return value << shift

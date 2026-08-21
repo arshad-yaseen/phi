@@ -1,4 +1,4 @@
-error[E0214]: this must settle before anything runs, and a block that holds statements happens at run time
+error[E0222]: this must settle before anything runs, and a block that holds statements happens at run time
   --> test/fail/constant_context.phi:10:23
    |
 10 | let stated = if truth { let a = 1 } else { 2 }
@@ -6,7 +6,7 @@ error[E0214]: this must settle before anything runs, and a block that holds stat
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: this must settle before anything runs, and 'return' happens at run time
+error[E0222]: this must settle before anything runs, and 'return' happens at run time
   --> test/fail/constant_context.phi:11:12
    |
 11 | let left = return 1
@@ -14,7 +14,7 @@ error[E0214]: this must settle before anything runs, and 'return' happens at run
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: this must settle before anything runs, and 'break' happens at run time
+error[E0222]: this must settle before anything runs, and 'break' happens at run time
   --> test/fail/constant_context.phi:12:15
    |
 12 | let escaped = break
@@ -22,7 +22,7 @@ error[E0214]: this must settle before anything runs, and 'break' happens at run 
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: this must settle before anything runs, and 'continue' happens at run time
+error[E0222]: this must settle before anything runs, and 'continue' happens at run time
   --> test/fail/constant_context.phi:13:15
    |
 13 | let carried = continue
@@ -30,7 +30,7 @@ error[E0214]: this must settle before anything runs, and 'continue' happens at r
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: this must settle before anything runs, and a call happens at run time
+error[E0222]: this must settle before anything runs, and a call happens at run time
   --> test/fail/constant_context.phi:14:14
    |
 14 | let called = answer()
@@ -38,7 +38,7 @@ error[E0214]: this must settle before anything runs, and a call happens at run t
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0214]: this must settle before anything runs, and '@trap' happens at run time
+error[E0222]: this must settle before anything runs, and '@trap' happens at run time
   --> test/fail/constant_context.phi:15:15
    |
 15 | let trapped = @trap()
@@ -46,7 +46,7 @@ error[E0214]: this must settle before anything runs, and '@trap' happens at run 
    |
    = help: the constant set is literals, names of constants, operators, and parentheses
 
-error[E0202]: i64 has no fields to give
+error[E0208]: i64 has no fields to give
   --> test/fail/constant_context.phi:16:13
    |
 16 | let built = i64.{ x: 1 }

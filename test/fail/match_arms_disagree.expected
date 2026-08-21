@@ -1,4 +1,4 @@
-error[E0206]: expected u32, found i64
+error[E0214]: expected u32, found i64
  --> test/fail/match_arms_disagree.phi:8:18
   |
 8 |         false => b

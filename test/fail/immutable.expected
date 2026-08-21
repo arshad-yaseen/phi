@@ -1,4 +1,4 @@
-error[E0221]: 'n' was bound with 'let', so it cannot change
+error[E0240]: 'n' was bound with 'let', so it cannot change
   --> test/fail/immutable.phi:15:5
    |
 15 |     n = 2
@@ -11,13 +11,13 @@ note: bound here
 14 |     let n: i64 = 1
    |     ^^^^^^^^^^^^^^
 
-error[E0221]: this value has no home, so there is nowhere to write
+error[E0240]: this value has no home, so there is nowhere to write
   --> test/fail/immutable.phi:19:5
    |
 19 |     make().hits = 1
    |     ^^^^^^^^^^^ not a place
 
-error[E0221]: 'bump' writes through its receiver, and 'c' was bound with 'let'
+error[E0240]: 'bump' writes through its receiver, and 'c' was bound with 'let'
   --> test/fail/immutable.phi:24:5
    |
 24 |     c.bump()
@@ -25,7 +25,7 @@ error[E0221]: 'bump' writes through its receiver, and 'c' was bound with 'let'
    |
    = help: bind it with 'var' to let a method change it
 
-error[E0221]: 'bump' writes through its receiver, and 'c' is a parameter, a copy that dies with the call
+error[E0240]: 'bump' writes through its receiver, and 'c' is a parameter, a copy that dies with the call
   --> test/fail/immutable.phi:28:5
    |
 28 |     c.bump()
@@ -33,7 +33,7 @@ error[E0221]: 'bump' writes through its receiver, and 'c' is a parameter, a copy
    |
    = help: bind it with 'var' to let a method change it
 
-error[E0221]: 'bump' writes through its receiver, and 'this pointer' sits behind a '*Counter', which is read-only
+error[E0240]: 'bump' writes through its receiver, and 'this pointer' sits behind a '*Counter', which is read-only
   --> test/fail/immutable.phi:32:5
    |
 32 |     p.*.bump()
@@ -41,7 +41,7 @@ error[E0221]: 'bump' writes through its receiver, and 'this pointer' sits behind
    |
    = help: bind it with 'var' to let a method change it
 
-error[E0221]: 'bump' writes through its receiver, and 'this value' is a temporary that no one else can see
+error[E0240]: 'bump' writes through its receiver, and 'this value' is a temporary that no one else can see
   --> test/fail/immutable.phi:36:5
    |
 36 |     make().bump()

@@ -1,4 +1,4 @@
-error[E0206]: expected i64, found true
+error[E0214]: expected i64, found true
  --> test/fail/if_arms_disagree.phi:6:34
   |
 6 |     let n: i64 = if c { 1 } else { true }

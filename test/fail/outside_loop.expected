@@ -1,10 +1,10 @@
-error[E0232]: there is no loop here to leave
+error[E0237]: there is no loop here to leave
  --> test/fail/outside_loop.phi:2:5
   |
 2 |     break
   |     ^^^^^ outside every loop
 
-error[E0232]: there is no loop here to leave
+error[E0237]: there is no loop here to leave
  --> test/fail/outside_loop.phi:7:5
   |
 7 |     continue

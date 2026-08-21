@@ -1,4 +1,4 @@
-error[E0258]: this needs 'bool', a union of two unit types
+error[E0207]: this needs 'bool', a union of two unit types
  --> test/fail/no_bool.phi:6:8
   |
 6 |     if a < b {

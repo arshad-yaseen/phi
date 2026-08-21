@@ -1,4 +1,4 @@
-error[E0215]: nothing says what type this 'if' is
+error[E0221]: nothing says what type this 'if' is
  --> test/fail/join_order.phi:3:13
   |
 3 |     let a = if c { 1 } else { 2 }
@@ -6,7 +6,7 @@ error[E0215]: nothing says what type this 'if' is
   |
   = help: annotate what it feeds, as in 'let n: i64 = if ...'
 
-error[E0208]: 300 does not fit in u8
+error[E0217]: 300 does not fit in u8
  --> test/fail/join_order.phi:9:18
   |
 9 |     let a = if c { 300 } else { small }
@@ -14,7 +14,7 @@ error[E0208]: 300 does not fit in u8
   |
   = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
-error[E0208]: 300 does not fit in u8
+error[E0217]: 300 does not fit in u8
   --> test/fail/join_order.phi:17:19
    |
 17 |             break 300

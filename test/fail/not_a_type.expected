@@ -1,10 +1,10 @@
-error[E0202]: 'count' is a value, not a type
+error[E0208]: 'count' is a value, not a type
  --> test/fail/not_a_type.phi:7:20
   |
 7 | fn from_a_value(a: count) i64 {
   |                    ^^^^^ not a type
 
-error[E0202]: 'helper' is a function, not a type
+error[E0208]: 'helper' is a function, not a type
   --> test/fail/not_a_type.phi:11:23
    |
 11 | fn from_a_function(a: helper) i64 {

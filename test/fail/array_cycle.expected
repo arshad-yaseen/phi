@@ -1,4 +1,4 @@
-error[E0233]: 'Grid' holds itself by value, so it has no size
+error[E0247]: 'Grid' holds itself by value, so it has no size
  --> test/fail/array_cycle.phi:3:5
   |
 3 |     cells: [4]Grid

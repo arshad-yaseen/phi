@@ -1,4 +1,4 @@
-error[E0256]: this condition is i64, and a condition is a union
+error[E0211]: this condition is i64, and a condition is a union
  --> test/fail/condition_not_union.phi:2:8
   |
 2 |     if n {
@@ -6,7 +6,7 @@ error[E0256]: this condition is i64, and a condition is a union
   |
   = help: a condition asks whether a union holds its first member
 
-error[E0256]: this condition is *i64, and a condition is a union
+error[E0211]: this condition is *i64, and a condition is a union
  --> test/fail/condition_not_union.phi:9:8
   |
 9 |     if p {

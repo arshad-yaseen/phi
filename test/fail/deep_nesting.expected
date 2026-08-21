@@ -1,4 +1,4 @@
-error[E0111]: this nests more than 128 levels deep
+error[E0117]: this nests more than 128 levels deep
    --> test/fail/deep_nesting.phi:129:1
     |
 129 | (

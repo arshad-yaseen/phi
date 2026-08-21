@@ -1,16 +1,16 @@
-error[E0211]: '-' cannot be applied to true
+error[E0219]: '-' cannot be applied to true
  --> test/fail/bad_operand.phi:5:19
   |
 5 | let folded = true - false
   |                   ^ wrong operand type
 
-error[E0211]: '-' cannot be applied to true | false
+error[E0219]: '-' cannot be applied to true | false
  --> test/fail/bad_operand.phi:8:14
   |
 8 |     return a - b
   |              ^ wrong operand type
 
-error[E0211]: '-' needs a signed number, and this is u8
+error[E0219]: '-' needs a signed number, and this is u8
   --> test/fail/bad_operand.phi:12:12
    |
 12 |     return -n

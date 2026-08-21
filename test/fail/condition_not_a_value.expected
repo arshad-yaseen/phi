@@ -1,4 +1,4 @@
-error[E0203]: types are not values
+error[E0209]: types are not values
  --> test/fail/condition_not_a_value.phi:4:8
   |
 4 |     if i64 { }
@@ -6,7 +6,7 @@ error[E0203]: types are not values
   |
   = help: a type stands where a type is written, before '.', and after 'is' or 'match'
 
-error[E0203]: types are not values
+error[E0209]: types are not values
  --> test/fail/condition_not_a_value.phi:5:8
   |
 5 |     if Cell { }
@@ -14,7 +14,7 @@ error[E0203]: types are not values
   |
   = help: a type stands where a type is written, before '.', and after 'is' or 'match'
 
-error[E0212]: a function is not a value, so call it
+error[E0210]: a function is not a value, so call it
  --> test/fail/condition_not_a_value.phi:6:10
   |
 6 |     loop main { }

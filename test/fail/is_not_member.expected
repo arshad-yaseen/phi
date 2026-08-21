@@ -1,4 +1,4 @@
-error[E0257]: 'f64' is not a member of 'u32 | none'
+error[E0212]: 'f64' is not a member of 'u32 | none'
  --> test/fail/is_not_member.phi:8:17
   |
 8 |     return r is f64

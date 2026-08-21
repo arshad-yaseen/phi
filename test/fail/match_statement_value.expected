@@ -1,4 +1,4 @@
-error[E0230]: this value goes nowhere
+error[E0235]: this value goes nowhere
  --> test/fail/match_statement_value.phi:7:17
   |
 7 |         true => 5

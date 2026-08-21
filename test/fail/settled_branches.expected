@@ -1,4 +1,4 @@
-error[E0250]: this cannot be reached
+error[E0238]: this cannot be reached
   --> test/fail/settled_branches.phi:10:5
    |
 10 |     return a
@@ -9,7 +9,7 @@ note: the block already left here
  5 |     if always {
    |     ^^^^^^^^^^^
 
-error[E0250]: this cannot be reached
+error[E0238]: this cannot be reached
   --> test/fail/settled_branches.phi:20:5
    |
 20 |     return a

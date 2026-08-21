@@ -1,4 +1,4 @@
-error[E0206]: this loop has no 'else', so it has no value when it ends on its own
+error[E0214]: this loop has no 'else', so it has no value when it ends on its own
  --> test/fail/loop_needs_else.phi:6:13
   |
 6 |     let v = loop flag {

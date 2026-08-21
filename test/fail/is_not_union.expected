@@ -1,4 +1,4 @@
-error[E0256]: 'is' asks which member a union holds, and this is u32
+error[E0211]: 'is' asks which member a union holds, and this is u32
  --> test/fail/is_not_union.phi:6:12
   |
 6 |     return n is u32

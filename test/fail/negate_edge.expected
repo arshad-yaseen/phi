@@ -1,4 +1,4 @@
-error[E0208]: 128 does not fit in i8
+error[E0217]: 128 does not fit in i8
  --> test/fail/negate_edge.phi:2:15
   |
 2 | let flipped = -edge

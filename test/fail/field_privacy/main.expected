@@ -1,4 +1,4 @@
-error[E0220]: 'item' is private to its file
+error[E0204]: 'item' is private to its file
   --> test/fail/field_privacy/main.phi:12:14
    |
 12 |     return b.item
@@ -11,7 +11,7 @@ note: declared here
  2 |     item: i64
    |     ^^^^^^^^^
 
-error[E0220]: 'item' is private to its file
+error[E0204]: 'item' is private to its file
   --> test/fail/field_privacy/main.phi:16:7
    |
 16 |     b.item = 9
@@ -24,7 +24,7 @@ note: declared here
  2 |     item: i64
    |     ^^^^^^^^^
 
-error[E0220]: Box keeps 'item' private to its file, so only that file builds one
+error[E0204]: Box keeps 'item' private to its file, so only that file builds one
   --> test/fail/field_privacy/main.phi:20:12
    |
 20 |     return .{ item: 1, tag: 0 }
@@ -37,7 +37,7 @@ note: declared here
  2 |     item: i64
    |     ^^^^^^^^^
 
-error[E0220]: Box keeps 'item' private to its file, so only that file builds one
+error[E0204]: Box keeps 'item' private to its file, so only that file builds one
   --> test/fail/field_privacy/main.phi:24:12
    |
 24 |     return .{ tag: 0 }

@@ -1,16 +1,16 @@
-error[E0256]: 'match' asks which member a union holds, and this is u32
+error[E0211]: 'match' asks which member a union holds, and this is u32
  --> test/fail/match_not_union.phi:8:18
   |
 8 |     return match n {
   |                  ^ not a union
 
-error[E0256]: 'match' asks which member a union holds, and this is nothing
+error[E0211]: 'match' asks which member a union holds, and this is nothing
   --> test/fail/match_not_union.phi:17:18
    |
 17 |     return match noop() {
    |                  ^^^^^^ not a union
 
-error[E0256]: 'match' asks which member a union holds, and this is u32
+error[E0211]: 'match' asks which member a union holds, and this is u32
   --> test/fail/match_not_union.phi:24:15
    |
 24 |         match r {

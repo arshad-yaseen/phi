@@ -1,4 +1,4 @@
-error[E0208]: 16777217 does not fit in f32
+error[E0217]: 16777217 does not fit in f32
  --> test/fail/float_exact.phi:2:19
   |
 2 | let single: f32 = 16777217
@@ -6,7 +6,7 @@ error[E0208]: 16777217 does not fit in f32
   |
   = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
-error[E0208]: 9007199254740993 does not fit in f64
+error[E0217]: 9007199254740993 does not fit in f64
  --> test/fail/float_exact.phi:3:19
   |
 3 | let double: f64 = 9007199254740993
@@ -14,7 +14,7 @@ error[E0208]: 9007199254740993 does not fit in f64
   |
   = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
-error[E0208]: -16777217 does not fit in f32
+error[E0217]: -16777217 does not fit in f32
  --> test/fail/float_exact.phi:6:22
   |
 6 | let just_past: f32 = -16777217
@@ -22,7 +22,7 @@ error[E0208]: -16777217 does not fit in f32
   |
   = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
-error[E0206]: expected f64, found u64
+error[E0214]: expected f64, found u64
   --> test/fail/float_exact.phi:10:12
    |
 10 |     return n
@@ -30,7 +30,7 @@ error[E0206]: expected f64, found u64
    |
    = help: nothing converts on its own
 
-error[E0206]: expected f64, found i64
+error[E0214]: expected f64, found i64
   --> test/fail/float_exact.phi:14:12
    |
 14 |     return n
@@ -38,7 +38,7 @@ error[E0206]: expected f64, found i64
    |
    = help: nothing converts on its own
 
-error[E0206]: expected f32, found u32
+error[E0214]: expected f32, found u32
   --> test/fail/float_exact.phi:18:12
    |
 18 |     return n
@@ -46,13 +46,13 @@ error[E0206]: expected f32, found u32
    |
    = help: nothing converts on its own
 
-error[E0208]: 16777217 does not fit in f32
+error[E0217]: 16777217 does not fit in f32
   --> test/fail/float_exact.phi:23:19
    |
 23 | let folded = seed * 16777217
    |                   ^ past the type's edge
 
-error[E0207]: '+' mixes u64 and f64
+error[E0216]: '+' mixes u64 and f64
   --> test/fail/float_exact.phi:26:14
    |
 26 |     return a + b

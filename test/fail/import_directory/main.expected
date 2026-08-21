@@ -1,4 +1,4 @@
-error[E0235]: no module named 'shapes' in 'test/fail/import_directory'
+error[E0206]: no module named 'shapes' in 'test/fail/import_directory'
  --> test/fail/import_directory/main.phi:1:1
   |
 1 | import shapes

@@ -1,4 +1,4 @@
-error[E0234]: 'here' takes its value from itself
+error[E0248]: 'here' takes its value from itself
  --> test/fail/value_cycle/main.phi:4:18
   |
 4 | pub let anchor = here

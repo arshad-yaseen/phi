@@ -1,4 +1,4 @@
-error[E0246]: 'Box' is generic, so it needs its arguments
+error[E0224]: 'Box' is generic, so it needs its arguments
  --> test/fail/generic_arguments.phi:9:25
   |
 9 | fn without_arguments(b: Box) i64 {
@@ -6,13 +6,13 @@ error[E0246]: 'Box' is generic, so it needs its arguments
   |
   = help: write 'Box[...]' with one type per parameter
 
-error[E0246]: 'Box' takes 1 type argument, and this writes 2
+error[E0224]: 'Box' takes 1 type argument, and this writes 2
   --> test/fail/generic_arguments.phi:14:16
    |
 14 | fn too_many(b: Box[i64, u8]) i64 {
    |                ^^^^^^^^^^^ wrong number of arguments
 
-error[E0246]: 'plain' takes 0 type arguments, and this writes 1
+error[E0224]: 'plain' takes 0 type arguments, and this writes 1
   --> test/fail/generic_arguments.phi:20:12
    |
 20 |     return plain[i64]()
@@ -23,7 +23,7 @@ note: declared here
  5 | fn plain() i64 {
    | ^^^^^^^^^^^^^^^^
 
-error[E0242]: 'viewed' takes '[]T' here, so u64 cannot pin 'T'
+error[E0225]: 'viewed' takes '[]T' here, so u64 cannot pin 'T'
   --> test/fail/generic_arguments.phi:28:19
    |
 28 |     return viewed(n)

@@ -1,4 +1,4 @@
-error[E0215]: nothing says what type this array is
+error[E0221]: nothing says what type this array is
  --> test/fail/aggregates.phi:2:16
   |
 2 |     let pair = [1, n]
@@ -6,13 +6,13 @@ error[E0215]: nothing says what type this array is
   |
   = help: annotate what it feeds, as in 'let a: [2]u32 = ...'
 
-error[E0208]: this literal has 2 elements, and [3]u32 holds 3
+error[E0217]: this literal has 2 elements, and [3]u32 holds 3
  --> test/fail/aggregates.phi:6:25
   |
 6 |     let three: [3]u32 = [1, n]
   |                         ^^^^^ the wrong number of elements
 
-error[E0206]: expected u32, found u64
+error[E0214]: expected u32, found u64
   --> test/fail/aggregates.phi:10:28
    |
 10 |     let pair: [2]u32 = [1, n]

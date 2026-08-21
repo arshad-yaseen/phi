@@ -1,4 +1,4 @@
-error[E0206]: '@ptr_cast' needs a pointer, and this is i64
+error[E0214]: '@ptr_cast' needs a pointer, and this is i64
  --> test/std/ptr_cast_not_pointer.phi:6:28
   |
 6 |     return @ptr_cast[Cell](n)

@@ -1,4 +1,4 @@
-error[E0110]: this cannot be assigned to
+error[E0111]: this cannot be assigned to
  --> test/fail/assign_to_call.phi:2:5
   |
 2 |     g(a) = 1

@@ -1,4 +1,4 @@
-error[E0119]: expected a match arm, found a number
+error[E0109]: expected a match arm, found a number
  --> test/fail/match_junk_arm.phi:6:9
   |
 6 |         42 => 1

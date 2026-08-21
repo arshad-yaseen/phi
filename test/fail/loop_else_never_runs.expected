@@ -1,4 +1,4 @@
-error[E0250]: this 'else' never runs, because a loop with no condition never ends on its own
+error[E0238]: this 'else' never runs, because a loop with no condition never ends on its own
  --> test/fail/loop_else_never_runs.phi:4:12
   |
 4 |     } else {

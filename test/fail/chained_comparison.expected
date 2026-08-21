@@ -1,4 +1,4 @@
-error[E0109]: comparisons cannot be chained
+error[E0110]: comparisons cannot be chained
  --> test/fail/chained_comparison.phi:2:18
   |
 2 |     return a < b < c
@@ -6,7 +6,7 @@ error[E0109]: comparisons cannot be chained
   |
   = help: write it as two comparisons joined with 'and'
 
-error[E0207]: '<' mixes true | false and i64
+error[E0216]: '<' mixes true | false and i64
  --> test/fail/chained_comparison.phi:2:18
   |
 2 |     return a < b < c

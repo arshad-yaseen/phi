@@ -1,10 +1,10 @@
-error[E0232]: no enclosing loop is labeled ':outer'
+error[E0237]: no enclosing loop is labeled ':outer'
  --> test/fail/loop_labels.phi:7:9
   |
 7 |         break :outer
   |         ^^^^^^^^^^^^ no such loop
 
-error[E0205]: ':outer' already names an enclosing loop
+error[E0203]: ':outer' already names an enclosing loop
   --> test/fail/loop_labels.phi:14:9
    |
 14 |         outer: loop {

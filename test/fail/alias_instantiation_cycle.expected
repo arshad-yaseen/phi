@@ -1,4 +1,4 @@
-error[E0234]: type 'Cycle[u32]' is an alias of itself
+error[E0248]: type 'Cycle[u32]' is an alias of itself
  --> test/fail/alias_instantiation_cycle.phi:1:17
   |
 1 | type Cycle[T] = Cycle[T]

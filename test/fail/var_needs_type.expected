@@ -1,4 +1,4 @@
-error[E0215]: 'total' needs a type before it can vary
+error[E0221]: 'total' needs a type before it can vary
  --> test/fail/var_needs_type.phi:2:5
   |
 2 |     var total = 0

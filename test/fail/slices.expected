@@ -1,4 +1,4 @@
-error[E0222]: this is []u32, and []var u32 is needed to write
+error[E0241]: this is []u32, and []var u32 is needed to write
   --> test/fail/slices.phi:10:10
    |
 10 |     fill(xs)
@@ -6,7 +6,7 @@ error[E0222]: this is []u32, and []var u32 is needed to write
    |
    = help: take '[]var' where the view is made
 
-error[E0222]: this writes through a '[]u32', which is read-only
+error[E0241]: this writes through a '[]u32', which is read-only
   --> test/fail/slices.phi:14:5
    |
 14 |     xs[0] = 1
@@ -14,7 +14,7 @@ error[E0222]: this writes through a '[]u32', which is read-only
    |
    = help: take '[]var u32' to write through it
 
-error[E0206]: expected []var u32, found []var u8
+error[E0214]: expected []var u32, found []var u8
   --> test/fail/slices.phi:18:10
    |
 18 |     fill(xs)
@@ -22,7 +22,7 @@ error[E0206]: expected []var u32, found []var u8
    |
    = help: nothing converts on its own
 
-error[E0206]: expected []u32, found [4]u32
+error[E0214]: expected []u32, found [4]u32
   --> test/fail/slices.phi:22:18
    |
 22 |     return count(a)
@@ -30,13 +30,13 @@ error[E0206]: expected []u32, found [4]u32
    |
    = help: slice it to make a view of it, as in 'a[0..]'
 
-error[E0219]: []u32 has no field named 'first'
+error[E0230]: []u32 has no field named 'first'
   --> test/fail/slices.phi:26:15
    |
 26 |     return xs.first
    |               ^^^^^ no such field
 
-error[E0219]: []u32 has no field named 'ln'
+error[E0230]: []u32 has no field named 'ln'
   --> test/fail/slices.phi:30:15
    |
 30 |     return xs.ln
@@ -44,7 +44,7 @@ error[E0219]: []u32 has no field named 'ln'
    |
    = help: did you mean 'len'?
 
-error[E0221]: 'len' is a value and not a place
+error[E0240]: 'len' is a value and not a place
   --> test/fail/slices.phi:34:8
    |
 34 |     xs.len = 3
@@ -52,7 +52,7 @@ error[E0221]: 'len' is a value and not a place
    |
    = help: an array's length is in its type, and a view keeps its own
 
-error[E0214]: a view needs bytes the program owns, and part of this array is settled at run time
+error[E0222]: a view needs bytes the program owns, and part of this array is settled at run time
   --> test/fail/slices.phi:38:12
    |
 38 |     return [n, 3, 5, 7]
@@ -60,7 +60,7 @@ error[E0214]: a view needs bytes the program owns, and part of this array is set
    |
    = help: bind it to storage first and slice that, as in 'var a: [4]u32 = ...' then 'a[0..]'
 
-error[E0206]: expected []var u32, found an untyped array
+error[E0214]: expected []var u32, found an untyped array
   --> test/fail/slices.phi:42:12
    |
 42 |     return [2, 3]
@@ -68,7 +68,7 @@ error[E0206]: expected []var u32, found an untyped array
    |
    = help: a constant makes '[]T' and never '[]var T', because the program's own bytes are read-only
 
-error[E0206]: expected []u32, found [4]u32
+error[E0214]: expected []u32, found [4]u32
   --> test/fail/slices.phi:47:12
    |
 47 |     return a
@@ -76,7 +76,7 @@ error[E0206]: expected []u32, found [4]u32
    |
    = help: slice it to make a view of it, as in 'a[0..]'
 
-error[E0221]: 'ptr' is a value and not a place
+error[E0240]: 'ptr' is a value and not a place
   --> test/fail/slices.phi:51:8
    |
 51 |     xs.ptr = xs.ptr
@@ -84,7 +84,7 @@ error[E0221]: 'ptr' is a value and not a place
    |
    = help: a view keeps the address it holds, so write through the view itself
 
-error[E0219]: [4]u32 has no field named 'ptr'
+error[E0230]: [4]u32 has no field named 'ptr'
   --> test/fail/slices.phi:55:14
    |
 55 |     return a.ptr

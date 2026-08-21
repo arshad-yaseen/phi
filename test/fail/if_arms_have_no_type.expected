@@ -1,4 +1,4 @@
-error[E0215]: nothing says what type this 'if' is
+error[E0221]: nothing says what type this 'if' is
  --> test/fail/if_arms_have_no_type.phi:6:13
   |
 6 |     let n = if c { 10 } else { 100 }
@@ -6,7 +6,7 @@ error[E0215]: nothing says what type this 'if' is
   |
   = help: annotate what it feeds, as in 'let n: i64 = if ...'
 
-error[E0206]: this produces nothing, and the 'if' needs a value
+error[E0214]: this produces nothing, and the 'if' needs a value
   --> test/fail/if_arms_have_no_type.phi:11:13
    |
 11 |     let n = if c { effect() } else { effect() }

@@ -1,4 +1,4 @@
-error[E0210]: this divides by zero
+error[E0243]: this divides by zero
  --> test/fail/division_by_zero.phi:1:17
   |
 1 | let broken = 10 / (5 - 5)

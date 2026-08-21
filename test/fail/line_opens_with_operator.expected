@@ -4,7 +4,7 @@ error[E0103]: expected a statement, found '*'
 3 |     * b
   |     ^ expected a statement
 
-error[E0250]: this cannot be reached
+error[E0238]: this cannot be reached
  --> test/fail/line_opens_with_operator.phi:3:5
   |
 3 |     * b

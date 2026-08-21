@@ -1,4 +1,4 @@
-error[E0235]: no module named 'nowhere' in 'test/fail/missing_module'
+error[E0206]: no module named 'nowhere' in 'test/fail/missing_module'
  --> test/fail/missing_module/main.phi:1:1
   |
 1 | import nowhere

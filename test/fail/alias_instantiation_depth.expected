@@ -1,4 +1,4 @@
-error[E0241]: this instantiates more than 64 levels deep
+error[E0250]: this instantiates more than 64 levels deep
  --> test/fail/alias_instantiation_depth.phi:1:16
   |
 1 | type Deep[T] = Deep[*T]

@@ -1,4 +1,4 @@
-error[E0211]: '+' cannot be applied to u32 | none
+error[E0219]: '+' cannot be applied to u32 | none
   --> test/fail/match_var_scrutinee.phi:10:25
    |
 10 |         u32 => return v + 1

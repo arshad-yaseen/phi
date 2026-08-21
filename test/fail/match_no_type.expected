@@ -1,4 +1,4 @@
-error[E0215]: nothing says what type this 'match' is
+error[E0221]: nothing says what type this 'match' is
  --> test/fail/match_no_type.phi:7:17
   |
 7 |         true => 1

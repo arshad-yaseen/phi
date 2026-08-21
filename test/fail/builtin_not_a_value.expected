@@ -1,4 +1,4 @@
-error[E0212]: a builtin is not a value, so call it
+error[E0210]: a builtin is not a value, so call it
  --> test/fail/builtin_not_a_value.phi:6:13
   |
 6 |     let f = @size_of

@@ -1,4 +1,4 @@
-error[E0251]: only the standard library declares an 'extern fn'
+error[E0226]: only the standard library declares an 'extern fn'
  --> test/fail/extern_outside_std.phi:1:11
   |
 1 | extern fn puts(text: *u8) i32

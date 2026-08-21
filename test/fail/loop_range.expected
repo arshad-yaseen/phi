@@ -1,4 +1,4 @@
-error[E0262]: this range starts at 5 and ends at 3, so it runs backwards
+error[E0218]: this range starts at 5 and ends at 3, so it runs backwards
  --> test/fail/loop_range.phi:2:16
   |
 2 |     loop i in 5..3 {
@@ -6,7 +6,7 @@ error[E0262]: this range starts at 5 and ends at 3, so it runs backwards
   |
   = help: a range runs from its start up to, but not including, its end
 
-error[E0207]: '..' mixes u64 and u32
+error[E0216]: '..' mixes u64 and u32
  --> test/fail/loop_range.phi:9:19
   |
 9 |     loop i in from..n {
@@ -14,7 +14,7 @@ error[E0207]: '..' mixes u64 and u32
   |
   = help: the ends of a range take each other's type, and nothing converts on its own
 
-error[E0211]: an end of a range is a count, and this is true | false
+error[E0219]: an end of a range is a count, and this is true | false
   --> test/fail/loop_range.phi:15:18
    |
 15 |     loop i in 0..flag {
@@ -22,7 +22,7 @@ error[E0211]: an end of a range is a count, and this is true | false
    |
    = help: any integer counts, and nothing else does
 
-error[E0244]: '_' is not a name, and only discards a value
+error[E0205]: '_' is not a name, and only discards a value
   --> test/fail/loop_range.phi:21:10
    |
 21 |     loop _ in 0..n {
@@ -30,7 +30,7 @@ error[E0244]: '_' is not a name, and only discards a value
    |
    = help: write '_ = expression' to drop a value on purpose
 
-error[E0221]: 'i' was bound with 'let', so it cannot change
+error[E0240]: 'i' was bound with 'let', so it cannot change
   --> test/fail/loop_range.phi:27:9
    |
 27 |         i = 3

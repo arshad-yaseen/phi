@@ -1,4 +1,4 @@
-error[E0234]: 'first' takes its value from itself
+error[E0248]: 'first' takes its value from itself
  --> test/fail/value_cycle.phi:3:13
   |
 3 | let third = first + 1

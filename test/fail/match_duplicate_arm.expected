@@ -1,4 +1,4 @@
-error[E0260]: 'u32' is already handled by an earlier arm
+error[E0233]: 'u32' is already handled by an earlier arm
   --> test/fail/match_duplicate_arm.phi:11:9
    |
 11 |         u32 => {}

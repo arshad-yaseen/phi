@@ -1,4 +1,4 @@
-error[E0244]: '_' is not a name, and only discards a value
+error[E0205]: '_' is not a name, and only discards a value
  --> test/fail/discard_compound.phi:2:5
   |
 2 |     _ += n

@@ -1,4 +1,4 @@
-error[E0204]: 'io' is declared twice in this file
+error[E0202]: 'io' is declared twice in this file
  --> test/fail/import_duplicate.phi:2:12
   |
 2 | import std/io

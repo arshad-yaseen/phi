@@ -1,4 +1,4 @@
-error[E0215]: nothing here says which struct this builds
+error[E0221]: nothing here says which struct this builds
   --> test/fail/unnamed_literals.phi:11:13
    |
 11 |     let p = .{ x: 1, y: 2 }
@@ -6,7 +6,7 @@ error[E0215]: nothing here says which struct this builds
    |
    = help: name it, as in 'Point.{ x: 1 }', or annotate what it feeds
 
-error[E0215]: nothing here says which struct this builds
+error[E0221]: nothing here says which struct this builds
   --> test/fail/unnamed_literals.phi:16:5
    |
 16 |     .{ x: 1, y: 2 }
@@ -14,7 +14,7 @@ error[E0215]: nothing here says which struct this builds
    |
    = help: name it, as in 'Point.{ x: 1 }', or annotate what it feeds
 
-error[E0215]: nothing here says which struct this builds
+error[E0221]: nothing here says which struct this builds
   --> test/fail/unnamed_literals.phi:20:9
    |
 20 |     _ = .{ x: 1, y: 2 }
@@ -22,7 +22,7 @@ error[E0215]: nothing here says which struct this builds
    |
    = help: name it, as in 'Point.{ x: 1 }', or annotate what it feeds
 
-error[E0215]: this lands on 'Point | Other', which lists several types, and nothing says which is built
+error[E0221]: this lands on 'Point | Other', which lists several types, and nothing says which is built
   --> test/fail/unnamed_literals.phi:24:12
    |
 24 |     return .{ x: 1, y: 2 }
@@ -30,7 +30,7 @@ error[E0215]: this lands on 'Point | Other', which lists several types, and noth
    |
    = help: name the struct, as in 'Point.{ x: 1 }'
 
-error[E0215]: this lands on 'Point | none', which lists several types, and nothing says which is built
+error[E0221]: this lands on 'Point | none', which lists several types, and nothing says which is built
   --> test/fail/unnamed_literals.phi:28:12
    |
 28 |     return .{ x: 1, y: 2 }
@@ -38,13 +38,13 @@ error[E0215]: this lands on 'Point | none', which lists several types, and nothi
    |
    = help: name the struct, as in 'Point.{ x: 1 }'
 
-error[E0202]: u32 has no fields to give
+error[E0208]: u32 has no fields to give
   --> test/fail/unnamed_literals.phi:32:18
    |
 32 |     let n: u32 = .{ x: 1 }
    |                  ^^^^^^^ not a struct
 
-error[E0206]: expected Point, found Other
+error[E0214]: expected Point, found Other
   --> test/fail/unnamed_literals.phi:37:12
    |
 37 |     return Other.{ x: 1 }

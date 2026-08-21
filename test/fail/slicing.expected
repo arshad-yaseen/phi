@@ -1,4 +1,4 @@
-error[E0252]: Point cannot be indexed
+error[E0213]: Point cannot be indexed
   --> test/fail/slicing.phi:10:9
    |
 10 |     _ = p[0..]
@@ -6,7 +6,7 @@ error[E0252]: Point cannot be indexed
    |
    = help: an index reaches an element, and an array is what holds elements
 
-error[E0211]: an end of a range is a count, and this is an untyped float
+error[E0219]: an end of a range is a count, and this is an untyped float
   --> test/fail/slicing.phi:14:14
    |
 14 |     _ = a[0..1.5]
@@ -14,7 +14,7 @@ error[E0211]: an end of a range is a count, and this is an untyped float
    |
    = help: any integer counts, and nothing else does
 
-error[E0207]: '..' mixes u32 and u64
+error[E0216]: '..' mixes u32 and u64
   --> test/fail/slicing.phi:18:12
    |
 18 |     _ = a[i..n]
@@ -22,7 +22,7 @@ error[E0207]: '..' mixes u32 and u64
    |
    = help: the ends of a range take each other's type, and nothing converts on its own
 
-error[E0206]: expected []u32, found [4]u32
+error[E0214]: expected []u32, found [4]u32
   --> test/fail/slicing.phi:22:18
    |
 22 |     return count(a)
@@ -30,13 +30,13 @@ error[E0206]: expected []u32, found [4]u32
    |
    = help: slice it to make a view of it, as in 'a[0..]'
 
-error[E0221]: this makes a view, which is a value and not a place
+error[E0240]: this makes a view, which is a value and not a place
   --> test/fail/slicing.phi:26:5
    |
 26 |     a[0..2] = a
    |     ^^^^^^ nothing to write to or point at
 
-error[E0262]: this range starts at 3 and ends at 1, so it runs backwards
+error[E0218]: this range starts at 3 and ends at 1, so it runs backwards
   --> test/fail/slicing.phi:30:12
    |
 30 |     _ = a[3..1]
@@ -44,19 +44,19 @@ error[E0262]: this range starts at 3 and ends at 1, so it runs backwards
    |
    = help: a range runs from its start up to, but not including, its end
 
-error[E0262]: this range ends at 9, and [4]u32 holds 4 elements
+error[E0218]: this range ends at 9, and [4]u32 holds 4 elements
   --> test/fail/slicing.phi:34:14
    |
 34 |     _ = a[0..9]
    |              ^ past the last element
 
-error[E0262]: an end of a range counts from zero, and this one is -1
+error[E0218]: an end of a range counts from zero, and this one is -1
   --> test/fail/slicing.phi:38:14
    |
 38 |     _ = a[i..-1]
    |              ^^ before the first element
 
-error[E0214]: this must settle before anything runs, and making a view happens at run time
+error[E0222]: this must settle before anything runs, and making a view happens at run time
   --> test/fail/slicing.phi:42:14
    |
 42 | let sliced = global[0..]

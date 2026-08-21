@@ -1,4 +1,4 @@
-error[E0252]: u32 cannot be indexed
+error[E0213]: u32 cannot be indexed
   --> test/fail/bracket_meaning.phi:12:12
    |
 12 |     return n[0]
@@ -6,7 +6,7 @@ error[E0252]: u32 cannot be indexed
    |
    = help: an index reaches an element, and an array is what holds elements
 
-error[E0252]: u32 cannot be indexed
+error[E0213]: u32 cannot be indexed
   --> test/fail/bracket_meaning.phi:16:12
    |
 16 |     return top[0]
@@ -14,13 +14,13 @@ error[E0252]: u32 cannot be indexed
    |
    = help: an index reaches an element, and an array is what holds elements
 
-error[E0246]: only a generic struct or function takes type arguments
+error[E0224]: only a generic struct or function takes type arguments
   --> test/fail/bracket_meaning.phi:20:12
    |
 20 |     return Plain[0]
    |            ^^^^^^^ arguments on the wrong thing
 
-error[E0212]: a function with its type arguments is still not a value, so call it
+error[E0210]: a function with its type arguments is still not a value, so call it
   --> test/fail/bracket_meaning.phi:24:12
    |
 24 |     return a_generic_takes_arguments[0]

@@ -1,4 +1,4 @@
-error[E0211]: '==' cannot be applied to [2]u32
+error[E0219]: '==' cannot be applied to [2]u32
  --> test/fail/array_ops.phi:2:14
   |
 2 |     return a == b
@@ -6,25 +6,25 @@ error[E0211]: '==' cannot be applied to [2]u32
   |
   = help: slice them first, as in 'mem.eql(a[0..], b[0..])'
 
-error[E0211]: '+' cannot be applied to [2]u32
+error[E0219]: '+' cannot be applied to [2]u32
  --> test/fail/array_ops.phi:6:14
   |
 6 |     return a + b
   |              ^ wrong operand type
 
-error[E0211]: '-' needs a signed number, and this is [2]u32
+error[E0219]: '-' needs a signed number, and this is [2]u32
   --> test/fail/array_ops.phi:10:12
    |
 10 |     return -a
    |            ^ wrong operand type
 
-error[E0211]: '==' cannot be applied to an untyped array
+error[E0219]: '==' cannot be applied to an untyped array
   --> test/fail/array_ops.phi:14:23
    |
 14 |     let both = [1, 2] == [1, 2]
    |                       ^^ wrong operand type
 
-error[E0211]: '==' cannot be applied to Point
+error[E0219]: '==' cannot be applied to Point
   --> test/fail/array_ops.phi:22:14
    |
 22 |     return p == q

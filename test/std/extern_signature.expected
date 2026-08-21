@@ -1,4 +1,4 @@
-error[E0264]: a parameter crosses as a number or an address, and this is []u8
+error[E0227]: a parameter crosses as a number or an address, and this is []u8
  --> test/std/extern_signature.phi:8:24
   |
 8 | extern fn takes_a_view(xs: []u8)
@@ -6,7 +6,7 @@ error[E0264]: a parameter crosses as a number or an address, and this is []u8
   |
   = help: pass the address and the count, which '.ptr' and '.len' answer
 
-error[E0264]: a parameter crosses as a number or an address, and this is Point
+error[E0227]: a parameter crosses as a number or an address, and this is Point
   --> test/std/extern_signature.phi:10:26
    |
 10 | extern fn takes_a_struct(p: Point)
@@ -14,7 +14,7 @@ error[E0264]: a parameter crosses as a number or an address, and this is Point
    |
    = help: pass a pointer to it rather than the value
 
-error[E0264]: a return type crosses as a number or an address, and this is Point
+error[E0227]: a return type crosses as a number or an address, and this is Point
   --> test/std/extern_signature.phi:11:30
    |
 11 | extern fn returns_a_struct() Point
@@ -22,7 +22,7 @@ error[E0264]: a return type crosses as a number or an address, and this is Point
    |
    = help: pass a pointer to it rather than the value
 
-error[E0264]: a parameter crosses as a number or an address, and this is u32 | Timeout
+error[E0227]: a parameter crosses as a number or an address, and this is u32 | Timeout
   --> test/std/extern_signature.phi:13:25
    |
 13 | extern fn takes_a_union(reply: u32 | Timeout)
@@ -30,7 +30,7 @@ error[E0264]: a parameter crosses as a number or an address, and this is u32 | T
    |
    = help: a pointer beside a type with no values crosses, the null address standing for that member
 
-error[E0264]: a parameter crosses as a number or an address, and this is [4]u8
+error[E0227]: a parameter crosses as a number or an address, and this is [4]u8
   --> test/std/extern_signature.phi:15:26
    |
 15 | extern fn takes_an_array(a: [4]u8)
@@ -38,7 +38,7 @@ error[E0264]: a parameter crosses as a number or an address, and this is [4]u8
    |
    = help: pass a pointer to it, or slice it and pass '.ptr' and '.len'
 
-error[E0264]: a parameter crosses as a number or an address, and this is true | false
+error[E0227]: a parameter crosses as a number or an address, and this is true | false
   --> test/std/extern_signature.phi:17:24
    |
 17 | extern fn takes_a_bool(flag: bool)
@@ -46,7 +46,7 @@ error[E0264]: a parameter crosses as a number or an address, and this is true | 
    |
    = help: a pointer beside a type with no values crosses, the null address standing for that member
 
-error[E0265]: 'generic' is generic, and one symbol has one signature
+error[E0228]: 'generic' is generic, and one symbol has one signature
   --> test/std/extern_signature.phi:19:11
    |
 19 | extern fn generic[T](value: T)
@@ -54,7 +54,7 @@ error[E0265]: 'generic' is generic, and one symbol has one signature
    |
    = help: write one declaration per shape it is called with
 
-error[E0264]: a parameter crosses as a number or an address, and this is []u8 | none
+error[E0227]: a parameter crosses as a number or an address, and this is []u8 | none
   --> test/std/extern_signature.phi:21:32
    |
 21 | extern fn takes_an_absent_view(xs: []u8 | none)

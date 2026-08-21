@@ -1,4 +1,4 @@
-error[E0231]: not every path through 'drive' returns its i64
+error[E0236]: not every path through 'drive' returns its i64
  --> test/fail/body_tail_is_not_a_return.phi:1:4
   |
 1 | fn drive(n: i64) i64 {
@@ -6,7 +6,7 @@ error[E0231]: not every path through 'drive' returns its i64
   |
   = help: every path must end in 'return', or loop forever
 
-error[E0230]: this i64 goes nowhere
+error[E0235]: this i64 goes nowhere
  --> test/fail/body_tail_is_not_a_return.phi:2:5
   |
 2 |     n + 1

@@ -1,4 +1,4 @@
-error[E0203]: types are not values
+error[E0209]: types are not values
  --> test/fail/type_as_index.phi:3:15
   |
 3 |     let x = a[[]u8]
@@ -6,7 +6,7 @@ error[E0203]: types are not values
   |
   = help: a type stands where a type is written, before '.', and after 'is' or 'match'
 
-error[E0203]: types are not values
+error[E0209]: types are not values
  --> test/fail/type_as_index.phi:4:15
   |
 4 |     let y = a[*u8]
@@ -14,7 +14,7 @@ error[E0203]: types are not values
   |
   = help: a type stands where a type is written, before '.', and after 'is' or 'match'
 
-error[E0213]: an index is one value, and this writes 2
+error[E0223]: an index is one value, and this writes 2
  --> test/fail/type_as_index.phi:5:13
   |
 5 |     let z = a[0..1, [2]u8]

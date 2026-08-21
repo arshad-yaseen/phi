@@ -1,4 +1,4 @@
-error[E0235]: 'std' is the standard library, not a module in it
+error[E0206]: 'std' is the standard library, not a module in it
  --> test/fail/import_dot.phi:1:8
   |
 1 | import std.math

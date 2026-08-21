@@ -1,4 +1,4 @@
-error[E0259]: this match leaves out 'Timeout', 'NotFound'
+error[E0232]: this match leaves out 'Timeout', 'NotFound'
  --> test/fail/match_missing_arm.phi:9:5
   |
 9 |     match e {

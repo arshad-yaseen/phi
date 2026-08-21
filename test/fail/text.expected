@@ -1,4 +1,4 @@
-error[E0263]: this string reaches the end of the line with no closing '"'
+error[E0245]: this string reaches the end of the line with no closing '"'
  --> test/fail/text.phi:2:12
   |
 2 |     return "hi
@@ -6,13 +6,13 @@ error[E0263]: this string reaches the end of the line with no closing '"'
   |
   = help: a string sits on one line, and '\n' writes a break, or a run of '\\' lines spans several
 
-error[E0263]: a character literal holds one character, and this one holds none
+error[E0245]: a character literal holds one character, and this one holds none
  --> test/fail/text.phi:6:12
   |
 6 |     return ''
   |            ^^ nothing inside
 
-error[E0263]: a character literal holds one character
+error[E0245]: a character literal holds one character
   --> test/fail/text.phi:10:12
    |
 10 |     return 'ab'
@@ -20,7 +20,7 @@ error[E0263]: a character literal holds one character
    |
    = help: a run of characters is a string, written with '"'
 
-error[E0263]: this is not an escape the language knows
+error[E0245]: this is not an escape the language knows
   --> test/fail/text.phi:14:12
    |
 14 |     return "a\qb"
@@ -28,7 +28,7 @@ error[E0263]: this is not an escape the language knows
    |
    = help: the escapes are '\n', '\r', '\t', '\\', '\'', '\"', '\xNN' for a byte, and '\u{...}' for a codepoint
 
-error[E0263]: '\x' writes one byte, so it takes two hex digits
+error[E0245]: '\x' writes one byte, so it takes two hex digits
   --> test/fail/text.phi:18:12
    |
 18 |     return "\x4"
@@ -36,13 +36,13 @@ error[E0263]: '\x' writes one byte, so it takes two hex digits
    |
    = help: '\x41' is the byte 65
 
-error[E0263]: codepoints run to 0x10FFFF, and this one is past it
+error[E0245]: codepoints run to 0x10FFFF, and this one is past it
   --> test/fail/text.phi:22:12
    |
 22 |     return "\u{110000}"
    |            ^^^^^^^^^^^^ past the last codepoint
 
-error[E0263]: this is half of a surrogate pair, which is not a codepoint
+error[E0245]: this is half of a surrogate pair, which is not a codepoint
   --> test/fail/text.phi:26:12
    |
 26 |     return "\u{D800}"
@@ -50,7 +50,7 @@ error[E0263]: this is half of a surrogate pair, which is not a codepoint
    |
    = help: write the codepoint itself, as in '\u{1F980}'
 
-error[E0263]: this character is not valid UTF-8
+error[E0245]: this character is not valid UTF-8
   --> test/fail/text.phi:30:12
    |
 30 |     return '©'

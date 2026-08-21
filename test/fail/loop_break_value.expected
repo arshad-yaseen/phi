@@ -1,4 +1,4 @@
-error[E0206]: this 'break' carries a value, and its loop is not asked for one
+error[E0214]: this 'break' carries a value, and its loop is not asked for one
  --> test/fail/loop_break_value.phi:7:9
   |
 7 |         break n
@@ -6,7 +6,7 @@ error[E0206]: this 'break' carries a value, and its loop is not asked for one
   |
   = help: bind the loop, as in 'let v = loop { ... }', or drop the value
 
-error[E0206]: this loop stands where a value is needed, so 'break' must carry it
+error[E0214]: this loop stands where a value is needed, so 'break' must carry it
   --> test/fail/loop_break_value.phi:16:9
    |
 16 |         break

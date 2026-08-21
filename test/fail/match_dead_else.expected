@@ -1,10 +1,10 @@
-error[E0260]: every member is already handled, so 'else' can never run
+error[E0233]: every member is already handled, so 'else' can never run
   --> test/fail/match_dead_else.phi:11:9
    |
 11 |         else => {}
    |         ^^^^^^^^^^ nothing left for it
 
-error[E0260]: 'else' already takes every type the arms do not name
+error[E0233]: 'else' already takes every type the arms do not name
   --> test/fail/match_dead_else.phi:20:9
    |
 20 |         else => {}

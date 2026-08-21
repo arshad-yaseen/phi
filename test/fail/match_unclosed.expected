@@ -1,4 +1,4 @@
-error[E0231]: not every path through 'f' returns its u32
+error[E0236]: not every path through 'f' returns its u32
  --> test/fail/match_unclosed.phi:4:4
   |
 4 | fn f(e: A | B) u32 {
@@ -6,7 +6,7 @@ error[E0231]: not every path through 'f' returns its u32
   |
   = help: every path must end in 'return', or loop forever
 
-error[E0230]: this value goes nowhere
+error[E0235]: this value goes nowhere
  --> test/fail/match_unclosed.phi:6:14
   |
 6 |         A => 1
@@ -14,7 +14,7 @@ error[E0230]: this value goes nowhere
   |
   = help: bind it, return it, or drop it with '_ ='
 
-error[E0119]: expected a match arm, found 'return'
+error[E0109]: expected a match arm, found 'return'
  --> test/fail/match_unclosed.phi:7:5
   |
 7 |     return 0

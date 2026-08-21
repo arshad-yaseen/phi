@@ -1,4 +1,4 @@
-error[E0251]: only the standard library declares an 'extern fn'
+error[E0226]: only the standard library declares an 'extern fn'
  --> test/fail/extern_fn_body.phi:1:11
   |
 1 | extern fn write(fd: i32) i64 {
@@ -6,7 +6,7 @@ error[E0251]: only the standard library declares an 'extern fn'
   |
   = help: std wraps one in an ordinary function, so call that instead
 
-error[E0120]: an 'extern fn' is a signature, and this one has a body
+error[E0116]: an 'extern fn' is a signature, and this one has a body
  --> test/fail/extern_fn_body.phi:1:30
   |
 1 | extern fn write(fd: i32) i64 {
@@ -19,7 +19,7 @@ note: declared 'extern' here
 1 | extern fn write(fd: i32) i64 {
   | ^^^^^^
 
-error[E0251]: only the standard library declares an 'extern fn'
+error[E0226]: only the standard library declares an 'extern fn'
  --> test/fail/extern_fn_body.phi:5:11
   |
 5 | extern fn abort() {}
@@ -27,7 +27,7 @@ error[E0251]: only the standard library declares an 'extern fn'
   |
   = help: std wraps one in an ordinary function, so call that instead
 
-error[E0120]: an 'extern fn' is a signature, and this one has a body
+error[E0116]: an 'extern fn' is a signature, and this one has a body
  --> test/fail/extern_fn_body.phi:5:19
   |
 5 | extern fn abort() {}

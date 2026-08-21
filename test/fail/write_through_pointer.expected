@@ -1,4 +1,4 @@
-error[E0222]: this writes through a '*Counter', which is read-only
+error[E0241]: this writes through a '*Counter', which is read-only
  --> test/fail/write_through_pointer.phi:6:5
   |
 6 |     counter.hits = 0

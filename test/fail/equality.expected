@@ -1,4 +1,4 @@
-error[E0207]: '==' mixes Ready | Timeout and Ready
+error[E0216]: '==' mixes Ready | Timeout and Ready
   --> test/fail/equality.phi:10:14
    |
 10 |     return s == Ready
@@ -6,7 +6,7 @@ error[E0207]: '==' mixes Ready | Timeout and Ready
    |
    = help: 'is' tests which member a union holds and narrows the name to it
 
-error[E0211]: '==' cannot be applied to Ready | Timeout
+error[E0219]: '==' cannot be applied to Ready | Timeout
   --> test/fail/equality.phi:14:14
    |
 14 |     return a == b
@@ -14,7 +14,7 @@ error[E0211]: '==' cannot be applied to Ready | Timeout
    |
    = help: 'is' tests which member a union holds and narrows the name to it
 
-error[E0211]: '==' cannot be applied to true | false
+error[E0219]: '==' cannot be applied to true | false
   --> test/fail/equality.phi:18:14
    |
 18 |     return a == b
@@ -22,7 +22,7 @@ error[E0211]: '==' cannot be applied to true | false
    |
    = help: 'is' tests which member a union holds and narrows the name to it
 
-error[E0211]: '==' cannot be applied to u32 | none
+error[E0219]: '==' cannot be applied to u32 | none
   --> test/fail/equality.phi:22:14
    |
 22 |     return a == b
@@ -30,13 +30,13 @@ error[E0211]: '==' cannot be applied to u32 | none
    |
    = help: 'is' tests which member a union holds and narrows the name to it
 
-error[E0211]: '==' cannot be applied to Ready
+error[E0219]: '==' cannot be applied to Ready
   --> test/fail/equality.phi:26:14
    |
 26 |     return a == b
    |              ^^ wrong operand type
 
-error[E0211]: '==' cannot be applied to []u32
+error[E0219]: '==' cannot be applied to []u32
   --> test/fail/equality.phi:30:14
    |
 30 |     return a == b
@@ -44,7 +44,7 @@ error[E0211]: '==' cannot be applied to []u32
    |
    = help: 'std.mem.eql' compares two views element by element
 
-error[E0211]: '==' cannot be applied to Point
+error[E0219]: '==' cannot be applied to Point
   --> test/fail/equality.phi:34:14
    |
 34 |     return a == b
@@ -52,7 +52,7 @@ error[E0211]: '==' cannot be applied to Point
    |
    = help: compare the fields that decide it
 
-error[E0207]: '==' mixes *var u32 and *u32
+error[E0216]: '==' mixes *var u32 and *u32
   --> test/fail/equality.phi:38:14
    |
 38 |     return a == b
@@ -60,7 +60,7 @@ error[E0207]: '==' mixes *var u32 and *u32
    |
    = help: nothing converts on its own, so give both sides one type
 
-error[E0211]: '<' cannot be applied to *u32
+error[E0219]: '<' cannot be applied to *u32
   --> test/fail/equality.phi:42:14
    |
 42 |     return a < b

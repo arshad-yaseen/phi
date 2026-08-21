@@ -1,4 +1,4 @@
-error[E0267]: expected u32, found u32 | none
+error[E0215]: expected u32, found u32 | none
   --> test/fail/narrow_var.phi:10:16
    |
 10 |         return slot

@@ -1,4 +1,4 @@
-error[E0246]: 'Maybe' is generic, so it needs its arguments
+error[E0224]: 'Maybe' is generic, so it needs its arguments
  --> test/fail/alias_generic_arguments.phi:5:12
   |
 5 | fn bare(v: Maybe) u32 {
@@ -6,7 +6,7 @@ error[E0246]: 'Maybe' is generic, so it needs its arguments
   |
   = help: write 'Maybe[...]' with one type per parameter
 
-error[E0246]: 'Maybe' takes 1 type argument, and this writes 2
+error[E0224]: 'Maybe' takes 1 type argument, and this writes 2
   --> test/fail/alias_generic_arguments.phi:10:13
    |
 10 | fn arity(v: Maybe[u32, u8]) u32 {

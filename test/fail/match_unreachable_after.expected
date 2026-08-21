@@ -1,4 +1,4 @@
-error[E0250]: this cannot be reached
+error[E0238]: this cannot be reached
   --> test/fail/match_unreachable_after.phi:10:5
    |
 10 |     return 2

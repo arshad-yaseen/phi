@@ -1,10 +1,10 @@
-error[E0266]: this target is not ready
+error[E0251]: this target is not ready
  --> test/fail/compile_error.phi:2:5
   |
 2 |     @compile_error("this target is not ready")
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the program refuses this build
 
-error[E0266]: '@compile_error' says why in a string written at the call
+error[E0251]: '@compile_error' says why in a string written at the call
  --> test/fail/compile_error.phi:6:20
   |
 6 |     @compile_error(42)
@@ -12,7 +12,7 @@ error[E0266]: '@compile_error' says why in a string written at the call
   |
   = help: give one, as in '@compile_error("no pages on this target")'
 
-error[E0266]: '@compile_error' says why in a string written at the call
+error[E0251]: '@compile_error' says why in a string written at the call
   --> test/fail/compile_error.phi:10:20
    |
 10 |     @compile_error("")

@@ -1,4 +1,4 @@
-error[E0257]: 'NotFound' is not a member of 'u32 | Timeout'
+error[E0212]: 'NotFound' is not a member of 'u32 | Timeout'
   --> test/fail/match_not_member.phi:11:9
    |
 11 |         NotFound => {}

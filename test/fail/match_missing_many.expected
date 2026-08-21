@@ -1,4 +1,4 @@
-error[E0259]: this match leaves out 'B', 'C', 'D', 'E', 'F', and 2 more members
+error[E0232]: this match leaves out 'B', 'C', 'D', 'E', 'F', and 2 more members
   --> test/fail/match_missing_many.phi:11:5
    |
 11 |     match e {

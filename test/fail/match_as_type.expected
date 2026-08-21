@@ -1,10 +1,10 @@
-error[E0202]: this is a value, and a type belongs here
+error[E0208]: this is a value, and a type belongs here
  --> test/fail/match_as_type.phi:9:15
   |
 9 | type Valued = match picked {
   |               ^^^^^^^^^^^^^^ not a type
 
-error[E0259]: this match leaves out 'B'
+error[E0232]: this match leaves out 'B'
   --> test/fail/match_as_type.phi:15:16
    |
 15 | type Partial = match picked {
@@ -12,13 +12,13 @@ error[E0259]: this match leaves out 'B'
    |
    = help: add an arm per member, or 'else =>' for the rest
 
-error[E0256]: 'match' asks which member a union holds, and this is A
+error[E0211]: 'match' asks which member a union holds, and this is A
   --> test/fail/match_as_type.phi:21:16
    |
 21 |     A => match picked {
    |                ^^^^^^ not a union
 
-error[E0203]: types are not values
+error[E0209]: types are not values
   --> test/fail/match_as_type.phi:30:30
    |
 30 |     let held: match p { A => u32, B => u64 } = 1
@@ -26,7 +26,7 @@ error[E0203]: types are not values
    |
    = help: a type stands where a type is written, before '.', and after 'is' or 'match'
 
-error[E0203]: types are not values
+error[E0209]: types are not values
   --> test/fail/match_as_type.phi:30:40
    |
 30 |     let held: match p { A => u32, B => u64 } = 1

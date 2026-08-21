@@ -1,4 +1,4 @@
-error[E0259]: this match leaves out 'B'
+error[E0232]: this match leaves out 'B'
  --> test/fail/match_arms_share_a_line.phi:5:12
   |
 5 |     return match e { A => 1 B => 2 }

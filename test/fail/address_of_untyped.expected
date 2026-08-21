@@ -1,4 +1,4 @@
-error[E0206]: '&' needs a value with a type, and this is an untyped number
+error[E0214]: '&' needs a value with a type, and this is an untyped number
   --> test/fail/address_of_untyped.phi:10:17
    |
 10 |     return take(&10)

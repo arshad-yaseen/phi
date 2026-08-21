@@ -1,4 +1,4 @@
-error[E0206]: expected u32, found u64
+error[E0214]: expected u32, found u64
   --> test/fail/sealed_constant.phi:10:23
    |
 10 |         u32 => return a + b
@@ -6,7 +6,7 @@ error[E0206]: expected u32, found u64
    |
    = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
-error[E0206]: expected u32, found u64
+error[E0214]: expected u32, found u64
   --> test/fail/sealed_constant.phi:19:18
    |
 19 |     let c: u32 = b
@@ -14,7 +14,7 @@ error[E0206]: expected u32, found u64
    |
    = help: '@int_cast(...)' converts, and '@int_fits(...)' answers 'none' where a value does not fit
 
-error[E0267]: expected u8, found u32 | u8
+error[E0215]: expected u8, found u32 | u8
   --> test/fail/sealed_constant.phi:25:17
    |
 25 |     let d: u8 = a

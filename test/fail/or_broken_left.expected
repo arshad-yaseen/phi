@@ -4,7 +4,7 @@ error[E0201]: nothing named 'missing' is in scope here
 2 |     let n = missing() or return 0
   |             ^^^^^^^ unknown name
 
-error[E0256]: 'or' splits a union, and this is u32
+error[E0211]: 'or' splits a union, and this is u32
  --> test/fail/or_broken_left.phi:8:13
   |
 8 |     let m = n or return 0

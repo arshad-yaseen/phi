@@ -1,4 +1,4 @@
-error[E0220]: 'hidden' is private to its file
+error[E0204]: 'hidden' is private to its file
  --> test/fail/privacy/main.phi:4:19
   |
 4 |     return helper.hidden()

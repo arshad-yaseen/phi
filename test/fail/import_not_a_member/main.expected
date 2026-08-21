@@ -1,4 +1,4 @@
-error[E0219]: 'wrapper' has no declaration named 'helper'
+error[E0230]: 'wrapper' has no declaration named 'helper'
  --> test/fail/import_not_a_member/main.phi:4:20
   |
 4 |     return wrapper.helper.twice(seed)

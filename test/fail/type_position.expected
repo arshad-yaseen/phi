@@ -1,22 +1,22 @@
-error[E0202]: this is a value, and a type belongs here
+error[E0208]: this is a value, and a type belongs here
  --> test/fail/type_position.phi:7:36
   |
 7 | fn value_as_a_type_argument(b: Box[5]) i64 {
   |                                    ^ not a type
 
-error[E0202]: this is a value, and a type belongs here
+error[E0208]: this is a value, and a type belongs here
   --> test/fail/type_position.phi:11:41
    |
 11 | fn expression_as_a_type_argument(b: Box[1 + 2]) i64 {
    |                                         ^^^^^ not a type
 
-error[E0202]: only a module reaches a type with '.'
+error[E0208]: only a module reaches a type with '.'
   --> test/fail/type_position.phi:15:32
    |
 15 | fn reaching_through_a_value(a: count.x) i64 {
    |                                ^^^^^^^ not a type
 
-error[E0202]: only a generic struct takes type arguments here
+error[E0208]: only a generic struct takes type arguments here
   --> test/fail/type_position.phi:19:28
    |
 19 | fn arguments_on_a_value(a: count[i64]) i64 {

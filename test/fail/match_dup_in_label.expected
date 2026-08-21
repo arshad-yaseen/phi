@@ -1,4 +1,4 @@
-error[E0254]: 'u32' is already a member of this union
+error[E0231]: 'u32' is already a member of this union
  --> test/fail/match_dup_in_label.phi:9:15
   |
 9 |         u32 | u32 => {}

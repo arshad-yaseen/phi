@@ -1,4 +1,4 @@
-error[E0206]: expected u32, found true
+error[E0214]: expected u32, found true
   --> test/fail/or_bind_not_union.phi:10:12
    |
 10 |     return x

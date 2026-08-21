@@ -1,4 +1,4 @@
-error[E0214]: this must settle before anything runs, and a call happens at run time
+error[E0222]: this must settle before anything runs, and a call happens at run time
  --> test/fail/let_call.phi:5:14
   |
 5 | let cached = answer()

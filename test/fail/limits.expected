@@ -1,4 +1,4 @@
-error[E0211]: '@max_int' needs an integer type, and this is f32
+error[E0219]: '@max_int' needs an integer type, and this is f32
  --> test/fail/limits.phi:6:12
   |
 6 |     return @max_int[f32]()
@@ -6,7 +6,7 @@ error[E0211]: '@max_int' needs an integer type, and this is f32
   |
   = help: the integer types are 'i8' through 'i64' and 'u8' through 'u64'
 
-error[E0211]: '@min_int' needs an integer type, and this is Point
+error[E0219]: '@min_int' needs an integer type, and this is Point
   --> test/fail/limits.phi:10:12
    |
 10 |     return @min_int[Point]()
@@ -14,7 +14,7 @@ error[E0211]: '@min_int' needs an integer type, and this is Point
    |
    = help: the integer types are 'i8' through 'i64' and 'u8' through 'u64'
 
-error[E0208]: 18446744073709551615 does not fit in i64
+error[E0217]: 18446744073709551615 does not fit in i64
   --> test/fail/limits.phi:14:12
    |
 14 |     return @max_int[u64]()
@@ -22,7 +22,7 @@ error[E0208]: 18446744073709551615 does not fit in i64
    |
    = help: an untyped constant takes any type its value fits, and this value does not fit this one
 
-error[E0208]: -128 does not fit in u32
+error[E0217]: -128 does not fit in u32
   --> test/fail/limits.phi:18:12
    |
 18 |     return @min_int[i8]()

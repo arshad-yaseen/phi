@@ -1,10 +1,10 @@
-error[E0245]: a 'defer' runs on the way out, so it cannot leave again
+error[E0239]: a 'defer' runs on the way out, so it cannot leave again
  --> test/fail/defer_cannot_leave.phi:6:11
   |
 6 |     defer return 1
   |           ^^^^^^^^ no 'return' here
 
-error[E0245]: a 'defer' runs on the way out, so it cannot leave again
+error[E0239]: a 'defer' runs on the way out, so it cannot leave again
   --> test/fail/defer_cannot_leave.phi:12:15
    |
 12 |         defer break

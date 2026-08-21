@@ -1,4 +1,4 @@
-error[E0252]: i64 cannot be indexed
+error[E0213]: i64 cannot be indexed
  --> test/fail/not_indexable.phi:2:12
   |
 2 |     return n[0]

@@ -1,4 +1,4 @@
-error[E0209]: this overflows the 128 bits constants fold in
+error[E0242]: this overflows the 128 bits constants fold in
  --> test/fail/overflow.phi:1:52
   |
 1 | let huge = 170141183460469231731687303715884105727 + 1

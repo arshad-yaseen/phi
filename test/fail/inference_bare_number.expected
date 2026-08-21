@@ -1,4 +1,4 @@
-error[E0242]: a constant that has not landed has no type to read
+error[E0225]: a constant that has not landed has no type to read
  --> test/fail/inference_bare_number.phi:6:25
   |
 6 |     let planted = plant(5)
@@ -6,7 +6,7 @@ error[E0242]: a constant that has not landed has no type to read
   |
   = help: write the type argument, 'plant[i64](...)', type the value first, or annotate what the call feeds
 
-error[E0242]: a constant that has not landed has no type to read
+error[E0225]: a constant that has not landed has no type to read
   --> test/fail/inference_bare_number.phi:16:20
    |
 16 |     return counted("")
@@ -14,7 +14,7 @@ error[E0242]: a constant that has not landed has no type to read
    |
    = help: write the type argument, 'counted[i64](...)', type the value first, or annotate what the call feeds
 
-error[E0242]: a constant that has not landed has no type to read
+error[E0225]: a constant that has not landed has no type to read
   --> test/fail/inference_bare_number.phi:21:20
    |
 21 |     return counted([1, 2, 3])

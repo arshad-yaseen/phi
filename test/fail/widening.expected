@@ -1,4 +1,4 @@
-error[E0206]: expected f32, found f64
+error[E0214]: expected f32, found f64
  --> test/fail/widening.phi:2:12
   |
 2 |     return x
@@ -6,7 +6,7 @@ error[E0206]: expected f32, found f64
   |
   = help: nothing converts on its own
 
-error[E0206]: expected u32, found f64
+error[E0214]: expected u32, found f64
  --> test/fail/widening.phi:6:12
   |
 6 |     return x
@@ -14,7 +14,7 @@ error[E0206]: expected u32, found f64
   |
   = help: nothing converts on its own
 
-error[E0206]: expected i64, found u64
+error[E0214]: expected i64, found u64
   --> test/fail/widening.phi:10:12
    |
 10 |     return n

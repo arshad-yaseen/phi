@@ -1,4 +1,4 @@
-error[E0203]: types are not values
+error[E0209]: types are not values
  --> test/fail/type_as_value.phi:2:13
   |
 2 |     let t = i64

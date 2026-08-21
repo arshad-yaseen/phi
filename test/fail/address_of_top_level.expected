@@ -1,4 +1,4 @@
-error[E0214]: this must settle before anything runs, and taking an address happens at run time
+error[E0222]: this must settle before anything runs, and taking an address happens at run time
  --> test/fail/address_of_top_level.phi:2:9
   |
 2 | let p = &a

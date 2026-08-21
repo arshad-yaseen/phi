@@ -1,4 +1,4 @@
-error[E0213]: 'bump' takes 0 arguments, and this call has 1
+error[E0223]: 'bump' takes 0 arguments, and this call has 1
   --> test/fail/wrong_arity.phi:10:12
    |
 10 |     return counter.bump(1)

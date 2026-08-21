@@ -1,4 +1,4 @@
-error[E0254]: 'none' is already a member of this union
+error[E0231]: 'none' is already a member of this union
  --> test/fail/alias_duplicate_member.phi:3:21
   |
 3 | type Maybe[T] = T | none

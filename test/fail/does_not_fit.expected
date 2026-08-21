@@ -1,4 +1,4 @@
-error[E0208]: 256 does not fit in u8
+error[E0217]: 256 does not fit in u8
  --> test/fail/does_not_fit.phi:4:20
   |
 4 |     let wide: u8 = n

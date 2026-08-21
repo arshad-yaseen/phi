@@ -1,4 +1,4 @@
-error[E0250]: this cannot be reached
+error[E0238]: this cannot be reached
  --> test/fail/unreachable_code.phi:7:5
   |
 7 |     let ignored = a + 1
@@ -9,7 +9,7 @@ note: the block already left here
 6 |     return 1
   |     ^^^^^^^^
 
-error[E0250]: this cannot be reached
+error[E0238]: this cannot be reached
   --> test/fail/unreachable_code.phi:17:5
    |
 17 |     let ignored = 3

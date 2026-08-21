@@ -1,4 +1,4 @@
-error[E0117]: this line opens with '[', which may continue the line above
+error[E0114]: this line opens with '[', which may continue the line above
  --> test/fail/line_opens_with_bracket.phi:3:5
   |
 3 |     [1, 2]
@@ -6,7 +6,7 @@ error[E0117]: this line opens with '[', which may continue the line above
   |
   = help: move it up to continue that line, or write ',' before it to start a new one
 
-error[E0230]: this value goes nowhere
+error[E0235]: this value goes nowhere
  --> test/fail/line_opens_with_bracket.phi:3:5
   |
 3 |     [1, 2]

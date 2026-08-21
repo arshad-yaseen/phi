@@ -1,4 +1,4 @@
-error[E0234]: type 'Loop' is an alias of itself
+error[E0248]: type 'Loop' is an alias of itself
  --> test/fail/alias_cycle.phi:2:14
   |
 2 | type Twist = Loop

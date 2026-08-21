@@ -1,4 +1,4 @@
-error[E0204]: 'twice' is declared twice in this file
+error[E0202]: 'twice' is declared twice in this file
  --> test/fail/redeclared.phi:5:4
   |
 5 | fn twice(again: i64) i64 {

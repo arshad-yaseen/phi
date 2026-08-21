@@ -1,4 +1,4 @@
-error[E0208]: 3.5 does not fit in u32
+error[E0217]: 3.5 does not fit in u32
  --> test/fail/or_handler_mismatch.phi:4:19
   |
 4 |     return r or e {

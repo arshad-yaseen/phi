@@ -34,8 +34,9 @@
   refused.
 - A struct holding a unit type, or an array of one, builds to a binary.
 - `x or return` with a broken `x` reports `x` alone.
-- `E0267` is a union that was not narrowed, wherever one is reached into,
+- `E0215` is a union that was not narrowed, wherever one is reached into,
   assigned, or handed on.
+- Every diagnostic code is renumbered, closing the gaps the retired ones left.
 - A match arm that covers the whole union, `else` included, no longer stops the
   compiler.
 

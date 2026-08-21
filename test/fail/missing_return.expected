@@ -1,4 +1,4 @@
-error[E0231]: not every path through 'sometimes' returns its i64
+error[E0236]: not every path through 'sometimes' returns its i64
  --> test/fail/missing_return.phi:5:4
   |
 5 | fn sometimes(flag: bool) i64 {
