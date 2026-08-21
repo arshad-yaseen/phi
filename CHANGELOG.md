@@ -15,7 +15,6 @@
 - `@view(p, n)` is a view of `n` elements at a pointer, and `@int_from_ptr(p)`
   is its address.
 - `@splat` is now `@repeat`.
-- `std/mem` gains `Arena`, bump allocation over bytes the caller owns.
 - `std/mem` gains `fill`, which sets every element of a view to one value.
 - `std/sys` hands out pages with `page_size`, `alloc_pages`, and `free_pages`.
 - `@compile_error("why")` refuses a build wherever it is reached.

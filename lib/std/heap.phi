@@ -1,0 +1,50 @@
+import std/mem
+import std/sys
+
+/// The arena has no room left for what was asked.
+pub type OutOfMemory
+
+/// Size of the first block when you don't pre-reserve.
+let default_block: u32 = 64 * 1024
+/// Block sizes double up to this ceiling.
+let max_block: u32 = 64 * 1024 * 1024
+/// The payload of every block starts at least this aligned.
+let max_align: u64 = 16
+
+type Block = {
+    prev: *Block | none,
+    cap: u64, // total mapped bytes, header included
+    used: u64, // bytes handed out, header included
+}
+
+fn header() u64 {
+    // TODO: a top-level `let` once CTFE arrives
+    return mem.align_up(@size_of[Block](), max_align)
+}
+
+pub type Arena = {
+    tail: *Block | none,
+    next_size: u32,
+
+    pub fn init() Arena {
+        return .{ tail: none, next_size: default_block }
+    }
+
+    pub fn init_capacity(reserve: u64) Arena | OutOfMemory {
+        var self = Arena.init()
+        if reserve != 0 {
+            self.grow(reserve) or return
+        }
+        return self
+    }
+
+    pub fn deinit(self: *var Arena) {
+        var it = self.tail
+        loop {
+            let block = it or break
+            it = block.prev
+            sys.free_pages(@view(@ptr_cast[u8](block), block.cap))
+        }
+        self.* = Arena.init()
+    }
+}
