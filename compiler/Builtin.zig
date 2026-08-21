@@ -9,7 +9,6 @@ const Diagnostic = @import("Diagnostic.zig");
 const Layout = @import("Layout.zig");
 const Literal = @import("Literal.zig");
 const Pool = @import("Pool.zig");
-const Target = @import("Target.zig").Target;
 const Token = @import("Token.zig");
 
 const Closest = Compilation.Closest;
@@ -144,7 +143,7 @@ pub const Builtin = enum {
 
         if (args.len != form.args) {
             const name = try comp.fmt("@{s}", .{@tagName(builtin)});
-            try check.failArity(node, name, form.args, args.len, &.{});
+            try check.failArity(node, name, .value, form.args, args.len, &.{});
             return .poison;
         }
 
@@ -401,11 +400,8 @@ fn targetMember(
             else => continue,
         };
         if (comp.pool.sameText(comp.declAt(named).name, spelled) == false) continue;
-
-        const held = try comp.pool.intern(comp.gpa, .{ .value_unit = member });
-        return .{ .constant = try comp.pool.intern(comp.gpa, .{
-            .value_union = .{ .type = wanted, .value = held },
-        }) };
+        const held = try comp.pool.unitValue(comp.gpa, member);
+        return .{ .constant = try comp.pool.enter(comp.gpa, wanted, held) };
     }
 
     return check.refuse(node, .{
@@ -432,17 +428,18 @@ fn intCast(
     if (operand != .constant) {
         return check.emitOneValue(node, .int_cast, wanted, Check.refOf(operand));
     }
-
-    const written = comp.pool.keyOf(operand.constant).value_int.value;
-    if (Pool.fitsInt(written, wanted) == false) return check.refuse(operand_node, .{
-        .code = .out_of_range,
-        .message = try comp.fmt("{s} does not hold {d}", .{ try comp.typeName(wanted), written }),
-        .label = "does not fit",
-        .help = "'@int_fits' answers 'none' where a value does not fit",
-    });
-    return .{ .constant = try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = wanted, .value = written },
-    }) };
+    const cast = try comp.pool.castInt(comp.gpa, operand.constant, wanted) orelse {
+        return check.refuse(operand_node, .{
+            .code = .out_of_range,
+            .message = try comp.fmt("{s} does not hold {s}", .{
+                try comp.typeName(wanted),
+                try comp.spellValue(operand.constant),
+            }),
+            .label = "does not fit",
+            .help = "'@int_fits' answers 'none' where a value does not fit",
+        });
+    };
+    return .{ .constant = cast };
 }
 
 fn intFits(
@@ -463,15 +460,9 @@ fn intFits(
     if (operand != .constant) {
         return check.emitOneValue(node, .int_fits, result, Check.refOf(operand));
     }
-
-    const written = comp.pool.keyOf(operand.constant).value_int.value;
-    const member = if (Pool.fitsInt(written, wanted))
-        try comp.pool.intern(comp.gpa, .{ .value_int = .{ .type = wanted, .value = written } })
-    else
-        try comp.pool.intern(comp.gpa, .{ .value_unit = absent });
-    return .{ .constant = try comp.pool.intern(comp.gpa, .{
-        .value_union = .{ .type = result, .value = member },
-    }) };
+    const held = try comp.pool.castInt(comp.gpa, operand.constant, wanted) orelse
+        try comp.pool.unitValue(comp.gpa, absent);
+    return .{ .constant = try comp.pool.enter(comp.gpa, result, held) };
 }
 
 fn repeat(

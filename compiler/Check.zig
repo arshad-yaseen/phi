@@ -44,7 +44,7 @@ fn body(check: *const Check) *Builder {
 
 const type_params_max = AST.type_params_max;
 const bindings_max = type_params_max * 2;
-const call_args_max = 255;
+pub const call_args_max = 255;
 const type_depth_max = AST.nest_max;
 
 const Binding = struct { name: Pool.String, type: Pool.Index, bound: ?Pool.Index };
@@ -789,7 +789,7 @@ fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.Inde
     const wanted = comp.typeParamCount(decl_index);
     if (view.args.len != wanted) {
         const name = comp.pool.stringText(comp.declAt(decl_index).name);
-        try check.failTypeArity(node, name, wanted, view.args.len, &.{});
+        try check.failArity(node, name, .type, wanted, view.args.len, &.{});
         return .poison;
     }
 
@@ -1854,9 +1854,7 @@ fn bindCounter(check: *Check, name: Node.Index, counter: ?Counter) Allocator.Err
 fn countOn(check: *Check, counter: Counter) Allocator.Error!void {
     const comp = check.comp;
     const current = try check.emitOne(counter.node, .load, counter.type, counter.slot);
-    const one = try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = counter.type, .value = 1 },
-    });
+    const one = try comp.pool.int(comp.gpa, counter.type, 1);
     const next = try check.emit(counter.node, .add, counter.type, .{
         .bin = .{ .lhs = current, .rhs = .fromConstant(one) },
     });
@@ -2141,9 +2139,7 @@ fn matchLabels(
 }
 
 fn coveredByAny(pool: *const Pool, sets: []const Pool.Index, member: Pool.Index) bool {
-    for (sets) |set| {
-        if (pool.covers(set, member)) return true;
-    }
+    for (sets) |set| if (pool.covers(set, member)) return true;
     return false;
 }
 
@@ -2347,7 +2343,9 @@ fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
 
     // an arm naming every member proves what the name already is, which narrows nothing
     const narrowed: Ref = if (found == fact.type) source else switch (source.unwrap()) {
-        .constant => |constant| .fromConstant(try check.narrowConstant(constant, fact.type)),
+        .constant => |constant| .fromConstant(
+            try check.comp.pool.narrowTo(check.comp.gpa, constant, fact.type),
+        ),
         .inst => try check.emitOne(fact.node, .union_narrow, fact.type, source),
     };
     try check.comp.narrows.append(check.comp.gpa, .{
@@ -2355,20 +2353,6 @@ fn applyFact(check: *Check, fact: Fact) Allocator.Error!void {
         .type = fact.type,
         .ref = narrowed,
     });
-}
-
-fn narrowConstant(
-    check: *Check,
-    constant: Pool.Index,
-    proved: Pool.Index,
-) Allocator.Error!Pool.Index {
-    const comp = check.comp;
-    if (constant == .poison) return .poison;
-    const held = comp.pool.heldValue(constant);
-    return switch (try comp.pool.fit(comp.gpa, held, proved, .refused)) {
-        .value => |fitted| fitted,
-        .does_not_fit, .wrong_kind => .poison,
-    };
 }
 
 fn valueOfRef(ref: Ref, type_index: Pool.Index) Value {
@@ -2431,7 +2415,7 @@ fn checkIs(check: *Check, node: Node.Index, view: AST.View.Is) Allocator.Error!V
 
 fn settledTruth(check: *Check, node: Node.Index, holds: bool) Allocator.Error!Value {
     const bools = try check.boolType(node);
-    return .{ .constant = try check.truthValue(bools, holds) };
+    return .{ .constant = try check.comp.pool.truth(check.comp.gpa, bools, holds) };
 }
 
 fn labelWithin(
@@ -2476,21 +2460,17 @@ fn preludeType(
         .bool => Module.bool_name,
         .none => Module.none_name,
     };
-    const shaped: Pool.Index = shaped: {
-        const decl_index = check.visibleDecl(name) orelse break :shaped .poison;
+    if (check.visibleDecl(name)) |decl_index| {
         const found = try check.declAsType(decl_index, node);
-        switch (which) {
-            .bool => {
-                if (pool.isUnion(found) == false) break :shaped .poison;
-                if (pool.unionMemberCount(found) != 2) break :shaped .poison;
-                if (pool.keyOf(pool.unionMemberAt(found, 0)) != .type_unit) break :shaped .poison;
-                if (pool.keyOf(pool.unionMemberAt(found, 1)) != .type_unit) break :shaped .poison;
-            },
-            .none => if (pool.keyOf(found) != .type_unit) break :shaped .poison,
-        }
-        break :shaped found;
-    };
-    if (shaped == .poison) try check.fail(node, switch (which) {
+        const shaped = switch (which) {
+            .bool => pool.isUnion(found) and pool.unionMemberCount(found) == 2 and
+                pool.keyOf(pool.unionMemberAt(found, 0)) == .type_unit and
+                pool.keyOf(pool.unionMemberAt(found, 1)) == .type_unit,
+            .none => pool.keyOf(found) == .type_unit,
+        };
+        if (shaped) return found;
+    }
+    try check.fail(node, switch (which) {
         .bool => .{
             .code = .no_prelude_type,
             .message = "this needs 'bool', a union of two unit types",
@@ -2504,7 +2484,7 @@ fn preludeType(
             .help = "declare 'type none'",
         },
     });
-    return shaped;
+    return .poison;
 }
 
 fn truthOf(check: *const Check, bools: Pool.Index, constant: Pool.Index) ?bool {
@@ -2516,23 +2496,11 @@ fn truthOf(check: *const Check, bools: Pool.Index, constant: Pool.Index) ?bool {
     return null;
 }
 
-fn truthValue(check: *Check, bools: Pool.Index, truth: bool) Allocator.Error!Pool.Index {
-    if (bools == .poison) return .poison;
-    const pool = &check.comp.pool;
-    const member = pool.unionMemberAt(bools, if (truth) 0 else 1);
-    const held = try pool.intern(check.comp.gpa, .{ .value_unit = member });
-    return pool.intern(check.comp.gpa, .{ .value_union = .{ .type = bools, .value = held } });
-}
-
 fn conditionTruth(check: *const Check, cond: Ref) ?bool {
-    const pool = &check.comp.pool;
-    switch (cond.unwrap()) {
-        .inst => return null,
-        .constant => |value| {
-            if (value == .poison) return null;
-            return pool.memberOfValue(value) == pool.firstMember(pool.typeOfValue(value));
-        },
-    }
+    return switch (cond.unwrap()) {
+        .inst => null,
+        .constant => |value| if (value == .poison) null else check.comp.pool.holdsFirst(value),
+    };
 }
 
 fn checkCondition(check: *Check, node: Node.Index) Allocator.Error!Ref {
@@ -2709,17 +2677,6 @@ fn expectNothing(check: *Check, node: Node.Index, value: Value) Allocator.Error!
 }
 
 pub fn checkExpr(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
-    const value = try check.checkExprInner(node, hint);
-    if (check.comp.record_expr_types) {
-        if (check.builder) |builder| {
-            const found = check.typeOf(value);
-            if (found != .poison) try check.comp.rememberExprType(builder.instance, node, found);
-        }
-    }
-    return value;
-}
-
-fn checkExprInner(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     if (check.builder == null) {
         if (runtimeOnly(check.tree.nodeTag(node))) |what| return check.needRuntime(node, what);
     }
@@ -2819,8 +2776,7 @@ fn declAsValue(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocato
         },
         .unit_decl => {
             const unit_type = try comp.pool.intern(comp.gpa, .{ .type_unit = decl_index });
-            const value = try comp.pool.intern(comp.gpa, .{ .value_unit = unit_type });
-            return .{ .constant = value };
+            return .{ .constant = try comp.pool.unitValue(comp.gpa, unit_type) };
         },
         .import => {
             if (try check.ensured(decl_index, node) == null) return .poison;
@@ -2875,10 +2831,9 @@ fn appendText(check: *Check, run: []const u8) Allocator.Error!void {
     const before = comp.pool.scratch.items.len;
     // interning touches the pool's items, never its scratch, so the reservation holds
     try comp.pool.scratch.ensureUnusedCapacity(comp.gpa, run.len);
-    for (run) |byte| comp.pool.scratch.appendAssumeCapacity(try comp.pool.intern(
-        comp.gpa,
-        .{ .value_int = .{ .type = .u8_type, .value = byte } },
-    ));
+    for (run) |byte| {
+        comp.pool.scratch.appendAssumeCapacity(try comp.pool.int(comp.gpa, .u8_type, byte));
+    }
     assert(comp.pool.scratch.items.len == before + run.len);
 }
 
@@ -3046,37 +3001,19 @@ fn emitBinary(check: *Check, it: Operation) Allocator.Error!Value {
     }
 
     const result_type = if (how.compares) try check.boolType(it.lhs_node) else left;
-    return check.emitValue(it.node, how.tag, result_type, .{
+    return check.emitValue(it.node, .ofBinary(it.op), result_type, .{
         .bin = .{ .lhs = refOf(lhs), .rhs = refOf(rhs) },
     });
 }
 
-const Lowering = struct {
-    tag: IR.Inst.Tag,
-    takes: Takes = .number,
-    compares: bool = false,
-};
-
-const Takes = enum { number, whole, scalar };
+const Lowering = struct { takes: enum { number, whole, scalar } = .number, compares: bool = false };
 
 fn loweringOf(op: AST.BinaryOp) Lowering {
     return switch (op) {
-        .add => .{ .tag = .add },
-        .sub => .{ .tag = .sub },
-        .mul => .{ .tag = .mul },
-        .div => .{ .tag = .div },
-        .mod => .{ .tag = .mod, .takes = .whole },
-        .bit_and => .{ .tag = .bit_and, .takes = .whole },
-        .bit_or => .{ .tag = .bit_or, .takes = .whole },
-        .bit_xor => .{ .tag = .bit_xor, .takes = .whole },
-        .shift_left => .{ .tag = .shift_left, .takes = .whole },
-        .shift_right => .{ .tag = .shift_right, .takes = .whole },
-        .equal => .{ .tag = .cmp_eq, .takes = .scalar, .compares = true },
-        .not_equal => .{ .tag = .cmp_ne, .takes = .scalar, .compares = true },
-        .less_than => .{ .tag = .cmp_lt, .compares = true },
-        .less_or_equal => .{ .tag = .cmp_le, .compares = true },
-        .greater_than => .{ .tag = .cmp_gt, .compares = true },
-        .greater_or_equal => .{ .tag = .cmp_ge, .compares = true },
+        .add, .sub, .mul, .div => .{},
+        .mod, .bit_and, .bit_or, .bit_xor, .shift_left, .shift_right => .{ .takes = .whole },
+        .equal, .not_equal => .{ .takes = .scalar, .compares = true },
+        .less_than, .less_or_equal, .greater_than, .greater_or_equal => .{ .compares = true },
         // control flow, so `checkShortCircuit` and `checkOr` lower them as branches
         .bool_and, .bool_or => unreachable,
     };
@@ -3178,9 +3115,8 @@ fn checkOrFold(
     assert(check.builder == null);
     assert(comp.pool.typeOfValue(lhs) == lhs_type);
 
-    const held = comp.pool.heldValue(lhs);
     const first = comp.pool.firstMember(lhs_type);
-    if (comp.pool.typeOfValue(held) == first) return .{ .constant = held };
+    if (comp.pool.holdsFirst(lhs)) return .{ .constant = comp.pool.heldValue(lhs) };
 
     const rhs = try check.checkExpr(rhs_node, first);
     if (check.typeOf(rhs) == lhs_type) return rhs;
@@ -3422,9 +3358,7 @@ fn valueField(
                 const held = try check.viewValue(node, base, reached);
                 return check.emitOneValue(node, .slice_len, .u64_type, held);
             };
-            return .{ .constant = try comp.pool.intern(comp.gpa, .{
-                .value_int = .{ .type = .u64_type, .value = count },
-            }) };
+            return .{ .constant = try comp.pool.int(comp.gpa, .u64_type, count) };
         },
         .address => |slice| {
             const held = try check.viewValue(node, base, reached);
@@ -3585,7 +3519,8 @@ fn reportNoMember(
     if (comp.pool.isUnion(owner)) {
         return check.failToken(name_token, .{
             .code = .not_narrowed,
-            .message = try comp.fmt("{s} is a union, and reaching '{s}' means narrowing it first", .{
+            .message = try comp.fmt("{s} is a union, and reaching '{s}' means narrowing " ++
+                "it first", .{
                 try comp.typeName(owner), name_text,
             }),
             .label = "not narrowed",
@@ -3684,7 +3619,7 @@ fn suggestMember(
                 closest.consider(comp.pool.stringText(row.name));
             }
             const members = comp.declAt(comp.instanceDecl(instance)).members();
-            for (comp.declsIn(members)) |member| {
+            for (members.slice(comp.decls.items)) |member| {
                 if (member.kind == .fn_decl) closest.consider(comp.pool.stringText(member.name));
             }
         },
@@ -4295,9 +4230,7 @@ fn structIsBuildable(
 }
 
 fn allConstant(operands: []const Operand) bool {
-    for (operands) |operand| {
-        if (operand.value != .constant) return false;
-    }
+    for (operands) |operand| if (operand.value != .constant) return false;
     return true;
 }
 
@@ -4664,7 +4597,7 @@ fn checkCallResolved(
     if (explicit) |written| {
         if (written.len != own_count) {
             const declared = try comp.noteOne(decl.module, decl.node, "declared here");
-            try check.failTypeArity(node, fn_name, own_count, written.len, declared);
+            try check.failArity(node, fn_name, .type, own_count, written.len, declared);
             return .poison;
         }
         for (written, 0..) |argument, position| {
@@ -4726,7 +4659,7 @@ fn checkCallResolved(
     const expected = rows.len - receiver_count;
     if (args.len != expected) {
         const declared = try comp.noteOne(decl.module, decl.node, "declared here");
-        try check.failArity(node, fn_name, expected, args.len, declared);
+        try check.failArity(node, fn_name, .value, expected, args.len, declared);
         if (inferred == false) {
             for (args) |argument| _ = try check.checkExpr(argument, null);
         }
@@ -4750,28 +4683,10 @@ fn checkCallResolved(
     assert(comp.operands.items.len == start + receiver_count + args.len);
 
     const operands = comp.operands.items[start..];
-    if (check.builder == null) return check.settleCall(node, instance, operands);
+    if (check.builder == null) return Comptime.call(check, node, instance, operands);
 
     const payload = try check.emitExtra(&.{ instance.int(), @intCast(operands.len) }, operands);
     return check.emitValue(node, .call, return_type, .{ .payload = payload });
-}
-
-/// A call where a constant is wanted is run rather than lowered.
-fn settleCall(
-    check: *Check,
-    node: Node.Index,
-    instance: Pool.Instance,
-    operands: []const Operand,
-) Allocator.Error!Value {
-    const comp = check.comp;
-    const args = try comp.gpa.alloc(Pool.Index, operands.len);
-    defer comp.gpa.free(args);
-
-    for (operands, args) |operand, *argument| {
-        if (operand.value != .constant) return check.needRuntime(node, "this argument");
-        argument.* = operand.value.constant;
-    }
-    return Comptime.call(check, node, instance, args);
 }
 
 pub fn plural(count: u64) []const u8 {
@@ -5365,9 +5280,7 @@ fn baseLengthRef(check: *Check, elements: Elements, through: Place) Allocator.Er
     const comp = check.comp;
     const count = elements.len orelse
         return check.emitOne(elements.node, .slice_len, .u64_type, through.ref);
-    return .fromConstant(try comp.pool.intern(comp.gpa, .{
-        .value_int = .{ .type = .u64_type, .value = count },
-    }));
+    return .fromConstant(try comp.pool.int(comp.gpa, .u64_type, count));
 }
 
 fn emitCheck(
@@ -5509,9 +5422,7 @@ pub fn runtimeValue(ref: Ref, type_index: Pool.Index) Value {
 }
 
 pub fn untypedInt(check: *Check, value: i128) Allocator.Error!Value {
-    return .{ .constant = try check.comp.pool.intern(check.comp.gpa, .{
-        .value_int = .{ .type = .untyped_int_type, .value = value },
-    }) };
+    return .{ .constant = try check.comp.pool.int(check.comp.gpa, .untyped_int_type, value) };
 }
 
 pub fn refOf(value: Value) Ref {
@@ -5608,9 +5519,7 @@ fn unionMemberFor(pool: *const Pool, wanted: Pool.Index, found: Pool.Index) ?Poo
     for (pool.unionMembers(wanted)) |member| {
         if (Pool.widens(found, member)) return member;
         // permission is only ever given up, never gained
-        if (writesThrough(pool, found, member)) |writable| {
-            if (writable) return member;
-        }
+        if (writesThrough(pool, found, member)) |writable| if (writable) return member;
     }
     return null;
 }
@@ -5776,7 +5685,7 @@ fn runtimeOnly(tag: Node.Tag) ?[]const u8 {
     };
 }
 
-fn needRuntime(check: *Check, node: Node.Index, what: []const u8) Allocator.Error!Value {
+pub fn needRuntime(check: *Check, node: Node.Index, what: []const u8) Allocator.Error!Value {
     assert(check.builder == null);
     return check.refuse(node, .{
         .code = .not_constant,
@@ -5895,39 +5804,31 @@ pub fn refuseToken(
     return .poison;
 }
 
+pub const Arguments = enum { value, type };
+
 pub fn failArity(
     check: *Check,
     node: Node.Index,
     name: []const u8,
+    of: Arguments,
     wanted: u64,
     written: usize,
     notes: []const Diagnostic.Note,
 ) Allocator.Error!void {
     @branchHint(.cold);
     try check.fail(node, .{
-        .code = .wrong_arity,
-        .message = try check.comp.fmt("'{s}' takes {d} argument{s}, and this call has {d}", .{
-            name, wanted, plural(wanted), written,
-        }),
-        .label = "wrong number of arguments",
-        .notes = notes,
-    });
-}
-
-fn failTypeArity(
-    check: *Check,
-    node: Node.Index,
-    name: []const u8,
-    wanted: u64,
-    written: usize,
-    notes: []const Diagnostic.Note,
-) Allocator.Error!void {
-    @branchHint(.cold);
-    try check.fail(node, .{
-        .code = .generic_arguments,
-        .message = try check.comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
-            name, wanted, plural(wanted), written,
-        }),
+        .code = switch (of) {
+            .value => .wrong_arity,
+            .type => .generic_arguments,
+        },
+        .message = switch (of) {
+            .value => try check.comp.fmt("'{s}' takes {d} argument{s}, and this call has {d}", .{
+                name, wanted, plural(wanted), written,
+            }),
+            .type => try check.comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
+                name, wanted, plural(wanted), written,
+            }),
+        },
         .label = "wrong number of arguments",
         .notes = notes,
     });

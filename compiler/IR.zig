@@ -177,6 +177,19 @@ pub const Inst = struct {
         call,
         aggregate_init,
 
+        /// The tag a binary operator lowers to. Both enums list them in one order.
+        pub fn ofBinary(op: AST.BinaryOp) Tag {
+            assert(op != .bool_and);
+            assert(op != .bool_or);
+            return @enumFromInt(@intFromEnum(Tag.add) + @intFromEnum(op));
+        }
+
+        pub fn binaryOp(tag: Tag) AST.BinaryOp {
+            assert(@intFromEnum(tag) >= @intFromEnum(Tag.add));
+            assert(@intFromEnum(tag) <= @intFromEnum(Tag.cmp_ge));
+            return @enumFromInt(@intFromEnum(tag) - @intFromEnum(Tag.add));
+        }
+
         pub fn payload(tag: Tag) std.meta.FieldEnum(Data) {
             return switch (tag) {
                 .param, .local => .name,
@@ -235,4 +248,8 @@ comptime {
     assert(@sizeOf(Block) <= 24);
     // the largest instruction ref stays one below `none`, never colliding
     assert(@intFromEnum(Ref.none) == Ref.inst_bit + Ref.inst_count_max);
+    // the two ends pin the binary operators to their tags, so nothing slips in between
+    assert(Inst.Tag.ofBinary(.add) == .add);
+    assert(Inst.Tag.ofBinary(.greater_or_equal) == .cmp_ge);
+    assert(Inst.Tag.binaryOp(.cmp_ge) == .greater_or_equal);
 }

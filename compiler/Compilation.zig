@@ -26,13 +26,8 @@ modules: std.ArrayList(*Module) = .empty,
 module_map: std.StringHashMapUnmanaged(Module.Index) = .empty,
 decls: std.ArrayList(Decl) = .empty,
 instances: std.ArrayList(Instance) = .empty,
-instance_args: std.ArrayList(Pool.Index) = .empty,
-instance_map: std.HashMapUnmanaged(
-    Pool.Instance,
-    void,
-    InstanceIndexContext,
-    std.hash_map.default_max_load_percentage,
-) = .empty,
+/// Instances by declaration and bracket arguments, which every row's `args` ranges over.
+instance_map: ArgsMap(Decl.Index, Pool.Instance) = .empty,
 rows: std.ArrayList(Row) = .empty,
 /// Marked and restored, because one signature can demand another.
 rows_scratch: std.ArrayList(Row) = .empty,
@@ -53,17 +48,9 @@ blocks: std.ArrayList(IR.Block) = .empty,
 diagnostics: std.ArrayList(Entry) = .empty,
 /// One row per (module, code, anchor), so re-walked code reports once.
 reported: std.AutoHashMapUnmanaged(ReportKey, void) = .empty,
-expr_types: std.AutoHashMapUnmanaged(ExprKey, Pool.Index) = .empty,
 layouts: std.AutoHashMapUnmanaged(Pool.Index, Layout) = .empty,
 /// What a call the compiler ran answered, so it runs once per argument list.
-call_answers: std.HashMapUnmanaged(
-    Call,
-    Pool.Index,
-    CallContext,
-    std.hash_map.default_max_load_percentage,
-) = .empty,
-/// The arguments those calls were made with, which each `Call.args` ranges over.
-call_args: std.ArrayList(Pool.Index) = .empty,
+calls: ArgsMap(Pool.Instance, Pool.Index) = .empty,
 prelude: ?Module.Index = null,
 /// The bodies the program runs, in the order it reached them from its entry.
 program: []const Pool.Instance = &.{},
@@ -76,7 +63,6 @@ target: Target,
 root_dir: []const u8,
 root_stem: []const u8,
 std_dir: ?[]const u8,
-record_expr_types: bool,
 
 const Compilation = @This();
 
@@ -200,8 +186,6 @@ const ReportKey = struct {
     anchor_kind: ReportAnchor,
 };
 
-const ExprKey = struct { instance: Pool.Instance, node: AST.Node.Index };
-
 pub const Entry = struct {
     module: Module.Index,
     unit: ?Unit,
@@ -212,7 +196,6 @@ pub const Options = struct {
     root_path: []const u8,
     std_dir: ?[]const u8,
     target: Target = .host,
-    record_expr_types: bool = false,
     loader: Loader = .disk,
 };
 
@@ -229,7 +212,6 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .root_dir = std.fs.path.dirname(options.root_path) orelse ".",
         .root_stem = std.fs.path.stem(options.root_path),
         .std_dir = options.std_dir,
-        .record_expr_types = options.record_expr_types,
     };
 
     try comp.stack.ensureTotalCapacity(gpa, analyze_max);
@@ -260,20 +242,17 @@ pub fn deinit(comp: *Compilation) void {
     comp.builders.deinit(gpa);
     comp.narrows.deinit(gpa);
     comp.facts.deinit(gpa);
-    comp.call_answers.deinit(gpa);
-    comp.call_args.deinit(gpa);
+    comp.calls.deinit(gpa);
     comp.operands.deinit(gpa);
     comp.body_queue.deinit(gpa);
     comp.pool.deinit(gpa);
     comp.decls.deinit(gpa);
     comp.instances.deinit(gpa);
-    comp.instance_args.deinit(gpa);
     comp.instance_map.deinit(gpa);
     comp.rows.deinit(gpa);
     comp.rows_scratch.deinit(gpa);
     comp.diagnostics.deinit(gpa);
     comp.reported.deinit(gpa);
-    comp.expr_types.deinit(gpa);
     comp.layouts.deinit(gpa);
     comp.stack.deinit(gpa);
     comp.arena.deinit();
@@ -313,7 +292,11 @@ pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
 }
 
 /// A declaration settles, and every body it names joins the queue.
-fn settleDecl(comp: *Compilation, module: Module.Index, decl_index: Decl.Index) Allocator.Error!void {
+fn settleDecl(
+    comp: *Compilation,
+    module: Module.Index,
+    decl_index: Decl.Index,
+) Allocator.Error!void {
     const origin: Origin = .{ .module = module, .node = comp.declAt(decl_index).node };
     try comp.ensure(.forDecl(decl_index), origin);
     try comp.enqueueBodies(decl_index, origin);
@@ -418,36 +401,27 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
         .unanalyzed => {},
     }
 
-    if (comp.stack.items.len >= analyze_max) {
-        try comp.reportNode(origin.module, origin.node, .{
-            .code = .analysis_too_deep,
-            .message = try comp.fmt(
-                "checking this follows a chain more than {d} declarations deep",
-                .{analyze_max},
-            ),
-            .label = "the chain stops here",
-            .help = "a definition this far down a dependency chain is past what " ++
-                "the compiler follows",
-        });
-        comp.unitState(unit).* = .poisoned;
-        return;
-    }
+    if (comp.stack.items.len >= analyze_max) return comp.refuseUnit(unit, origin, .{
+        .code = .analysis_too_deep,
+        .message = try comp.fmt(
+            "checking this follows a chain more than {d} declarations deep",
+            .{analyze_max},
+        ),
+        .label = "the chain stops here",
+        .help = "a definition this far down a dependency chain is past what " ++
+            "the compiler follows",
+    });
 
     // only bracket arguments count against the instantiation limit
-    if (unit.kind != .decl) {
-        const depth = comp.instanceAt(@enumFromInt(unit.index)).depth;
-        if (depth > instantiate_max) {
-            try comp.reportNode(origin.module, origin.node, .{
-                .code = .instantiates_too_deep,
-                .message = try comp.fmt("this instantiates more than {d} levels deep", .{
-                    instantiate_max,
-                }),
-                .label = "the limit is here",
-                .help = "a type or function that instantiates itself never bottoms out",
-            });
-            comp.unitState(unit).* = .poisoned;
-            return;
-        }
+    if (unit.kind != .decl and comp.instanceAt(@enumFromInt(unit.index)).depth > instantiate_max) {
+        return comp.refuseUnit(unit, origin, .{
+            .code = .instantiates_too_deep,
+            .message = try comp.fmt("this instantiates more than {d} levels deep", .{
+                instantiate_max,
+            }),
+            .label = "the limit is here",
+            .help = "a type or function that instantiates itself never bottoms out",
+        });
     }
 
     comp.unitState(unit).* = .in_progress;
@@ -471,6 +445,17 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
         .body => try Check.fnBody(comp, @enumFromInt(unit.index)),
     };
     comp.unitState(unit).* = if (ok) .done else .poisoned;
+}
+
+fn refuseUnit(
+    comp: *Compilation,
+    unit: Unit,
+    origin: Origin,
+    report_value: Diagnostic.Report,
+) Allocator.Error!void {
+    @branchHint(.cold);
+    try comp.reportNode(origin.module, origin.node, report_value);
+    comp.unitState(unit).* = .poisoned;
 }
 
 fn runDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
@@ -517,36 +502,23 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
         .decl => switch (comp.declAt(@enumFromInt(unit.index)).kind) {
             .let => try comp.fmt("'{s}' takes its value from itself", .{name}),
             .type_alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
-            .import, .struct_decl, .unit_decl => "this definition goes in a circle",
-            .fn_decl, .extern_fn => "this definition goes in a circle",
+            .import, .struct_decl, .unit_decl, .fn_decl, .extern_fn => circle,
         },
         .alias => try comp.fmt("type '{s}' is an alias of itself", .{name}),
         .embedding => try comp.fmt("'{s}' holds itself by value, so it has no size", .{name}),
-        .rows, .signature, .body => "this definition goes in a circle",
-    };
-    const help: ?[]const u8 = switch (unit.kind) {
-        .embedding => try comp.fmt("break the cycle with a pointer: '*{s}' or '*{s} | none'", .{
-            name, name,
-        }),
-        else => null,
+        .rows, .signature, .body => circle,
     };
 
-    var position: usize = comp.stack.items.len;
-    for (comp.stack.items, 0..) |frame, at| {
-        if (frame.unit.eql(unit)) {
-            position = at;
-            break;
-        }
-    }
-    assert(position < comp.stack.items.len);
+    const position = for (comp.stack.items, 0..) |frame, at| {
+        if (frame.unit.eql(unit)) break at;
+    } else unreachable; // in progress means on the stack
 
-    var chain: std.ArrayList(Diagnostic.Note) = .empty;
-    defer chain.deinit(comp.gpa);
-    for (comp.stack.items[position + 1 ..]) |frame| {
-        try chain.append(comp.gpa, comp.noteAt(
-            frame.origin.module,
-            frame.origin.node,
-            try comp.fmt("which needs '{s}' here", .{try comp.unitName(frame.unit)}),
+    const below = comp.stack.items[position + 1 ..];
+    const chain = try comp.arena.allocator().alloc(Diagnostic.Note, below.len);
+    for (below, chain) |frame, *note| {
+        note.* = comp.noteAt(frame.origin.module, frame.origin.node, try comp.fmt(
+            "which needs '{s}' here",
+            .{try comp.unitName(frame.unit)},
         ));
     }
 
@@ -554,10 +526,15 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
         .code = if (unit.kind == .embedding) .size_cycle else .value_cycle,
         .message = message,
         .label = "the circle closes here",
-        .help = help,
-        .notes = try comp.notes(chain.items),
+        .help = if (unit.kind == .embedding)
+            try comp.fmt("break the cycle with a pointer: '*{s}' or '*{s} | none'", .{ name, name })
+        else
+            null,
+        .notes = chain,
     });
 }
+
+const circle = "this definition goes in a circle";
 
 fn unitName(comp: *Compilation, unit: Unit) Allocator.Error![]const u8 {
     switch (unit.kind) {
@@ -582,28 +559,22 @@ pub fn instantiate(
 
     if (args.len == 0) {
         if (comp.declAt(decl_index).plain_instance.unwrap()) |instance| return instance;
-        const index = try comp.newInstance(decl_index, args, origin);
+        const index = try comp.newInstance(decl_index, .empty, origin);
         comp.declPtr(decl_index).plain_instance = index.toOptional();
         return index;
     }
 
-    const gop = try comp.instance_map.getOrPutContextAdapted(
-        comp.gpa,
-        InstanceKey{ .decl = decl_index, .args = args },
-        InstanceKeyAdapter{ .comp = comp },
-        InstanceIndexContext{ .comp = comp },
-    );
-    if (gop.found_existing) return gop.key_ptr.*;
-
-    const index = try comp.newInstance(decl_index, args, origin);
-    gop.key_ptr.* = index;
-    return index;
+    const gop = try comp.instance_map.getOrPut(comp.gpa, decl_index, args);
+    if (gop.found_existing == false) {
+        gop.value_ptr.* = try comp.newInstance(decl_index, gop.args, origin);
+    }
+    return gop.value_ptr.*;
 }
 
 fn newInstance(
     comp: *Compilation,
     decl_index: Decl.Index,
-    args: []const Pool.Index,
+    args: Range,
     origin: Origin,
 ) Allocator.Error!Pool.Instance {
     if (comp.instances.items.len >= std.math.maxInt(u32)) return error.OutOfMemory;
@@ -613,11 +584,9 @@ fn newInstance(
     var depth: u32 = @intFromBool(args.len > 0);
     if (parent.unwrap()) |above| depth += comp.instanceAt(above).depth;
 
-    const args_start: u32 = @intCast(comp.instance_args.items.len);
-    try comp.instance_args.appendSlice(comp.gpa, args);
     try comp.instances.append(comp.gpa, .{
         .decl = decl_index,
-        .args = .{ .start = args_start, .len = @intCast(args.len) },
+        .args = args,
         .type = .poison,
         .rows = .empty,
         .origin = origin,
@@ -677,10 +646,6 @@ pub fn funcAt(comp: *const Compilation, index: IR.Func.Index) IR.Func {
     return comp.funcs.items[index.int()];
 }
 
-pub fn declsIn(comp: *const Compilation, range: Range) []const Decl {
-    return range.slice(comp.decls.items);
-}
-
 /// The declarations a module writes at its top level, the members inside them left out.
 pub fn ownDecls(comp: *const Compilation, range: Range) OwnDecls {
     return .{ .comp = comp, .range = range };
@@ -720,7 +685,7 @@ pub fn ensureRows(comp: *Compilation, index: Pool.Instance) Allocator.Error!void
 
 /// Invalidated by any other instantiation.
 pub fn instanceArgs(comp: *const Compilation, index: Pool.Instance) []const Pool.Index {
-    return comp.instanceAt(index).args.slice(comp.instance_args.items);
+    return comp.instanceAt(index).args.slice(comp.instance_map.lists.items);
 }
 
 /// Fields, or signature parameters. Invalidated by any other commit.
@@ -757,122 +722,100 @@ pub fn diagnosticAt(comp: *const Compilation, index: usize) Diagnostic {
     return comp.diagnostics.items[index].diagnostic;
 }
 
-/// What this call answered before, if the compiler has already run it this way.
-pub fn ranCall(comp: *const Compilation, instance: Pool.Instance, args: []const Pool.Index) ?Pool.Index {
-    return comp.call_answers.getAdapted(instance, CallAdapter{ .comp = comp, .args = args });
-}
-
-/// Keeps what a call answered, so the next one written the same way reads it.
-pub fn keepCall(
-    comp: *Compilation,
-    instance: Pool.Instance,
-    args: []const Pool.Index,
-    answer: Pool.Index,
-) Allocator.Error!void {
-    const start: u32 = @intCast(comp.call_args.items.len);
-    try comp.call_args.appendSlice(comp.gpa, args);
-    const call: Call = .{ .instance = instance, .args = .since(start, comp.call_args.items.len) };
-    try comp.call_answers.putContext(comp.gpa, call, answer, .{ .comp = comp });
-}
-
 pub fn instAt(comp: *const Compilation, at: u32) IR.Inst {
     assert(at < comp.insts.len);
     return comp.insts.get(at);
 }
 
-pub fn rememberExprType(
-    comp: *Compilation,
-    instance: Pool.Instance,
-    node: AST.Node.Index,
-    type_index: Pool.Index,
-) Allocator.Error!void {
-    assert(comp.record_expr_types);
-    assert(comp.pool.isType(type_index));
-    try comp.expr_types.put(comp.gpa, .{ .instance = instance, .node = node }, type_index);
+/// A map keyed by an id and an argument list, every list kept in one side table.
+fn ArgsMap(comptime Id: type, comptime V: type) type {
+    return struct {
+        map: std.HashMapUnmanaged(Key, V, Context, load_percentage) = .empty,
+        lists: std.ArrayList(Pool.Index) = .empty,
+
+        const Self = @This();
+        const load_percentage = std.hash_map.default_max_load_percentage;
+        const Key = struct { id: Id, args: Range };
+        const Lookup = struct { id: Id, args: []const Pool.Index };
+
+        pub const empty: Self = .{};
+
+        pub const GetOrPut = struct { found_existing: bool, value_ptr: *V, args: Range };
+
+        pub fn deinit(self: *Self, gpa: Allocator) void {
+            self.map.deinit(gpa);
+            self.lists.deinit(gpa);
+        }
+
+        pub fn get(self: *const Self, id: Id, args: []const Pool.Index) ?V {
+            const lookup: Lookup = .{ .id = id, .args = args };
+            return self.map.getAdapted(lookup, Adapter{ .lists = self.lists.items });
+        }
+
+        /// The slot for the key, and the range its arguments now live at.
+        pub fn getOrPut(
+            self: *Self,
+            gpa: Allocator,
+            id: Id,
+            args: []const Pool.Index,
+        ) Allocator.Error!GetOrPut {
+            // reserved first, so a key never points at arguments that failed to land
+            try self.lists.ensureUnusedCapacity(gpa, args.len);
+            const gop = try self.map.getOrPutContextAdapted(
+                gpa,
+                Lookup{ .id = id, .args = args },
+                Adapter{ .lists = self.lists.items },
+                Context{ .lists = self.lists.items },
+            );
+            if (gop.found_existing == false) {
+                const start: u32 = @intCast(self.lists.items.len);
+                self.lists.appendSliceAssumeCapacity(args);
+                gop.key_ptr.* = .{ .id = id, .args = .since(start, self.lists.items.len) };
+            }
+            return .{
+                .found_existing = gop.found_existing,
+                .value_ptr = gop.value_ptr,
+                .args = gop.key_ptr.args,
+            };
+        }
+
+        fn hash(id: Id, args: []const Pool.Index) u64 {
+            var hasher: std.hash.Wyhash = .init(@intFromEnum(id));
+            hasher.update(std.mem.sliceAsBytes(args));
+            return hasher.final();
+        }
+
+        const Context = struct {
+            lists: []const Pool.Index,
+
+            pub fn hash(context: Context, key: Key) u64 {
+                return Self.hash(key.id, key.args.slice(context.lists));
+            }
+
+            pub fn eql(context: Context, a: Key, b: Key) bool {
+                return a.id == b.id and std.mem.eql(
+                    Pool.Index,
+                    a.args.slice(context.lists),
+                    b.args.slice(context.lists),
+                );
+            }
+        };
+
+        /// Asks with arguments in hand, so a repeat costs no copy of them.
+        const Adapter = struct {
+            lists: []const Pool.Index,
+
+            pub fn hash(_: Adapter, lookup: Lookup) u64 {
+                return Self.hash(lookup.id, lookup.args);
+            }
+
+            pub fn eql(adapter: Adapter, lookup: Lookup, key: Key) bool {
+                return lookup.id == key.id and
+                    std.mem.eql(Pool.Index, lookup.args, key.args.slice(adapter.lists));
+            }
+        };
+    };
 }
-
-pub fn exprType(
-    comp: *const Compilation,
-    instance: Pool.Instance,
-    node: AST.Node.Index,
-) ?Pool.Index {
-    assert(instance.int() < comp.instances.items.len);
-    return comp.expr_types.get(.{ .instance = instance, .node = node });
-}
-
-/// A call already run, holding where its arguments live rather than the arguments.
-const Call = struct { instance: Pool.Instance, args: Range };
-
-/// The one hash a call has, whichever side of the map it is asked from.
-fn hashCall(instance: Pool.Instance, args: []const Pool.Index) u64 {
-    var hasher = std.hash.Wyhash.init(@intFromEnum(instance));
-    hasher.update(std.mem.sliceAsBytes(args));
-    return hasher.final();
-}
-
-const CallContext = struct {
-    comp: *const Compilation,
-
-    pub fn hash(context: CallContext, call: Call) u64 {
-        return hashCall(call.instance, call.args.slice(context.comp.call_args.items));
-    }
-
-    pub fn eql(context: CallContext, a: Call, b: Call) bool {
-        const args = context.comp.call_args.items;
-        return a.instance == b.instance and
-            std.mem.eql(Pool.Index, a.args.slice(args), b.args.slice(args));
-    }
-};
-
-/// Asks the map with arguments in hand, so a repeat costs no copy of them.
-const CallAdapter = struct {
-    comp: *const Compilation,
-    args: []const Pool.Index,
-
-    pub fn hash(adapter: CallAdapter, instance: Pool.Instance) u64 {
-        return hashCall(instance, adapter.args);
-    }
-
-    pub fn eql(adapter: CallAdapter, instance: Pool.Instance, call: Call) bool {
-        return call.instance == instance and
-            std.mem.eql(Pool.Index, adapter.args, call.args.slice(adapter.comp.call_args.items));
-    }
-};
-
-const InstanceKey = struct { decl: Decl.Index, args: []const Pool.Index };
-
-const InstanceKeyAdapter = struct {
-    comp: *const Compilation,
-
-    pub fn hash(_: InstanceKeyAdapter, key: InstanceKey) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        hasher.update(std.mem.asBytes(&key.decl));
-        hasher.update(std.mem.sliceAsBytes(key.args));
-        return hasher.final();
-    }
-
-    pub fn eql(adapter: InstanceKeyAdapter, key: InstanceKey, index: Pool.Instance) bool {
-        const instance = adapter.comp.instanceAt(index);
-        if (instance.decl != key.decl) return false;
-        return std.mem.eql(Pool.Index, key.args, adapter.comp.instanceArgs(index));
-    }
-};
-
-const InstanceIndexContext = struct {
-    comp: *const Compilation,
-
-    pub fn hash(context: InstanceIndexContext, index: Pool.Instance) u64 {
-        const instance = context.comp.instanceAt(index);
-        return (InstanceKeyAdapter{ .comp = context.comp }).hash(.{
-            .decl = instance.decl,
-            .args = context.comp.instanceArgs(index),
-        });
-    }
-
-    pub fn eql(_: InstanceIndexContext, a: Pool.Instance, b: Pool.Instance) bool {
-        return a == b;
-    }
-};
 
 pub fn reportNode(
     comp: *Compilation,
@@ -965,29 +908,28 @@ pub fn adoptParseErrors(
     }
 }
 
+/// The notes, then the instantiation chain behind the report, its middle elided past eight.
 fn withTrail(
     comp: *Compilation,
     notes_in: []const Diagnostic.Note,
 ) Allocator.Error![]Diagnostic.Note {
-    const head_max = 4;
-    const tail_max = 4;
+    const shown_max = 8;
+    const head = shown_max / 2;
 
     var depth: u32 = 0;
     var current = comp.currentInstance();
     while (current.unwrap()) |instance| : (current = comp.instanceAt(instance).parent) {
         const row = comp.instanceAt(instance);
-        if (row.args.len > 0) depth += 1;
+        depth += @intFromBool(row.args.len > 0);
         // a parent is created before its child, so the walk must descend
         if (row.parent.unwrap()) |above| assert(above.int() < instance.int());
     }
-
-    const elided = depth -| (head_max + tail_max);
+    const elided = depth -| shown_max;
     const total = notes_in.len + depth - elided + @intFromBool(elided > 0);
     if (total == 0) return &.{};
 
     const out = try comp.arena.allocator().alloc(Diagnostic.Note, total);
     @memcpy(out[0..notes_in.len], notes_in);
-
     var at = notes_in.len;
     var position: u32 = 0;
     current = comp.currentInstance();
@@ -995,20 +937,19 @@ fn withTrail(
         const row = comp.instanceAt(instance);
         if (row.args.len == 0) continue;
         defer position += 1;
-        if (elided > 0 and position == head_max) {
+        if (position == head and elided > 0) {
             out[at] = .{ .message = try comp.fmt("and {d} more instantiation level{s}", .{
                 elided, Check.plural(elided),
             }) };
             at += 1;
         }
-        if (elided > 0 and position >= head_max and position < head_max + elided) continue;
+        if (position >= head and position < head + elided) continue;
         out[at] = comp.noteAt(row.origin.module, row.origin.node, try comp.fmt(
             "while checking '{s}', needed here",
             .{try comp.instanceName(instance)},
         ));
         at += 1;
     }
-
     assert(at == total);
     return out;
 }
@@ -1027,17 +968,13 @@ pub fn noteAt(
     };
 }
 
-pub fn notes(comp: *Compilation, list: []const Diagnostic.Note) Allocator.Error![]Diagnostic.Note {
-    return comp.arena.allocator().dupe(Diagnostic.Note, list);
-}
-
 pub fn noteOne(
     comp: *Compilation,
     module: Module.Index,
     node: AST.Node.Index,
     message: []const u8,
 ) Allocator.Error![]Diagnostic.Note {
-    return comp.notes(&.{comp.noteAt(module, node, message)});
+    return comp.arena.allocator().dupe(Diagnostic.Note, &.{comp.noteAt(module, node, message)});
 }
 
 pub fn fmt(

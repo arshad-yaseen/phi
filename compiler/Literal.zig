@@ -19,9 +19,7 @@ pub fn decodeNumber(arena: Allocator, text: []const u8) Allocator.Error!Decoded 
 
     // most literals are plain decimals, and 18 digits cannot overflow
     if (text.len <= 18) fast: {
-        if (text.len > 1) {
-            if (text[0] == '0') break :fast;
-        }
+        if (text.len > 1 and text[0] == '0') break :fast;
         var value: i128 = 0;
         for (text) |byte| {
             if (byte < '0') break :fast;
@@ -490,9 +488,7 @@ fn expectBytes(literal: []const u8, want: []const u8) !void {
 
 fn expectRefused(literal: []const u8) !void {
     var reading = bytesOf(literal);
-    while (reading.next()) |piece| {
-        if (piece == .refused) return;
-    }
+    while (reading.next()) |piece| if (piece == .refused) return;
     return error.NotRefused;
 }
 

@@ -231,9 +231,7 @@ fn runCompile(
         var actual: Writer.Allocating = .init(gpa);
         defer actual.deinit();
         try compiler.Spell.writeTree(tree, &actual.writer);
-        if (try settle(gpa, io, stem, .tree, actual.written(), update, log) == false) {
-            ok = false;
-        }
+        if (try settle(gpa, io, stem, .tree, actual.written(), update, log) == false) ok = false;
     }
 
     if (goldens.contains(.expected)) {
@@ -260,9 +258,7 @@ fn runCompile(
         var actual: Writer.Allocating = .init(gpa);
         defer actual.deinit();
         try comp.dumpIR(&actual.writer);
-        if (try settle(gpa, io, stem, .ir, actual.written(), update, log) == false) {
-            ok = false;
-        }
+        if (try settle(gpa, io, stem, .ir, actual.written(), update, log) == false) ok = false;
     }
 
     if (goldens.contains(.c)) {
@@ -270,9 +266,7 @@ fn runCompile(
     }
 
     if (goldens.contains(.out) or goldens.contains(.trap)) {
-        if (try runBackend(gpa, io, &comp, path, stem, goldens, update, log) == false) {
-            ok = false;
-        }
+        if (try runBackend(gpa, io, &comp, path, stem, goldens, update, log) == false) ok = false;
     }
     return ok;
 }
@@ -430,9 +424,7 @@ fn misaligned(stderr: []const u8) bool {
 
 /// Windows text mode writes \r\n, so the goldens read platform newlines alike.
 fn programOutput(gpa: Allocator, output: []const u8) ![]u8 {
-    if (builtin.os.tag == .windows) {
-        return std.mem.replaceOwned(u8, gpa, output, "\r\n", "\n");
-    }
+    if (builtin.os.tag == .windows) return std.mem.replaceOwned(u8, gpa, output, "\r\n", "\n");
     return gpa.dupe(u8, output);
 }
 
@@ -454,7 +446,8 @@ fn settle(
         return true;
     }
 
-    const golden_text = std.Io.Dir.cwd().readFileAlloc(io, golden_path, gpa, .limited(1 << 22)) catch {
+    const limit: std.Io.Limit = .limited(1 << 22);
+    const golden_text = std.Io.Dir.cwd().readFileAlloc(io, golden_path, gpa, limit) catch {
         try log.print("{s}: no golden yet, run 'zig build test-update'\n", .{golden_path});
         return false;
     };

@@ -1,0 +1,17 @@
+import std/io
+
+type Timeout
+
+// a union the compiler ran into a wider one enters as what it holds
+fn widen(x: u32 | none) u32 | none | Timeout {
+    return x
+}
+
+let held: u32 | none | Timeout = widen(7)
+
+fn main() {
+    if held is u32 {
+        io.print(held)
+        io.print("\n")
+    }
+}

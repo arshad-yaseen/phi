@@ -144,9 +144,7 @@ pub fn register(
     // one instruction per two tree nodes, measured against bodies that lower
     try comp.insts.ensureTotalCapacity(gpa, comp.insts.len + module.tree.nodes.len / 2);
 
-    if (module.tree.errors.len > 0) {
-        try comp.adoptParseErrors(index, module.tree.errors);
-    }
+    if (module.tree.errors.len > 0) try comp.adoptParseErrors(index, module.tree.errors);
 
     try registerDecls(comp, module, index);
     module.decls = .since(module.decls.start, comp.decls.items.len);

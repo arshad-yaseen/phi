@@ -267,9 +267,7 @@ fn unionFormOf(pool: *const Pool, index: Pool.Index) UnionForm {
         assert(pool.unionHas(index, it.member));
         return .{ .niche = it };
     }
-    for (pool.unionMembers(index)) |member| {
-        if (pool.keyOf(member) != .type_unit) return .tagged;
-    }
+    for (pool.unionMembers(index)) |member| if (pool.keyOf(member) != .type_unit) return .tagged;
     return .tag_only;
 }
 
@@ -934,9 +932,11 @@ fn writeInst(backend: *C, local: Position) Fail!void {
             try backend.put(.{ " + ", made.start, ", (uint64_t)(", made.end, " - ", made.start });
             try backend.put(.{") };\n"});
         },
-        .slice_from => try backend.put(.{
-            assign(local), "(", inst.type, "){ ", inst.data.bin.lhs, ", ", inst.data.bin.rhs, " };\n",
-        }),
+        .slice_from => {
+            const bin = inst.data.bin;
+            try backend.put(.{ assign(local), "(", inst.type, "){ ", bin.lhs, ", " });
+            try backend.put(.{ bin.rhs, " };\n" });
+        },
         .elem_ptr => try backend.put(.{
             assign(local), base(inst.data.bin.lhs), " + ", inst.data.bin.rhs, ";\n",
         }),
@@ -1221,9 +1221,7 @@ fn writeUnionNarrow(backend: *C, local: Position, inst: IR.Inst) Fail!void {
     const pool = &backend.comp.pool;
     assert(pool.isUnion(backend.typeOfRef(inst.data.un)));
 
-    if (pool.isUnion(inst.type)) {
-        return backend.writeUnionConvert(local, inst.type, inst.data.un);
-    }
+    if (pool.isUnion(inst.type)) return backend.writeUnionConvert(local, inst.type, inst.data.un);
 
     try backend.put(.{assign(local)});
     if (pool.keyOf(inst.type) == .type_unit) {

@@ -447,9 +447,7 @@ pub fn writeFunc(comp: *const Compilation, body: IR.Func, writer: *Writer) Write
     for (comp.funcBlocks(body), 0..) |block, block_index| {
         try writer.print("b{d}:\n", .{block_index});
 
-        for (block.first..block.end()) |raw| {
-            try inst(comp, body, @intCast(raw), writer);
-        }
+        for (block.first..block.end()) |raw| try inst(comp, body, @intCast(raw), writer);
         try terminator(comp, block.terminator, writer);
     }
 }

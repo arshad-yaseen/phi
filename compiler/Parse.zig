@@ -517,9 +517,7 @@ fn parseList(self: *Parse, list: List) Allocator.Error!void {
             try self.scratch.append(self.gpa, try list.item(self));
         } else {
             if (list.bails.contains(self.current())) break;
-            if (in_junk_run == false) {
-                try self.errExpected(list.code, list.expected, list.help);
-            }
+            if (in_junk_run == false) try self.errExpected(list.code, list.expected, list.help);
             in_junk_run = true;
             try self.scratch.append(self.gpa, try self.skipItem(list.closer));
         }
@@ -1210,9 +1208,7 @@ fn parseLoopExit(self: *Parse) Allocator.Error!Node.Index {
     const is_break = self.at(.kw_break);
     const keyword = self.nextToken();
 
-    if (self.eatToken(.colon) != null) {
-        try self.expectToken(.ident);
-    }
+    if (self.eatToken(.colon) != null) try self.expectToken(.ident);
     if (is_break == false) {
         return self.addNode(.{
             .tag = .continue_expr,

@@ -300,9 +300,7 @@ pub fn deinit(pool: *Pool, gpa: Allocator) void {
 
 pub fn intern(pool: *Pool, gpa: Allocator, key: Key) Allocator.Error!Index {
     const small = smallIntSlot(key);
-    if (small) |at| {
-        if (pool.small_ints[at] != .poison) return pool.small_ints[at];
-    }
+    if (small) |at| if (pool.small_ints[at] != .poison) return pool.small_ints[at];
 
     const gop = try pool.map.getOrPutContextAdapted(
         gpa,
@@ -562,9 +560,7 @@ pub fn covers(pool: *const Pool, set: Index, part: Index) bool {
 /// Every alternative of `narrow` is one of `wide`.
 pub fn subsumes(pool: *const Pool, wide: Index, narrow: Index) bool {
     if (pool.isUnion(narrow) == false) return pool.covers(wide, narrow);
-    for (pool.unionMembers(narrow)) |member| {
-        if (pool.covers(wide, member) == false) return false;
-    }
+    for (pool.unionMembers(narrow)) |member| if (pool.covers(wide, member) == false) return false;
     return true;
 }
 
@@ -666,9 +662,7 @@ pub fn sameText(pool: *const Pool, name: String, text: []const u8) bool {
 /// Interning zero-terminates, so a longer `text` mismatches on the zero.
 fn spells(bytes: []const u8, name: String, text: []const u8) bool {
     const stored = bytes[name.int()..];
-    for (text, 0..) |byte, at| {
-        if (stored[at] != byte) return false;
-    }
+    for (text, 0..) |byte, at| if (stored[at] != byte) return false;
     return stored[text.len] == 0;
 }
 
@@ -694,6 +688,54 @@ pub fn memberOfValue(pool: *const Pool, value: Index) Index {
 
 pub fn heldValue(pool: *const Pool, value: Index) Index {
     return pool.keyOf(value).value_union.value;
+}
+
+/// Whether a union constant holds its type's first member, the edge a condition takes.
+pub fn holdsFirst(pool: *const Pool, value: Index) bool {
+    return pool.memberOfValue(value) == pool.firstMember(pool.typeOfValue(value));
+}
+
+pub fn int(pool: *Pool, gpa: Allocator, type_index: Index, value: i128) Allocator.Error!Index {
+    assert(isInteger(type_index));
+    assert(fitsInt(value, type_index));
+    return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
+}
+
+/// An integer constant retyped to `wanted`, or null where the type does not hold it.
+pub fn castInt(pool: *Pool, gpa: Allocator, value: Index, wanted: Index) Allocator.Error!?Index {
+    assert(isSizedInt(wanted));
+    const written = pool.keyOf(value).value_int.value;
+    if (fitsInt(written, wanted) == false) return null;
+    return try pool.int(gpa, wanted, written);
+}
+
+pub fn unitValue(pool: *Pool, gpa: Allocator, unit_type: Index) Allocator.Error!Index {
+    return pool.intern(gpa, .{ .value_unit = unit_type });
+}
+
+/// `value` as a constant of `union_type`. One already in a union enters as what it holds.
+pub fn enter(pool: *Pool, gpa: Allocator, union_type: Index, value: Index) Allocator.Error!Index {
+    const held = switch (pool.keyOf(value)) {
+        .value_union => |it| it.value,
+        else => value,
+    };
+    return pool.intern(gpa, .{ .value_union = .{ .type = union_type, .value = held } });
+}
+
+/// A union constant narrowed to `wanted`, which is poison where it holds no member of it.
+pub fn narrowTo(pool: *Pool, gpa: Allocator, value: Index, wanted: Index) Allocator.Error!Index {
+    if (value == .poison) return .poison;
+    const held = pool.heldValue(value);
+    if (pool.covers(wanted, pool.typeOfValue(held)) == false) return .poison;
+    if (pool.isUnion(wanted) == false) return held;
+    return pool.enter(gpa, wanted, held);
+}
+
+/// Yes or no in `bools`, two unit members of which the first means yes.
+pub fn truth(pool: *Pool, gpa: Allocator, bools: Index, holds: bool) Allocator.Error!Index {
+    if (bools == .poison) return .poison;
+    const member = pool.unionMemberAt(bools, if (holds) 0 else 1);
+    return pool.enter(gpa, bools, try pool.unitValue(gpa, member));
 }
 
 pub fn structOf(pool: *const Pool, index: Index) Instance {
@@ -979,9 +1021,7 @@ pub fn fit(
         var members = pool.membersOf(type_index);
         while (members.next()) |member| {
             switch (try pool.fit(gpa, value, member, widen)) {
-                .value => |fitted| return .{ .value = try pool.intern(gpa, .{
-                    .value_union = .{ .type = type_index, .value = fitted },
-                }) },
+                .value => |fitted| return .{ .value = try pool.enter(gpa, type_index, fitted) },
                 .does_not_fit => wrong_size = true,
                 .wrong_kind => {},
             }
@@ -1013,7 +1053,7 @@ pub fn fit(
         .value_int => |it| {
             if (isInteger(type_index)) {
                 if (fitsInt(it.value, type_index) == false) return .does_not_fit;
-                return .{ .value = try pool.internNumber(gpa, it.value, type_index) };
+                return .{ .value = try pool.int(gpa, type_index, it.value) };
             }
             if (isFloat(type_index)) {
                 // an integer is exact, so a float that would round it loses a value
@@ -1037,7 +1077,7 @@ pub fn fit(
                 if (it.value < -0x1p127 or it.value >= 0x1p127) return .does_not_fit;
                 const as_int: i128 = @intFromFloat(it.value);
                 if (fitsInt(as_int, type_index) == false) return .does_not_fit;
-                return .{ .value = try pool.internNumber(gpa, as_int, type_index) };
+                return .{ .value = try pool.int(gpa, type_index, as_int) };
             }
             return .wrong_kind;
         },
@@ -1127,11 +1167,9 @@ pub fn sharedType(left: Index, right: Index) ?Index {
 
 fn internInt(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Fold {
     assert(isInteger(type_index));
-    if (fitsInt(value, type_index)) {
-        return .{ .value = try pool.internNumber(gpa, value, type_index) };
-    }
+    if (fitsInt(value, type_index)) return .{ .value = try pool.int(gpa, type_index, value) };
     return .{ .does_not_fit = .{
-        .value = try pool.internNumber(gpa, value, .untyped_int_type),
+        .value = try pool.int(gpa, .untyped_int_type, value),
         .type = type_index,
     } };
 }
@@ -1144,12 +1182,9 @@ fn internFloat(pool: *Pool, gpa: Allocator, value: f64, type_index: Index) Alloc
 }
 
 fn internNumber(pool: *Pool, gpa: Allocator, value: i128, type_index: Index) Allocator.Error!Index {
-    if (isFloat(type_index)) {
-        const exact = exactFloat(value, type_index) orelse unreachable; // callers checked the fit
-        return pool.intern(gpa, .{ .value_float = .{ .type = type_index, .value = exact } });
-    }
-    assert(fitsInt(value, type_index));
-    return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
+    if (isInteger(type_index)) return pool.int(gpa, type_index, value);
+    const exact = exactFloat(value, type_index) orelse unreachable; // callers checked the fit
+    return pool.intern(gpa, .{ .value_float = .{ .type = type_index, .value = exact } });
 }
 
 /// Constants fold at 64 bits, so landing on an `f32` rounds to what it can hold.
