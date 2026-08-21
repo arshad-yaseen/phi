@@ -7,7 +7,8 @@
 - A settled `if` or `match` picks its arm before anything runs, and stands in a
   top-level `let` and in a type.
 - `std/sys` is where the standard library reaches the operating system.
-- `std/sys/c` names the C integer types.
+- `std/sys/c` names the C integer types and the calls std reaches the system
+  through.
 - `std/target` names the operating system, the architecture, and the width of an
   address.
 - A field without `pub` is private to its file.
@@ -16,8 +17,7 @@
 - `@splat` is now `@repeat`.
 - `std/mem` gains `Arena`, bump allocation over bytes the caller owns.
 - `std/mem` gains `fill`, which sets every element of a view to one value.
-- `std/sys` hands out pages with `page_size`, `map_pages`, `unmap_pages`, and
-  `release_pages`.
+- `std/sys` hands out pages with `page_size`, `alloc_pages`, and `free_pages`.
 - `@compile_error("why")` refuses a build wherever it is reached.
 - `@int_cast(n)` converts, and stops the program where the type does not hold
   the value.

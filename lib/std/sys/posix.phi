@@ -1,0 +1,26 @@
+import std/debug
+import std/math
+import std/sys/c
+
+pub fn page_size() u64 {
+    return @int_cast[u64](c.sysconf(c._SC_PAGESIZE))
+}
+
+pub fn mmap_anonymous(bytes: u64) []var u8 | none {
+    let len = @int_fits[c.size_t](bytes) or return none
+    let flags = c.MAP_PRIVATE | c.MAP_ANONYMOUS
+    let base = c.mmap(none, len, c.PROT_READ | c.PROT_WRITE, flags, -1, 0) or return none
+    if @int_from_ptr(base) == c.MAP_FAILED {
+        return none
+    }
+    return @view(base, bytes)
+}
+
+pub fn munmap(pages: []var u8) {
+    debug.assert(c.munmap(pages.ptr, @int_cast[c.size_t](pages.len)) == 0)
+}
+
+pub fn write(fd: c.int, bytes: []u8) u64 | none {
+    let asked = @int_cast[c.size_t](math.min(bytes.len, c.write_count_max))
+    return @int_fits[u64](c.write(fd, bytes.ptr, asked)) or return none
+}

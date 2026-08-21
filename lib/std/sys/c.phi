@@ -60,3 +60,47 @@ pub type off_t = match target.os {
     target.windows => long   // MSVC CRT _off_t is 32-bit, _off64_t is the wide one
     else => i64
 }
+
+pub let PROT_READ: int = 0x01
+pub let PROT_WRITE: int = 0x02
+
+pub let MAP_PRIVATE: int = 0x02
+
+pub let MAP_ANONYMOUS: int = match target.os {
+    target.macos => 0x1000
+    else => 0x20
+}
+
+pub let _SC_PAGESIZE: int = match target.os {
+    target.macos => 29
+    else => 30
+}
+
+/// What `mmap` answers instead of nothing where it refuses.
+pub let MAP_FAILED: size_t = @max_int[size_t]()
+
+/// What one write takes at most, past which Linux hands back a prefix and the
+/// others refuse.
+pub let write_count_max: u64 = match target.os {
+    target.linux => 0x7ffff000
+    else => 0x7fffffff
+}
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/write.html
+pub extern fn write(fd: int, buf: *u8, len: size_t) ssize_t
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/sysconf.html
+pub extern fn sysconf(name: int) long
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/mmap.html
+pub extern fn mmap(
+    addr: *u8 | none,
+    len: size_t,
+    prot: int,
+    flags: int,
+    fd: int,
+    offset: off_t,
+) *var u8 | none
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/munmap.html
+pub extern fn munmap(addr: *u8 | none, len: size_t) int

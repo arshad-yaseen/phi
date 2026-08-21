@@ -27,13 +27,13 @@ typedef struct pt50 pt50;
 struct pt50 { union { uint64_t m0; }; uint8_t tag; }; // u64 | none
 _Static_assert(sizeof(pt50) == 16, "phi sized u64 | none at 16 bytes");
 _Static_assert(_Alignof(pt50) == 8, "phi aligned u64 | none at 8 bytes");
-typedef struct pt73 pt73;
-struct pt73 { uint8_t elems[10]; }; // [10]u8
-_Static_assert(sizeof(pt73) == 10, "phi sized [10]u8 at 10 bytes");
-_Static_assert(_Alignof(pt73) == 1, "phi aligned [10]u8 at 1 bytes");
+typedef struct pt74 pt74;
+struct pt74 { uint8_t elems[10]; }; // [10]u8
+_Static_assert(sizeof(pt74) == 10, "phi sized [10]u8 at 10 bytes");
+_Static_assert(_Alignof(pt74) == 1, "phi aligned [10]u8 at 1 bytes");
 
 static const pt29 pd30 = { .elems = { ((uint8_t)72ULL), ((uint8_t)101ULL), ((uint8_t)108ULL), ((uint8_t)108ULL), ((uint8_t)111ULL), ((uint8_t)44ULL), ((uint8_t)32ULL), ((uint8_t)119ULL), ((uint8_t)111ULL), ((uint8_t)114ULL), ((uint8_t)108ULL), ((uint8_t)100ULL), ((uint8_t)33ULL), ((uint8_t)10ULL) } };
-static const pt73 pd74 = { .elems = { ((uint8_t)48ULL), ((uint8_t)49ULL), ((uint8_t)50ULL), ((uint8_t)51ULL), ((uint8_t)52ULL), ((uint8_t)53ULL), ((uint8_t)54ULL), ((uint8_t)55ULL), ((uint8_t)56ULL), ((uint8_t)57ULL) } };
+static const pt74 pd75 = { .elems = { ((uint8_t)48ULL), ((uint8_t)49ULL), ((uint8_t)50ULL), ((uint8_t)51ULL), ((uint8_t)52ULL), ((uint8_t)53ULL), ((uint8_t)54ULL), ((uint8_t)55ULL), ((uint8_t)56ULL), ((uint8_t)57ULL) } };
 
 extern int64_t write(int32_t, uint8_t*, uint64_t);
 
@@ -45,7 +45,7 @@ static pt50 p4_write(int32_t v0 /* fd */, pt15 v1 /* bytes */);
 static void p5_assert(uint8_t v0 /* ok */);
 static pt15 p6_decimal_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */);
 static pt15 p7_decimal_signed(pt15 v0 /* buf */, int64_t v1 /* value */);
-static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */);
+static pt50 p8_write(int32_t v0 /* fd */, pt15 v1 /* bytes */);
 static uint64_t p9_min(uint64_t v0 /* a */, uint64_t v1 /* b */);
 
 #line 3 "test/pass/hello.phi"
@@ -240,14 +240,14 @@ b4:;
     goto b1;
 }
 
-#line 15 "lib/std/sys.phi"
+#line 13 "lib/std/sys.phi"
 // fn write
 static pt50 p4_write(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     pt50 v2;
 
 b0:;
-#line 17 "lib/std/sys.phi"
-    v2 = p8_write_bytes(v0, v1);
+#line 16 "lib/std/sys.phi"
+    v2 = p8_write(v0, v1);
     return v2;
 }
 
@@ -323,11 +323,11 @@ b2:;
     if (((uint64_t)10ULL) == 0) __builtin_trap();
     v15 = v14 % ((uint64_t)10ULL);
 #line 22 "lib/std/fmt.phi"
-    v16 = ((pt15){ (uint8_t*)pd74.elems, 10 }).len;
+    v16 = ((pt15){ (uint8_t*)pd75.elems, 10 }).len;
 #line 22 "lib/std/fmt.phi"
     if ((uint64_t)v15 >= (uint64_t)v16) __builtin_trap();
 #line 22 "lib/std/fmt.phi"
-    v18 = ((pt15){ (uint8_t*)pd74.elems, 10 }).ptr + v15;
+    v18 = ((pt15){ (uint8_t*)pd75.elems, 10 }).ptr + v15;
 #line 22 "lib/std/fmt.phi"
     v19 = (*v18);
 #line 22 "lib/std/fmt.phi"
@@ -446,11 +446,11 @@ b5:;
 #line 37 "lib/std/fmt.phi"
     if (__builtin_sub_overflow(((int64_t)0LL), v21, &v22)) __builtin_trap();
 #line 37 "lib/std/fmt.phi"
-    v23 = ((pt15){ (uint8_t*)pd74.elems, 10 }).len;
+    v23 = ((pt15){ (uint8_t*)pd75.elems, 10 }).len;
 #line 37 "lib/std/fmt.phi"
     if ((uint64_t)(int64_t)v22 >= (uint64_t)v23) __builtin_trap();
 #line 37 "lib/std/fmt.phi"
-    v25 = ((pt15){ (uint8_t*)pd74.elems, 10 }).ptr + v22;
+    v25 = ((pt15){ (uint8_t*)pd75.elems, 10 }).ptr + v22;
 #line 37 "lib/std/fmt.phi"
     v26 = (*v25);
 #line 37 "lib/std/fmt.phi"
@@ -510,9 +510,9 @@ b12:;
     return v45;
 }
 
-#line 59 "lib/std/sys/linux.phi"
-// fn write_bytes
-static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
+#line 23 "lib/std/sys/posix.phi"
+// fn write
+static pt50 p8_write(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     uint64_t v2;
     uint64_t v3;
     uint64_t v4;
@@ -525,29 +525,29 @@ static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     pt50 v12;
 
 b0:;
-#line 60 "lib/std/sys/linux.phi"
+#line 24 "lib/std/sys/posix.phi"
     v2 = v1.len;
-#line 60 "lib/std/sys/linux.phi"
+#line 24 "lib/std/sys/posix.phi"
     v3 = p9_min(v2, ((uint64_t)2147479552ULL));
-#line 60 "lib/std/sys/linux.phi"
+#line 24 "lib/std/sys/posix.phi"
     v4 = (uint64_t)v3;
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     v5 = v1.ptr;
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     v6 = write(v0, v5, v4);
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     if (v6 >= 0 && (uint64_t)v6 <= ((uint64_t)18446744073709551615ULL)) v7 = (pt50){ .m0 = (uint64_t)v6, .tag = 0 }; else v7 = (pt50){ .tag = 1 };
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     s8 = v7;
     if (v7.tag == 0) goto b2; else goto b1;
 b1:;
     return ((pt50){ .tag = 1 });
 b2:;
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     v10 = s8;
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     v11 = v10.m0;
-#line 61 "lib/std/sys/linux.phi"
+#line 25 "lib/std/sys/posix.phi"
     v12 = (pt50){ .m0 = v11, .tag = 0 };
     return v12;
 }
