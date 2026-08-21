@@ -55,3 +55,8 @@ pub type size_t = uintptr_t
 pub type ssize_t = intptr_t
 
 pub type ptrdiff_t = intptr_t
+
+pub type off_t = match target.os {
+    target.windows => long   // MSVC CRT _off_t is 32-bit, _off64_t is the wide one
+    else => i64
+}

@@ -46,6 +46,8 @@ static void p5_assert(uint8_t v0 /* ok */);
 static pt15 p6_decimal_unsigned(pt15 v0 /* buf */, uint64_t v1 /* value */);
 static pt15 p7_decimal_signed(pt15 v0 /* buf */, int64_t v1 /* value */);
 static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */);
+static uint64_t p9_min(uint64_t v0 /* a */, uint64_t v1 /* b */);
+static uint64_t p10_impossible(void);
 
 #line 3 "test/pass/hello.phi"
 // fn main
@@ -509,61 +511,100 @@ b12:;
     return v45;
 }
 
-#line 6 "lib/std/sys/linux.phi"
+#line 65 "lib/std/sys/linux.phi"
 // fn write_bytes
 static pt50 p8_write_bytes(int32_t v0 /* fd */, pt15 v1 /* bytes */) {
     uint64_t v2;
-    pt50 v3;
-    pt50 s4;
-    pt50 v6;
+    uint64_t v3;
+    pt50 v4;
+    pt50 s5;
+    uint64_t v7;
     pt50 v8;
-    uint64_t v9;
-    uint8_t* v10;
-    int64_t v11;
-    pt50 v12;
-    pt50 s13;
-    pt50 v15;
-    uint64_t v16;
+    pt50 v10;
+    uint64_t v11;
+    uint8_t* v12;
+    int64_t v13;
+    pt50 v14;
+    pt50 s15;
     pt50 v17;
+    uint64_t v18;
+    pt50 v19;
 
 b0:;
-#line 7 "lib/std/sys/linux.phi"
+#line 67 "lib/std/sys/linux.phi"
     v2 = v1.len;
-#line 7 "lib/std/sys/linux.phi"
-    if ((uint64_t)v2 <= ((uint64_t)18446744073709551615ULL)) v3 = (pt50){ .m0 = (uint64_t)v2, .tag = 0 }; else v3 = (pt50){ .tag = 1 };
-#line 7 "lib/std/sys/linux.phi"
-    s4 = v3;
-    if (v3.tag == 0) goto b2; else goto b1;
+#line 67 "lib/std/sys/linux.phi"
+    v3 = p9_min(v2, ((uint64_t)2147479552ULL));
+#line 68 "lib/std/sys/linux.phi"
+    if ((uint64_t)v3 <= ((uint64_t)18446744073709551615ULL)) v4 = (pt50){ .m0 = (uint64_t)v3, .tag = 0 }; else v4 = (pt50){ .tag = 1 };
+#line 68 "lib/std/sys/linux.phi"
+    s5 = v4;
+    if (v4.tag == 0) goto b2; else goto b1;
 b1:;
-#line 7 "lib/std/sys/linux.phi"
-    v6 = (pt50){ .m0 = ((uint64_t)18446744073709551615ULL), .tag = 0 };
-#line 7 "lib/std/sys/linux.phi"
-    s4 = v6;
+#line 68 "lib/std/sys/linux.phi"
+    v7 = p10_impossible();
+#line 68 "lib/std/sys/linux.phi"
+    v8 = (pt50){ .m0 = v7, .tag = 0 };
+#line 68 "lib/std/sys/linux.phi"
+    s5 = v8;
     goto b2;
 b2:;
-#line 7 "lib/std/sys/linux.phi"
-    v8 = s4;
-#line 7 "lib/std/sys/linux.phi"
-    v9 = v8.m0;
-#line 8 "lib/std/sys/linux.phi"
-    v10 = v1.ptr;
-#line 8 "lib/std/sys/linux.phi"
-    v11 = write(v0, v10, v9);
-#line 8 "lib/std/sys/linux.phi"
-    if (v11 >= 0 && (uint64_t)v11 <= ((uint64_t)18446744073709551615ULL)) v12 = (pt50){ .m0 = (uint64_t)v11, .tag = 0 }; else v12 = (pt50){ .tag = 1 };
-#line 8 "lib/std/sys/linux.phi"
-    s13 = v12;
-    if (v12.tag == 0) goto b4; else goto b3;
+#line 68 "lib/std/sys/linux.phi"
+    v10 = s5;
+#line 68 "lib/std/sys/linux.phi"
+    v11 = v10.m0;
+#line 69 "lib/std/sys/linux.phi"
+    v12 = v1.ptr;
+#line 69 "lib/std/sys/linux.phi"
+    v13 = write(v0, v12, v11);
+#line 69 "lib/std/sys/linux.phi"
+    if (v13 >= 0 && (uint64_t)v13 <= ((uint64_t)18446744073709551615ULL)) v14 = (pt50){ .m0 = (uint64_t)v13, .tag = 0 }; else v14 = (pt50){ .tag = 1 };
+#line 69 "lib/std/sys/linux.phi"
+    s15 = v14;
+    if (v14.tag == 0) goto b4; else goto b3;
 b3:;
     return ((pt50){ .tag = 1 });
 b4:;
-#line 8 "lib/std/sys/linux.phi"
-    v15 = s13;
-#line 8 "lib/std/sys/linux.phi"
-    v16 = v15.m0;
-#line 8 "lib/std/sys/linux.phi"
-    v17 = (pt50){ .m0 = v16, .tag = 0 };
-    return v17;
+#line 69 "lib/std/sys/linux.phi"
+    v17 = s15;
+#line 69 "lib/std/sys/linux.phi"
+    v18 = v17.m0;
+#line 69 "lib/std/sys/linux.phi"
+    v19 = (pt50){ .m0 = v18, .tag = 0 };
+    return v19;
+}
+
+#line 7 "lib/std/math.phi"
+// fn min[u64]
+static uint64_t p9_min(uint64_t v0 /* a */, uint64_t v1 /* b */) {
+    uint8_t v2;
+    uint64_t s3;
+    uint64_t v6;
+
+b0:;
+#line 8 "lib/std/math.phi"
+    v2 = !(v0 < v1);
+    if (v2 == 0) goto b1; else goto b2;
+b1:;
+#line 8 "lib/std/math.phi"
+    s3 = v0;
+    goto b3;
+b2:;
+#line 8 "lib/std/math.phi"
+    s3 = v1;
+    goto b3;
+b3:;
+#line 8 "lib/std/math.phi"
+    v6 = s3;
+    return v6;
+}
+
+#line 9 "lib/std/debug.phi"
+// fn impossible[u64]
+static uint64_t p10_impossible(void) {
+
+b0:;
+    __builtin_trap();
 }
 
 int main(void) {

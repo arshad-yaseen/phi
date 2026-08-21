@@ -1,9 +1,64 @@
+import std/debug
+import std/math
 import std/sys/c
+
+pub let PROT_READ: c.int = 0x01
+pub let PROT_WRITE: c.int = 0x02
+pub let MAP_PRIVATE: c.int = 0x0002
+pub let MAP_ANON: c.int = 0x1000
+pub let MADV_FREE: c.int = 5
+
+let SC_PAGESIZE: c.int = 29
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/sysconf.html
+extern fn sysconf(name: c.int) c.long
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/mmap.html
+extern fn mmap(
+    addr: *u8 | none,
+    len: c.size_t,
+    prot: c.int,
+    flags: c.int,
+    fd: c.int,
+    offset: c.off_t,
+) *var u8 | none
+
+/// https://pubs.opengroup.org/onlinepubs/9699919799/functions/munmap.html
+extern fn munmap(addr: *u8 | none, len: c.size_t) c.int
+/// returns -1/errno
+extern fn madvise(addr: *u8 | none, len: c.size_t, advice: c.int) c.int
 
 /// https://pubs.opengroup.org/onlinepubs/9699919799/functions/write.html
 extern fn write(fd: c.int, buf: *u8, len: c.size_t) c.ssize_t
 
+pub fn page_size() u64 {
+    return @int_cast[u64](sysconf(SC_PAGESIZE)) or debug.impossible()
+}
+
+pub fn map_pages(bytes: u64) []var u8 | none {
+    let len = @int_cast[c.size_t](bytes) or return none
+    let base = mmap(none, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0) or return none
+    // MAP_FAILED, an address of all ones
+    if @int_from_ptr(base) == @max_int[c.size_t]() {
+        return none
+    }
+    return @view(base, bytes)
+}
+
+pub fn unmap_pages(pages: []var u8) {
+    let len = @int_cast[c.size_t](pages.len) or debug.impossible()
+    debug.assert(munmap(pages.ptr, len) == 0)
+}
+
+pub fn release_pages(pages: []var u8) {
+    let len = @int_cast[c.size_t](pages.len) or debug.impossible()
+    _ = madvise(pages.ptr, len, MADV_FREE)
+}
+
+let count_max: u64 = 0x7fffffff
+
 pub fn write_bytes(fd: c.int, bytes: []u8) u64 | none {
-    let asked = @int_cast[c.size_t](bytes.len) or @max_int[c.size_t]()
-    return @int_cast[u64](write(fd, bytes.ptr, asked)) or return none
+    let asked = math.min(bytes.len, count_max)
+    let len = @int_cast[c.size_t](asked) or debug.impossible()
+    return @int_cast[u64](write(fd, bytes.ptr, len)) or return none
 }

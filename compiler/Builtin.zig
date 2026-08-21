@@ -7,6 +7,7 @@ const Check = @import("Check.zig");
 const Compilation = @import("Compilation.zig");
 const Diagnostic = @import("Diagnostic.zig");
 const Layout = @import("Layout.zig");
+const Literal = @import("Literal.zig");
 const Pool = @import("Pool.zig");
 const Target = @import("Target.zig").Target;
 const Token = @import("Token.zig");
@@ -28,6 +29,7 @@ pub const Builtin = enum {
     target_arch,
     repeat,
     trap,
+    compile_error,
 
     pub const Shape = struct {
         types_min: u8,
@@ -48,6 +50,7 @@ pub const Builtin = enum {
                 .args = 0,
             },
             .target_os, .target_arch, .trap => .{ .types_min = 0, .types_max = 0, .args = 0 },
+            .compile_error => .{ .types_min = 0, .types_max = 0, .args = 1 },
         };
     }
 
@@ -56,7 +59,7 @@ pub const Builtin = enum {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr => true,
             .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat, .trap => false,
-            .target_os, .target_arch => false,
+            .target_os, .target_arch, .compile_error => false,
         };
     }
 
@@ -64,7 +67,7 @@ pub const Builtin = enum {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr, .trap => true,
             .int_cast, .size_of, .align_of, .min_int, .max_int, .repeat => false,
-            .target_os, .target_arch => false,
+            .target_os, .target_arch, .compile_error => false,
         };
     }
 
@@ -188,9 +191,45 @@ pub const Builtin = enum {
                 try check.trap();
                 return .diverged;
             },
+            .compile_error => return compileError(check, node, args[0]),
         }
     }
 };
+
+fn compileError(check: *Check, node: Node.Index, message: Node.Index) Allocator.Error!Value {
+    const said = try messageText(check, message) orelse return check.refuse(message, .{
+        .code = .compile_error,
+        .message = "'@compile_error' says why in a string written at the call",
+        .label = "not a string written here",
+        .help = "give the reason, as in '@compile_error(\"no pages on this target\")'",
+    });
+    if (said.len == 0) return check.refuse(message, .{
+        .code = .compile_error,
+        .message = "'@compile_error' with an empty message refuses the build for no reason",
+        .label = "nothing to say",
+    });
+    try check.fail(node, .{
+        .code = .compile_error,
+        .message = said,
+        .label = "the program refuses this build",
+    });
+    // a refused build leaves, so the body it sat in owes nothing more
+    if (check.builder == null) return .poison;
+    try check.trap();
+    return .diverged;
+}
+
+fn messageText(check: *Check, node: Node.Index) Allocator.Error!?[]const u8 {
+    if (check.tree.nodeTag(node) != .string_literal) return null;
+
+    var out: std.ArrayList(u8) = .empty;
+    var reading = Literal.bytesOf(check.tree.tokenSlice(check.tree.nodeMainToken(node)));
+    while (reading.next()) |piece| switch (piece) {
+        .bytes => |run| try out.appendSlice(check.comp.arena.allocator(), run),
+        .refused => return null,
+    };
+    return out.items;
+}
 
 fn suggest(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     var closest: Closest = .{ .target = text };

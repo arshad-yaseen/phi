@@ -1,0 +1,11 @@
+fn refuses() {
+    @compile_error("this target is not ready")
+}
+
+fn not_a_string() {
+    @compile_error(42)
+}
+
+fn says_nothing() {
+    @compile_error("")
+}

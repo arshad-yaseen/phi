@@ -1,0 +1,20 @@
+error[E0266]: this target is not ready
+ --> test/fail/compile_error.phi:2:5
+  |
+2 |     @compile_error("this target is not ready")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the program refuses this build
+
+error[E0266]: '@compile_error' says why in a string written at the call
+ --> test/fail/compile_error.phi:6:20
+  |
+6 |     @compile_error(42)
+  |                    ^^ not a string written here
+  |
+  = help: give the reason, as in '@compile_error("no pages on this target")'
+
+error[E0266]: '@compile_error' with an empty message refuses the build for no reason
+  --> test/fail/compile_error.phi:10:20
+   |
+10 |     @compile_error("")
+   |                    ^^ nothing to say
+

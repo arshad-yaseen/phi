@@ -14,30 +14,6 @@ lib/std/     the standard library, shipped as source beside the binary
 test/        file tests, the golden's extension naming each assertion
 ```
 
-### Everything that knows about a machine is under `sys`
-
-- **An `extern fn` is written in `sys/<os>.phi` and nowhere else**, spelled the
-  way that platform spells it, and kept private. So is every constant out of a
-  header, `PROT_WRITE` and `MAP_ANON` and the errno numbers, so nothing above
-  ever sees one.
-- **A platform module answers in Phi**, wrapping its own externs and handing back
-  views, counts, and `| none` rather than a `c.ssize_t`. The wrapper takes a
-  fuller name than the symbol it calls, `write_bytes` over `write`, because one
-  file cannot spell a name twice.
-- **`sys.phi` only dispatches.** Every declaration in it is one `match target.os`
-  with an arm per member and no `else`, so a platform added to `target.Os` fails
-  to compile until each of them names it. A module under `sys/` is named exactly
-  as `target.Os` spells it, so an arm and the file it reaches read alike.
-
-Three platforms declare `write` identically today, and that duplication is worth
-keeping. Each file is a transcription of one C library, and a declaration shared
-between two of them is a claim about both that a single build can never test.
-
-Which is the sharp edge of the whole arrangement. **An arm this target does not
-take is never checked**, so a platform is only as sound as the last build for it.
-CI builds and runs the file tests on Linux, macOS, and Windows, and
-`phi build main.phi --target <arch>-<os>` covers the rest in a second each.
-
 ## Commands
 
 Zig 0.16.0 or newer, as `build.zig.zon` states.

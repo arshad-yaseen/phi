@@ -1,9 +1,33 @@
+import std/debug
+import std/math
 import std/sys/c
 
 /// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/write
 extern fn write(fd: c.int, buf: *u8, len: c.uint) c.int
 
+pub fn page_size() u64 {
+    @compile_error("std has no pages on windows yet")
+}
+
+pub fn map_pages(bytes: u64) []var u8 | none {
+    _ = bytes
+    @compile_error("std has no pages on windows yet")
+}
+
+pub fn unmap_pages(pages: []var u8) {
+    _ = pages
+    @compile_error("std has no pages on windows yet")
+}
+
+pub fn release_pages(pages: []var u8) {
+    _ = pages
+    @compile_error("std has no pages on windows yet")
+}
+
+let count_max: u64 = 0x7fffffff
+
 pub fn write_bytes(fd: c.int, bytes: []u8) u64 | none {
-    let asked = @int_cast[c.uint](bytes.len) or @max_int[c.uint]()
-    return @int_cast[u64](write(fd, bytes.ptr, asked)) or return none
+    let asked = math.min(bytes.len, count_max)
+    let len = @int_cast[c.uint](asked) or debug.impossible()
+    return @int_cast[u64](write(fd, bytes.ptr, len)) or return none
 }

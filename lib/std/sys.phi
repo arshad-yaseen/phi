@@ -1,5 +1,3 @@
-//! The operating system, one face for every target.
-
 import std/sys/c
 import std/sys/linux
 import std/sys/macos
@@ -20,5 +18,48 @@ pub fn write(fd: Fd, bytes: []u8) u64 | none {
         target.macos => macos.write_bytes(fd, bytes)
         target.wasi => wasi.write_bytes(fd, bytes)
         target.windows => windows.write_bytes(fd, bytes)
+    }
+}
+
+/// The bytes in one page, which a mapping is rounded up to a multiple of.
+pub fn page_size() u64 {
+    return match target.os {
+        target.linux => linux.page_size()
+        target.macos => macos.page_size()
+        target.wasi => wasi.page_size()
+        target.windows => windows.page_size()
+    }
+}
+
+/// `bytes` of pages to read and write, backed by nothing on disk. None if the
+/// operating system would not give them.
+pub fn map_pages(bytes: u64) []var u8 | none {
+    return match target.os {
+        target.linux => linux.map_pages(bytes)
+        target.macos => macos.map_pages(bytes)
+        target.wasi => wasi.map_pages(bytes)
+        target.windows => windows.map_pages(bytes)
+    }
+}
+
+/// Hands back pages that came whole from `map_pages`. Anything else stops the
+/// program.
+pub fn unmap_pages(pages: []var u8) {
+    match target.os {
+        target.linux => linux.unmap_pages(pages)
+        target.macos => macos.unmap_pages(pages)
+        target.wasi => wasi.unmap_pages(pages)
+        target.windows => windows.unmap_pages(pages)
+    }
+}
+
+/// Says the contents of `pages` no longer matter, while the pages stay mapped.
+/// What they hold afterwards is nothing a program may read.
+pub fn release_pages(pages: []var u8) {
+    match target.os {
+        target.linux => linux.release_pages(pages)
+        target.macos => macos.release_pages(pages)
+        target.wasi => wasi.release_pages(pages)
+        target.windows => windows.release_pages(pages)
     }
 }

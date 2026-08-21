@@ -16,6 +16,14 @@
 - `@splat` is now `@repeat`.
 - `std/mem` gains `Arena`, bump allocation over bytes the caller owns.
 - `std/mem` gains `fill`, which sets every element of a view to one value.
+- `std/sys` hands out pages with `page_size`, `map_pages`, `unmap_pages`, and
+  `release_pages`.
+- `@compile_error("why")` refuses a build wherever it is reached.
+- `io.print` finishes a run of bytes too long for one write.
+- `std/math` gains `min`, the smaller of two integers.
+- `mem.eql` is now `mem.equal`.
+- `debug.impossible()` stands where a case the program has ruled out would
+  answer.
 - `std/fmt` writes a number as decimal digits into a buffer the caller owns.
 - `io.format_max` is now `fmt.decimal_max`.
 

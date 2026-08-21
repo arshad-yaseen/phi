@@ -1,0 +1,7 @@
+// a refusal nothing reaches is never said, which is what puts one in an arm
+fn unsupported[T]() T {
+    @compile_error("no answer for this type")
+}
+
+fn main() {
+}

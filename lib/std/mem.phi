@@ -68,7 +68,7 @@ pub fn align_up[T: Unsigned](addr: T, alignment: T) T {
 }
 
 /// Whether two views hold the same elements in the same order.
-pub fn eql[T](a: []T, b: []T) bool {
+pub fn equal[T](a: []T, b: []T) bool {
     if a.len != b.len {
         return false
     }
