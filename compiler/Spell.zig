@@ -87,7 +87,7 @@ fn writeArgs(
         if (comp.pool.isType(arg)) {
             try writeType(comp, writer, arg);
         } else {
-            try writeConstant(comp, writer, arg);
+            try writeConstant(comp, writer, arg, .typed);
         }
     }
     try writer.writeByte(']');
@@ -116,23 +116,27 @@ fn writeSignature(
 
 const aggregate_shown_max = 8;
 
+/// Whether a number carries its type, which the IR dump reads and a person does not.
+const Suffix = enum { typed, bare };
+
 fn writeConstant(
     comp: *const Compilation,
     writer: *Writer,
     value: Pool.Index,
+    suffix: Suffix,
 ) Writer.Error!void {
     switch (comp.pool.valueKey(value)) {
         .poison => try writer.writeAll("<broken>"),
         .value_int => |it| {
             try writer.print("{d}", .{it.value});
-            if (it.type != .untyped_int_type) {
+            if (suffix == .typed and it.type != .untyped_int_type) {
                 try writer.writeByte(':');
                 try writeType(comp, writer, it.type);
             }
         },
         .value_float => |it| {
             try writer.print("{d}", .{it.value});
-            if (it.type != .untyped_float_type) {
+            if (suffix == .typed and it.type != .untyped_float_type) {
                 try writer.writeByte(':');
                 try writeType(comp, writer, it.type);
             }
@@ -159,7 +163,7 @@ fn writeConstant(
                         try writer.print("{s}: ", .{comp.pool.stringText(rows[at].name)});
                     }
                 }
-                try writeConstant(comp, writer, comp.pool.aggregateAt(value, at));
+                try writeConstant(comp, writer, comp.pool.aggregateAt(value, at), suffix);
             }
             if (count > aggregate_shown_max) {
                 try writer.print(", +{d} more", .{count - aggregate_shown_max});
@@ -167,25 +171,24 @@ fn writeConstant(
             if (fields != null) try writer.writeAll(" }") else try writer.writeByte(']');
         },
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
-        .value_union => |it| try writeConstant(comp, writer, it.value),
+        .value_union => |it| try writeConstant(comp, writer, it.value, suffix),
         .value_slice => |it| {
-            try writeConstant(comp, writer, it.data);
-            try writer.writeByte(':');
-            try writeType(comp, writer, it.type);
+            try writeConstant(comp, writer, it.data, suffix);
+            if (suffix == .typed) {
+                try writer.writeByte(':');
+                try writeType(comp, writer, it.type);
+            }
         },
     }
 }
 
+/// A constant as a person reads it, with no type suffixes.
 pub fn writeConstantBare(
     comp: *const Compilation,
     writer: *Writer,
     value: Pool.Index,
 ) Writer.Error!void {
-    switch (comp.pool.valueKey(value)) {
-        .value_int => |it| try writer.print("{d}", .{it.value}),
-        .value_float => |it| try writer.print("{d}", .{it.value}),
-        else => try writeConstant(comp, writer, value),
-    }
+    try writeConstant(comp, writer, value, .bare);
 }
 
 const depth_max = 1024;
@@ -318,7 +321,10 @@ fn node(
             if (it.label.unwrap()) |label| try node(ast, writer, label, below, "label");
             try node(ast, writer, it.body, below, "body");
         },
-        .err => try writer.writeByte('\n'),
+        .err => |partial| {
+            try writer.writeByte('\n');
+            if (partial.unwrap()) |kept| try node(ast, writer, kept, below, "partial");
+        },
         .return_expr => |operand| {
             try writer.writeByte('\n');
             if (operand.unwrap()) |value| try node(ast, writer, value, below, "value");
@@ -550,7 +556,7 @@ fn ref(comp: *const Compilation, operand: IR.Ref, writer: *Writer) Writer.Error!
     assert(operand != .none);
     switch (operand.unwrap()) {
         .inst => |index| try writer.print("%{d}", .{index.int()}),
-        .constant => |value| try writeConstant(comp, writer, value),
+        .constant => |value| try writeConstant(comp, writer, value, .typed),
     }
 }
 

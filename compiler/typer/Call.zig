@@ -74,7 +74,7 @@ const Callee = union(enum) {
     builtin: Builtin,
     direct: Decl.Index,
     static: struct { decl: Decl.Index, owner: Pool.Instance },
-    method: struct { receiver: Node.Index, name_token: Token.Index },
+    method: struct { node: Node.Index, receiver: Node.Index, name_token: Token.Index },
 };
 
 fn resolveCallee(typer: *Typer, node: Node.Index) Allocator.Error!?Callee {
@@ -105,6 +105,7 @@ fn resolveCalleeMember(
             .named_module => |target| {
                 const member = try Resolve.exported(typer, target, callee_node, access.name_token) orelse
                     return null;
+                typer.link(callee_node, .{ .decl = member });
                 const value = try Resolve.declAsValue(typer, member, callee_node);
                 return calleeOfValue(typer, callee_node, value);
             },
@@ -120,6 +121,7 @@ fn resolveCalleeMember(
                     return null;
                 }
                 const member = try Expr.methodOf(typer, type_index, access.name_token) orelse return null;
+                typer.link(callee_node, .{ .decl = member });
                 if (try Expr.memberIsVisible(typer, member, access.name_token) == false) return null;
                 return .{ .static = .{ .decl = member, .owner = comp.pool.structOf(type_index) } };
             },
@@ -138,7 +140,11 @@ fn resolveCalleeMember(
             .constant, .runtime => {},
         }
     }
-    return .{ .method = .{ .receiver = access.lhs, .name_token = access.name_token } };
+    return .{ .method = .{
+        .node = callee_node,
+        .receiver = access.lhs,
+        .name_token = access.name_token,
+    } };
 }
 
 pub fn baseIsNamespace(typer: *const Typer, node: Node.Index) bool {
@@ -218,6 +224,7 @@ fn checkCallResolved(
             const type_struct = Expr.peelPointer(&comp.pool, place.type).owner;
             const member = try Expr.methodOf(typer, type_struct, method.name_token) orelse
                 return .poison;
+            typer.link(method.node, .{ .decl = member });
             if (try Expr.memberIsVisible(typer, member, method.name_token) == false) return .poison;
 
             owner_args = comp.instanceArgs(comp.pool.structOf(type_struct));

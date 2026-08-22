@@ -23,6 +23,8 @@ pub fn build(b: *std.Build) void {
 
     const options = b.addOptions();
     options.addOption([]const u8, "version", version);
+    // one module per compile, because two roots over one file are two modules
+    const build_options = options.createModule();
 
     const compiler = b.addModule("compiler", .{
         .root_source_file = b.path("compiler/root.zig"),
@@ -38,14 +40,13 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "compiler", .module = compiler },
-                .{ .name = "build_options", .module = options.createModule() },
+                .{ .name = "build_options", .module = build_options },
             },
         }),
     });
     exe.stack_size = analysis_stack_bytes;
     b.installArtifact(exe);
 
-    // the standard library ships as source beside the binary
     b.installDirectory(.{
         .source_dir = b.path("lib"),
         .install_dir = .prefix,
@@ -92,13 +93,9 @@ pub fn build(b: *std.Build) void {
     addRelease(b, version, options);
 }
 
-/// One tree per target under `zig-out/release`, each holding the binary, the
-/// standard library it reads, and the terms it ships under. Archiving is the
-/// packaging step's job, so nothing here shells out.
 fn addRelease(b: *std.Build, version: []const u8, options: *std.Build.Step.Options) void {
     const release_step = b.step("release", "Cross-compile a release tree for every target");
 
-    // one version for packaging to name archives and the index by
     const stamp = b.addWriteFiles().add("version.txt", b.fmt("{s}\n", .{version}));
     release_step.dependOn(&b.addInstallFile(stamp, "release/version.txt").step);
 
@@ -131,13 +128,13 @@ fn addRelease(b: *std.Build, version: []const u8, options: *std.Build.Step.Optio
     }
 }
 
-/// The binary, and the compiler module it is built over.
 fn addPhi(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     options: *std.Build.Step.Options,
 ) *std.Build.Step.Compile {
+    const build_options = options.createModule();
     const compiler = b.createModule(.{
         .root_source_file = b.path("compiler/root.zig"),
         .target = target,
@@ -151,7 +148,7 @@ fn addPhi(
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "compiler", .module = compiler },
-                .{ .name = "build_options", .module = options.createModule() },
+                .{ .name = "build_options", .module = build_options },
             },
         }),
     });
@@ -159,9 +156,7 @@ fn addPhi(
     return exe;
 }
 
-/// The manifest carries the next, unreleased version. A build standing on the
-/// matching tag is that release, and every other build says which commit it
-/// came from, so a report names one revision rather than a branch.
+/// A build on the manifest's tag is that release, others say which commit they are.
 fn resolveVersion(b: *std.Build) []const u8 {
     const manifest = zon.version;
     // a tree with no history to read must not claim the release it precedes
@@ -200,9 +195,7 @@ fn resolveVersion(b: *std.Build) []const u8 {
 
 const Describe = struct { tag: []const u8, distance: []const u8, hash: []const u8 };
 
-/// `0.1.0-47-g7f3a91c9a` is 47 commits past 0.1.0, so the next one is brewing.
-/// A tag may hold dashes of its own, so the trailing two fields are found by
-/// their shape rather than counted in.
+/// `0.1.0-47-g7f3a91c9a` is 47 commits past 0.1.0, the last two fields by shape.
 fn splitDescribe(described: []const u8) ?Describe {
     const hash_dash = std.mem.lastIndexOfScalar(u8, described, '-') orelse return null;
     const hash = described[hash_dash + 1 ..];
@@ -222,7 +215,6 @@ fn splitDescribe(described: []const u8) ?Describe {
     };
 }
 
-/// The runner discovers the cases itself, so the build just points it at them.
 fn addTestFiles(b: *std.Build, run: *std.Build.Step.Run) void {
     run.setCwd(b.path("."));
     run.addArg("test");

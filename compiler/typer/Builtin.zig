@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
 const Typer = @import("../Typer.zig");
-const Compilation = @import("../Compilation.zig");
 const Diagnostic = @import("../Diagnostic.zig");
 const Layout = @import("../Layout.zig");
 const Literal = @import("../Literal.zig");
@@ -636,21 +635,4 @@ comptime {
     for (std.enums.values(Builtin)) |builtin| {
         assert(builtin.shape().types_min <= builtin.shape().types_max);
     }
-}
-
-const testing = std.testing;
-
-test "a union with no member for the target says which one is missing" {
-    var comp: Compilation = undefined;
-    try Compilation.testCompileFor(&comp,
-        \\type linux
-        \\type macos
-        \\type Os = linux | macos
-        \\let os: Os = @target_os()
-        \\
-    , .x86_64_windows);
-    defer comp.deinit();
-
-    try testing.expectEqual(1, comp.diagnostics.items.len);
-    try testing.expectEqual(Diagnostic.Code.not_a_member, comp.diagnostics.items[0].diagnostic.code);
 }

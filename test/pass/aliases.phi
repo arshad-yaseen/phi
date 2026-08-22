@@ -12,6 +12,12 @@ fn fill(value: Number) Same {
     return box
 }
 
+fn hold(a: Box[Number], b: Boxed, c: Same) Same {
+    _ = b
+    _ = c
+    return a
+}
+
 fn read(box: *Same) Number {
     return box.item
 }

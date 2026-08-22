@@ -437,6 +437,7 @@ pub fn checkStructLiteral(
     try comp.ensureRows(instance);
     const rows = comp.instanceAt(instance).rows;
     const buildable = try structIsBuildable(typer, node, wanted, instance);
+    typer.answerType(node, wanted);
 
     const start: u32 = @intCast(comp.scratch.operands.items.len);
     defer comp.scratch.operands.shrinkRetainingCapacity(start);
@@ -462,6 +463,7 @@ pub fn checkStructLiteral(
             continue;
         };
         const position: u32 = row.int() - rows.start;
+        typer.linkField(init_node, instance, row);
 
         if (comp.scratch.operands.items[start + position].initializer.unwrap()) |first| {
             try typer.failToken(field_init.name_token, .{

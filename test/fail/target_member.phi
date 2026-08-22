@@ -1,0 +1,5 @@
+type linux
+type macos
+type Os = linux | macos
+
+let os: Os = @target_os()

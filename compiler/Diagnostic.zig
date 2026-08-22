@@ -19,7 +19,7 @@ pub const Note = struct {
     /// Without one, the note is a bare line.
     span: ?Span = null,
     /// When the span is not in the diagnostic's own file.
-    source: ?*Source = null,
+    source: ?*const Source = null,
 };
 
 pub const Report = struct {
@@ -159,21 +159,18 @@ pub const Closest = struct {
     }
 };
 
-pub const RenderError = Allocator.Error || Writer.Error;
-
 const Diagnostic = @This();
 
 pub fn render(
     diagnostic: Diagnostic,
-    gpa: Allocator,
-    source: *Source,
+    source: *const Source,
     writer: *Writer,
     color: Color,
-) RenderError!void {
+) Writer.Error!void {
     assert(diagnostic.message.len > 0);
     assert(diagnostic.span.start <= diagnostic.span.end);
 
-    const gutter = try diagnostic.gutterWidth(gpa, source);
+    const gutter = diagnostic.gutterWidth(source);
     assert(gutter > 0);
 
     try writer.print("{s}error[E{d:0>4}]{s}{s}: {s}{s}\n", .{
@@ -184,7 +181,7 @@ pub fn render(
         diagnostic.message,
         tint(color, reset),
     });
-    try renderSnippet(gpa, source, writer, color, gutter, diagnostic.span, diagnostic.label, red);
+    try renderSnippet(source, writer, color, gutter, diagnostic.span, diagnostic.label, red);
 
     if (diagnostic.help) |help| {
         assert(help.len > 0);
@@ -205,41 +202,39 @@ pub fn render(
         });
         if (note.span) |span| {
             const where = note.source orelse source;
-            try renderSnippet(gpa, where, writer, color, gutter, span, "", blue);
+            try renderSnippet(where, writer, color, gutter, span, "", blue);
         }
     }
 
     try writer.writeByte('\n');
 }
 
-fn gutterWidth(diagnostic: Diagnostic, gpa: Allocator, source: *Source) Allocator.Error!u32 {
-    var widest = (try source.lineColumn(gpa, diagnostic.span.start)).line;
+fn gutterWidth(diagnostic: Diagnostic, source: *const Source) u32 {
+    var widest = source.lineColumn(diagnostic.span.start).line;
     assert(widest > 0);
 
     for (diagnostic.notes) |note| {
         if (note.span) |span| {
             const noted = note.source orelse source;
-            const line = (try noted.lineColumn(gpa, span.start)).line;
-            widest = @max(widest, line);
+            widest = @max(widest, noted.lineColumn(span.start).line);
         }
     }
     return digits(widest);
 }
 
 fn renderSnippet(
-    gpa: Allocator,
-    source: *Source,
+    source: *const Source,
     writer: *Writer,
     color: Color,
     gutter: u32,
     span: Span,
     label: []const u8,
     caret_color: []const u8,
-) RenderError!void {
+) Writer.Error!void {
     assert(span.start <= span.end);
 
-    const location = try source.lineColumn(gpa, span.start);
-    const text = try source.lineText(gpa, location.line);
+    const location = source.lineColumn(span.start);
+    const text = source.lineText(location.line);
     assert(location.column > 0);
 
     try writer.splatByteAll(' ', gutter);
@@ -311,14 +306,14 @@ fn tint(color: Color, escape: []const u8) []const u8 {
 
 const testing = std.testing;
 
-fn expectRender(text: [:0]const u8, diagnostic: Diagnostic, want: []const u8) !void {
-    var source: Source = .{ .path = "demo.phi", .bytes = text };
-    defer if (source.line_starts) |starts| testing.allocator.free(starts);
+fn expectRender(text: []const u8, diagnostic: Diagnostic, want: []const u8) !void {
+    var source: Source = try .fromText(testing.allocator, "demo.phi", text);
+    defer source.deinit(testing.allocator);
 
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
 
-    try diagnostic.render(testing.allocator, &source, &out.writer, .off);
+    try diagnostic.render(&source, &out.writer, .off);
     try testing.expectEqualStrings(want, out.written());
 }
 
@@ -407,8 +402,8 @@ test "a span past the end of its line still renders one caret" {
 }
 
 test "color wraps the pieces without moving them" {
-    var source: Source = .{ .path = "d.phi", .bytes = "ab\n" };
-    defer if (source.line_starts) |starts| testing.allocator.free(starts);
+    var source: Source = try .fromText(testing.allocator, "d.phi", "ab\n");
+    defer source.deinit(testing.allocator);
 
     var out: Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
@@ -418,7 +413,7 @@ test "color wraps the pieces without moving them" {
         .span = .{ .start = 0, .end = 1 },
         .message = "m",
     };
-    try diagnostic.render(testing.allocator, &source, &out.writer, .on);
+    try diagnostic.render(&source, &out.writer, .on);
     try testing.expectEqualStrings(
         "\x1b[1;31merror[E0112]\x1b[0m\x1b[1m: m\x1b[0m\n" ++
             " \x1b[1;34m-->\x1b[0m d.phi:1:1\n" ++

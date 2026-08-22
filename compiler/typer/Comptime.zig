@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
 const Typer = @import("../Typer.zig");
+const Compilation = @import("../Compilation.zig");
 const Diagnostic = @import("../Diagnostic.zig");
 const IR = @import("../IR.zig");
 const Pool = @import("../Pool.zig");
@@ -128,10 +129,14 @@ const Frame = struct {
 
 fn run(evaluator: *Comptime, instance: Pool.Instance, args: []const Pool.Index) Error!Pool.Index {
     const comp = evaluator.typer.comp;
-    if (comp.calls.get(instance, args)) |answer| return answer;
+    const key: Compilation.CallKey = .{
+        .instance = instance,
+        .args = try comp.pool.internArgs(comp.gpa, args),
+    };
+    if (comp.calls.get(key)) |answer| return answer;
 
     const answer = try evaluator.evaluate(instance, args);
-    (try comp.calls.getOrPut(comp.gpa, instance, args)).value_ptr.* = answer;
+    try comp.calls.put(comp.gpa, key, answer);
     return answer;
 }
 

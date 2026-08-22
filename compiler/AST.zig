@@ -289,7 +289,8 @@ pub const View = union(enum) {
     /// `A | B`, only in type position. Members are never unions.
     union_type: []const Node.Index,
 
-    err,
+    /// A hole where parsing broke, keeping whatever parsed before it did.
+    err: Node.OptionalIndex,
 
     /// `import a/b/c as d`, whose names sit two tokens apart over the '/'.
     pub const Import = struct {
@@ -570,7 +571,7 @@ inline fn unpack(tree: AST, node_tag: Node.Tag, main: Token.Index, data: Node.Da
         } },
         .union_type => .{ .union_type = tree.listAt(data.extra) },
 
-        .err => .err,
+        .err => .{ .err = data.opt_node },
     };
 }
 
@@ -761,7 +762,8 @@ fn leftStep(tree: AST, node: Node.Index) Step {
         .param, .field => .{ .at = main },
         .unary => |it| .{ .at = it.op_token },
         .loop_expr => |it| .{ .at = it.label orelse main },
-        .err, .type_param, .builtin, .ident, .number_literal => .{ .at = main },
+        .type_param, .builtin, .ident, .number_literal => .{ .at = main },
+        .err => |partial| unwrapOr(partial, main),
         .string_literal, .multiline_string, .char_literal, .import_decl => .{ .at = main },
         .struct_decl, .alias_decl, .unit_decl, .fn_decl, .var_decl, .block => .{ .at = main },
         .defer_stmt, .if_expr, .return_expr, .match_expr => .{ .at = main },

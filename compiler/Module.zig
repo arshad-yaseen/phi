@@ -15,11 +15,14 @@ const Range = Compilation.Range;
 
 /// `space:stem/stem`, so one file is one module.
 key: []const u8,
-source: Source,
-tree: AST,
+source: *const Source,
+tree: *const AST,
 space: Space,
 decls: Range,
 names: std.StringHashMapUnmanaged(Decl.Index),
+/// Per node, read through `answerOf` and `symbolOf`.
+answers: []Pool.Index,
+symbols: []Symbol,
 
 const Module = @This();
 
@@ -38,6 +41,19 @@ pub const Index = enum(u32) {
 };
 
 pub const Space = enum { root, std };
+
+/// What a name refers to. A declaring node names itself, so one lookup serves both sides.
+pub const Symbol = union(enum) {
+    none,
+    decl: Decl.Index,
+    /// A local, by the node that declares it in this module.
+    local: AST.Node.Index,
+    /// A field, by the struct declaring it and the node inside that struct.
+    field: struct { owner: Decl.Index, node: AST.Node.Index },
+    module: Module.Index,
+    /// A labeled loop, by its node.
+    loop: AST.Node.Index,
+};
 
 pub const std_name = "std";
 pub const prelude_name = "prelude";
@@ -100,14 +116,37 @@ pub const Decl = struct {
 };
 
 pub fn deinit(module: *Module, gpa: Allocator) void {
-    module.tree.deinit(gpa);
-    module.source.deinit(gpa);
     module.names.deinit(gpa);
+    gpa.free(module.answers);
+    gpa.free(module.symbols);
     module.* = undefined;
 }
 
 pub fn findDecl(module: *const Module, text: []const u8) ?Decl.Index {
     return module.names.get(text);
+}
+
+/// A constant, or a runtime value's type. `.poison` where nothing settled.
+pub fn answerOf(module: *const Module, node: AST.Node.Index) Pool.Index {
+    assert(node.int() < module.answers.len);
+    return module.answers[node.int()];
+}
+
+/// `.none` where the node names nothing.
+pub fn symbolOf(module: *const Module, node: AST.Node.Index) Symbol {
+    assert(node.int() < module.symbols.len);
+    return module.symbols[node.int()];
+}
+
+pub fn record(module: *Module, node: AST.Node.Index, answer: Pool.Index) void {
+    assert(node.int() < module.answers.len);
+    if (answer != .poison) module.answers[node.int()] = answer;
+}
+
+pub fn bind(module: *Module, node: AST.Node.Index, symbol: Symbol) void {
+    assert(node.int() < module.symbols.len);
+    assert(symbol != .none);
+    module.symbols[node.int()] = symbol;
 }
 
 pub fn displayName(module: *const Module) []const u8 {
@@ -120,7 +159,7 @@ pub fn register(
     comp: *Compilation,
     key: []const u8,
     space: Space,
-    source: Source,
+    source: *const Source,
 ) Allocator.Error!Module.Index {
     assert(key.len > 0);
     assert(comp.module_map.get(key) == null);
@@ -129,14 +168,24 @@ pub fn register(
     const module = try gpa.create(Module);
     errdefer gpa.destroy(module);
 
+    const answers = try gpa.alloc(Pool.Index, source.tree.nodes.len);
+    errdefer gpa.free(answers);
+    @memset(answers, .poison);
+
+    const symbols = try gpa.alloc(Symbol, source.tree.nodes.len);
+    errdefer gpa.free(symbols);
+    @memset(symbols, .none);
+
     const index: Module.Index = .from(comp.modules.items.len);
     module.* = .{
         .key = key,
         .source = source,
-        .tree = try AST.parse(gpa, source.bytes),
+        .tree = &source.tree,
         .space = space,
         .decls = .{ .start = @intCast(comp.decls.items.len), .len = 0 },
         .names = .empty,
+        .answers = answers,
+        .symbols = symbols,
     };
 
     // the ownership boundary. past here the root object frees the module
@@ -154,7 +203,7 @@ pub fn register(
 }
 
 fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Allocator.Error!void {
-    const tree = &module.tree;
+    const tree = module.tree;
     const root = tree.viewOf(.root).root;
 
     try comp.decls.ensureUnusedCapacity(comp.gpa, root.len * 2);
@@ -185,6 +234,7 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
         };
         if (tree.tokenTag(new.name_token) != .ident) continue;
         const decl_index = try appendDecl(comp, index, node, new, .none);
+        module.bind(node, .{ .decl = decl_index });
         try bindName(comp, module, index, decl_index, new);
         if (new.kind == .struct_decl) try registerMembers(comp, module, index, decl_index, node);
     }
@@ -197,14 +247,18 @@ fn registerMembers(
     struct_index: Decl.Index,
     struct_node: AST.Node.Index,
 ) Allocator.Error!void {
-    const tree = &module.tree;
+    const tree = module.tree;
     const members = tree.viewOf(struct_node).struct_decl.members;
     const members_start: u32 = @intCast(comp.decls.items.len);
 
     for (members, 0..) |member, position| {
         const fn_view = switch (tree.viewOf(member)) {
             .fn_decl => |fn_view| fn_view,
-            .field, .err => continue,
+            .field => {
+                module.bind(member, .{ .field = .{ .owner = struct_index, .node = member } });
+                continue;
+            },
+            .err => continue,
             else => unreachable,
         };
         if (tree.tokenTag(fn_view.name_token) != .ident) continue;
@@ -213,6 +267,7 @@ fn registerMembers(
             .name_token = fn_view.name_token,
             .type_params = @intCast(fn_view.type_params.len),
         }, struct_index.toOptional());
+        module.bind(member, .{ .decl = decl_index });
 
         const text = tree.tokenSlice(fn_view.name_token);
         for (members[0..position]) |other| {
@@ -341,11 +396,10 @@ pub fn loadModule(comp: *Compilation, space: Space, sub: []const u8) Allocator.E
 
     const base = spaceDir(comp, space) orelse return null;
     const path = try comp.fmt("{s}/{s}.phi", .{ std.mem.trimEnd(u8, base, "/\\"), sub });
-    const source = comp.options.loader.load(comp.options.loader.context, comp.gpa, comp.io, path) catch |err|
-        switch (err) {
-            error.ReadFailed, error.SourceTooLarge => return null,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
+    const source = comp.sources.load(path) catch |err| switch (err) {
+        error.ReadFailed, error.SourceTooLarge => return null,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
 
     const index = try register(comp, key, space, source);
     assert(comp.module_map.get(key) == index);
@@ -391,6 +445,7 @@ pub fn resolveImport(comp: *Compilation, decl_index: Decl.Index) Allocator.Error
         return false;
     };
     comp.declPtr(decl_index).answer = .{ .module = target };
+    comp.moduleAt(decl.module).bind(decl.node, .{ .module = target });
     return true;
 }
 

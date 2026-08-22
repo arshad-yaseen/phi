@@ -65,6 +65,7 @@ pub fn bindTypeParams(
                 .name = try comp.pool.string(comp.gpa, typer.mainTokenText(param)),
                 .type = args[at],
                 .bound = boundAt(&bounds, at),
+                .node = param,
             };
             at += 1;
         }
@@ -183,12 +184,19 @@ pub fn resolveWrittenType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.
 }
 
 pub fn resolveType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    const resolved = try resolveTypeKind(typer, node);
+    typer.answerType(node, resolved);
+    return resolved;
+}
+
+fn resolveTypeKind(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
     switch (typer.tree.viewOf(node)) {
         .ident => return resolveTypeName(typer, node),
         .field_access => |access| switch (try typer.checkExpr(access.lhs, null)) {
             .named_module => |target| {
                 const member = try exported(typer, target, node, access.name_token) orelse
                     return .poison;
+                typer.link(node, .{ .decl = member });
                 return declAsType(typer, member, node);
             },
             .poison => return .poison,
@@ -350,13 +358,16 @@ fn failTooWide(typer: *Typer, node: Node.Index) Allocator.Error!void {
 fn resolveTypeName(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
     const text = typer.mainTokenText(node);
     for (typer.bindings) |binding| {
-        if (typer.comp.pool.sameText(binding.name, text)) return binding.type;
+        if (typer.comp.pool.sameText(binding.name, text) == false) continue;
+        typer.link(node, .{ .local = binding.node });
+        return binding.type;
     }
     if (Pool.primitiveType(text)) |primitive| return primitive;
     const decl_index = visibleDecl(typer, text) orelse {
         try typer.reportUndefined(node, text);
         return .poison;
     };
+    typer.link(node, .{ .decl = decl_index });
     return declAsType(typer, decl_index, node);
 }
 

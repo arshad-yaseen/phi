@@ -6,7 +6,7 @@ error[E0214]: expected []var u8, found an untyped array
   |
   = help: a constant makes '[]T' and never '[]var T', because the program's own bytes are read-only
 
-error[E0217]: [104:u8, 105:u8] does not fit in [3]u8
+error[E0217]: [104, 105] does not fit in [3]u8
  --> test/fail/text_landing.phi:6:24
   |
 6 |     let magic: [3]u8 = "hi"

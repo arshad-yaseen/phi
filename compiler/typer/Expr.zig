@@ -35,6 +35,7 @@ pub fn checkIdent(typer: *Typer, node: Node.Index) Allocator.Error!Value {
 
     if (typer.findLocalIndex(text)) |index| {
         const local = typer.localAt(index);
+        typer.link(node, .{ .local = local.node });
         if (local.kind == .var_slot) return typer.emitOneValue(node, .load, local.type, local.ref);
         if (Narrow.activeNarrow(typer, .{ .local = index })) |narrow| {
             return Narrow.valueOfRef(narrow.ref, narrow.type);
@@ -43,10 +44,13 @@ pub fn checkIdent(typer: *Typer, node: Node.Index) Allocator.Error!Value {
     }
 
     for (typer.bindings) |binding| {
-        if (comp.pool.sameText(binding.name, text)) return .{ .named_type = binding.type };
+        if (comp.pool.sameText(binding.name, text) == false) continue;
+        typer.link(node, .{ .local = binding.node });
+        return .{ .named_type = binding.type };
     }
     if (Pool.primitiveType(text)) |primitive| return .{ .named_type = primitive };
     if (Resolve.visibleDecl(typer, text)) |decl_index| {
+        typer.link(node, .{ .decl = decl_index });
         if (Narrow.activeNarrow(typer, .{ .decl = decl_index })) |narrow| {
             return Narrow.valueOfRef(narrow.ref, narrow.type);
         }
@@ -364,6 +368,7 @@ pub fn checkFieldAccess(
         .diverged => return .diverged,
         .named_module => |target| {
             const member = try Resolve.exported(typer, target, node, view.name_token) orelse return .poison;
+            typer.link(node, .{ .decl = member });
             return Resolve.declAsValue(typer, member, node);
         },
         .named_type, .named_generic => {
@@ -391,7 +396,10 @@ fn valueField(
     const comp = typer.comp;
     const reached = try reachField(typer, typer.typeOf(base), view.name_token) orelse return .poison;
     const row = switch (reached.member) {
-        .field => |row| row,
+        .field => |row| found: {
+            typer.linkField(node, comp.pool.structOf(reached.owner), row);
+            break :found row;
+        },
         .method => unreachable,
         .length => |length| {
             const count = length orelse {

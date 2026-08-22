@@ -69,32 +69,26 @@ fn run(init: std.process.Init, args: []const [:0]const u8, out: *Writer, log: *W
         .ready => |ready| ready,
         .done => |status| return status,
     };
-
     const start = clock.now(init.io);
 
-    const source: compiler.Source = compiler.Source.load(
-        init.gpa,
-        init.io,
-        .cwd(),
-        request.path,
-    ) catch |err| switch (err) {
-        error.ReadFailed => return say(log, "cannot read '{s}'", .{request.path}),
-        error.SourceTooLarge => {
-            return say(log, "'{s}' is larger than the compiler can index", .{request.path});
-        },
-        error.OutOfMemory => return err,
-    };
+    var sources: compiler.Source.Cache = .init(init.gpa, init.io);
+    defer sources.deinit();
 
     var comp: compiler.Compilation = undefined;
-    try comp.init(init.gpa, init.io, .{
+    try comp.init(init.gpa, init.io, &sources, .{
         .root_path = request.path,
         .std_dir = request.std_dir orelse try Build.stdDir(init.io, init.arena.allocator()),
         .target = request.build.target,
     });
     defer comp.deinit();
 
-    // the compilation owns the root source from here
-    try comp.compile(source);
+    comp.compile() catch |err| switch (err) {
+        error.ReadFailed => return say(log, "cannot read '{s}'", .{request.path}),
+        error.SourceTooLarge => {
+            return say(log, "'{s}' is larger than the compiler can index", .{request.path});
+        },
+        error.OutOfMemory => return err,
+    };
 
     const color: compiler.Diagnostic.Color = switch (request.color) {
         .on => .on,
