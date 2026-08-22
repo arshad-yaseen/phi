@@ -1548,9 +1548,9 @@ pub fn quotedList(
     return comp.fmt("{s}, '{s}'", .{ so_far, name });
 }
 
-// The commit. Reachable blocks renumbered, then everything appended to the program.
-
+// a map slot holds one of these until the numbering pass replaces it with a number
 const block_dead = std.math.maxInt(u32);
+const block_live = block_dead - 1;
 
 fn finishFunc(typer: *Typer) Allocator.Error!void {
     const comp = typer.comp;
@@ -1565,14 +1565,14 @@ fn finishFunc(typer: *Typer) Allocator.Error!void {
     try builder.frontier.ensureTotalCapacity(gpa, block_count);
 
     const map = builder.block_map.items;
-    map[0] = 0;
+    map[0] = block_live;
     builder.frontier.appendAssumeCapacity(0);
     while (builder.frontier.pop()) |raw| {
         switch (builder.blocks.items[raw].ended()) {
-            .jump => |target| finishFuncVisit(map, &builder.frontier, target.int()),
+            .jump => |target| reach(map, &builder.frontier, target),
             .branch => |branch| {
-                finishFuncVisit(map, &builder.frontier, branch.then_block.int());
-                finishFuncVisit(map, &builder.frontier, branch.else_block.int());
+                reach(map, &builder.frontier, branch.then_block);
+                reach(map, &builder.frontier, branch.else_block);
             },
             .ret, .trap => {},
         }
@@ -1592,18 +1592,18 @@ fn finishFunc(typer: *Typer) Allocator.Error!void {
     try comp.ir.blocks.ensureUnusedCapacity(gpa, live_blocks);
     for (builder.blocks.items, map) |block, slot| {
         if (slot == block_dead) continue;
+        const terminator = block.ended();
         comp.ir.blocks.appendAssumeCapacity(.{
             .first = block.first,
             .count = block.count,
-            .terminator = switch (block.ended()) {
-                .jump => |target| .{ .jump = @enumFromInt(map[target.int()]) },
+            .terminator = switch (terminator) {
+                .jump => |target| .{ .jump = numbered(map, target) },
                 .branch => |branch| .{ .branch = .{
                     .cond = branch.cond,
-                    .then_block = @enumFromInt(map[branch.then_block.int()]),
-                    .else_block = @enumFromInt(map[branch.else_block.int()]),
+                    .then_block = numbered(map, branch.then_block),
+                    .else_block = numbered(map, branch.else_block),
                 } },
-                .ret => |value| .{ .ret = value },
-                .trap => .trap,
+                .ret, .trap => terminator,
             },
         });
     }
@@ -1633,8 +1633,15 @@ fn finishFunc(typer: *Typer) Allocator.Error!void {
     });
 }
 
-fn finishFuncVisit(map: []u32, frontier: *std.ArrayList(u32), target: u32) void {
-    if (map[target] != block_dead) return;
-    map[target] = 0;
-    frontier.appendAssumeCapacity(target);
+fn reach(map: []u32, frontier: *std.ArrayList(u32), block: IR.Block.Index) void {
+    const slot = &map[block.int()];
+    if (slot.* != block_dead) return;
+    slot.* = block_live;
+    frontier.appendAssumeCapacity(block.int());
+}
+
+/// A live block's successors are live, which is what the walk above settled.
+fn numbered(map: []const u32, block: IR.Block.Index) IR.Block.Index {
+    assert(map[block.int()] != block_dead);
+    return @enumFromInt(map[block.int()]);
 }
