@@ -107,11 +107,11 @@ fn ofStruct(
     instance: Pool.Instance,
     depth: u32,
 ) Error!Layout {
-    try comp.ensure(.of(.rows, instance), origin);
+    try comp.ensure(.{ .head = instance }, origin);
     // the embedding walk proved this terminates, which bounds the recursion
-    try comp.ensure(.of(.embedding, instance), origin);
-    if (comp.instanceAt(instance).rows_state != .done) return error.Poison;
-    if (comp.instanceAt(instance).deep_state != .done) return error.Poison;
+    try comp.ensure(.{ .body = instance }, origin);
+    if (comp.instanceAt(instance).head != .done) return error.Poison;
+    if (comp.instanceAt(instance).body != .done) return error.Poison;
 
     var size: u64 = 0;
     var alignment: u32 = 1;

@@ -10,7 +10,7 @@ const Pool = @import("Pool.zig");
 const Source = @import("Source.zig");
 const Token = @import("Token.zig");
 
-const Closest = Compilation.Closest;
+const Closest = Diagnostic.Closest;
 const Range = Compilation.Range;
 
 /// `space:stem/stem`, so one file is one module.
@@ -59,15 +59,26 @@ pub const Decl = struct {
     node: AST.Node.Index,
     name: Pool.String,
     owner: OptionalIndex,
-    /// What resolution left behind, read with `aux`.
-    result: u32,
-    aux: u32,
-    /// The zero-argument instantiation, cached for bracketless mentions.
-    plain_instance: Pool.OptionalInstance,
+    /// What the unit settled, read by `kind`.
+    answer: Answer,
+    /// The first of `type_params` entries in `Compilation.bounds`.
+    bounds: u32,
     kind: Kind,
     state: State,
     /// Recorded at registration, so asking never re-reads the tree.
     type_params: u8,
+
+    pub const Answer = union {
+        none: void,
+        /// An import, the module it binds.
+        module: Module.Index,
+        /// An alias, the type it names.
+        type: Pool.Index,
+        /// A `let`, its value.
+        constant: Pool.Index,
+        /// A struct, the declarations it owns.
+        members: Compilation.Range,
+    };
 
     pub const Kind = enum(u8) {
         import,
@@ -83,16 +94,8 @@ pub const Decl = struct {
     pub const Index = Handle.Index("decl");
     pub const OptionalIndex = Decl.Index.Optional;
 
-    /// The declarations a struct owns, which `result` and `aux` are the range of.
-    pub fn members(decl: Decl) Compilation.Range {
-        assert(decl.kind == .struct_decl);
-        return .{ .start = decl.result, .len = decl.aux };
-    }
-
-    fn setMembers(decl: *Decl, range: Compilation.Range) void {
-        assert(decl.kind == .struct_decl);
-        decl.result = range.start;
-        decl.aux = range.len;
+    pub fn origin(decl: Decl) Compilation.Origin {
+        return .{ .module = decl.module, .node = decl.node };
     }
 };
 
@@ -230,7 +233,9 @@ fn registerMembers(
         }
     }
 
-    comp.declPtr(struct_index).setMembers(.since(members_start, comp.decls.items.len));
+    comp.declPtr(struct_index).answer = .{
+        .members = .since(members_start, comp.decls.items.len),
+    };
 }
 
 const NewDecl = struct {
@@ -311,13 +316,13 @@ fn appendDecl(
         .node = node,
         .name = try comp.pool.string(comp.gpa, tree.tokenSlice(new.name_token)),
         .owner = owner,
-        .result = 0,
-        .aux = 0,
-        .plain_instance = .none,
+        .answer = .{ .none = {} },
+        .bounds = @intCast(comp.bounds.items.len),
         .kind = new.kind,
         .state = .unanalyzed,
         .type_params = new.type_params,
     });
+    try comp.bounds.appendNTimes(comp.gpa, .poison, new.type_params);
     return index;
 }
 
@@ -385,7 +390,7 @@ pub fn resolveImport(comp: *Compilation, decl_index: Decl.Index) Allocator.Error
         });
         return false;
     };
-    comp.declPtr(decl_index).result = target.int();
+    comp.declPtr(decl_index).answer = .{ .module = target };
     return true;
 }
 
@@ -393,7 +398,7 @@ pub fn importedModule(comp: *const Compilation, decl_index: Decl.Index) Module.I
     const decl = comp.declAt(decl_index);
     assert(decl.kind == .import);
     assert(decl.state == .done);
-    return @enumFromInt(decl.result);
+    return decl.answer.module;
 }
 
 fn pathText(
@@ -483,5 +488,5 @@ fn suggestIn(
         if (declIsPub(comp, index) == false) continue;
         closest.consider(comp.pool.stringText(decl.name));
     }
-    return comp.didYouMean(closest);
+    return closest.didYouMean(comp.arena.allocator());
 }

@@ -66,7 +66,7 @@ pub fn writeInstance(
     if (decl.owner.unwrap()) |owner_index| {
         const owner = comp.declAt(owner_index);
         try writer.writeAll(comp.pool.stringText(owner.name));
-        const owner_params = comp.typeParamCount(owner_index);
+        const owner_params = comp.declAt(owner_index).type_params;
         skip = @min(owner_params, args.len);
         try writeArgs(comp, writer, args[0..skip]);
         try writer.writeByte('.');
@@ -99,7 +99,7 @@ fn writeSignature(
     index: Pool.Instance,
 ) Writer.Error!void {
     const instance = comp.instanceAt(index);
-    assert(instance.rows_state == .done or instance.rows_state == .poisoned);
+    assert(instance.head == .done or instance.head == .poisoned);
 
     try writer.writeByte('(');
     for (comp.instanceRows(index), 0..) |row, position| {
@@ -476,7 +476,7 @@ fn inst(
         .field => {
             try writer.writeByte(' ');
             try ref(comp, data.field.base, writer);
-            try writer.print(", .{s}", .{comp.rowName(data.field.row)});
+            try writer.print(", .{s}", .{comp.pool.stringText(comp.rowAt(data.field.row).name)});
         },
         .probe => {
             try writer.writeByte(' ');
@@ -530,7 +530,7 @@ fn wide(
             for (operands, 0..) |operand, position| {
                 if (position > 0) try writer.writeAll(", ");
                 const row: Compilation.Row.Index = .from(rows.at(@intCast(position)));
-                try writer.print("{s}: ", .{comp.rowName(row)});
+                try writer.print("{s}: ", .{comp.pool.stringText(comp.rowAt(row).name)});
                 try ref(comp, operand, writer);
             }
             try writer.writeAll(" }");

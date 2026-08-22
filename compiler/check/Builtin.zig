@@ -2,16 +2,18 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const AST = @import("AST.zig");
-const Check = @import("Check.zig");
-const Compilation = @import("Compilation.zig");
-const Diagnostic = @import("Diagnostic.zig");
-const Layout = @import("Layout.zig");
-const Literal = @import("Literal.zig");
-const Pool = @import("Pool.zig");
-const Token = @import("Token.zig");
+const AST = @import("../AST.zig");
+const Check = @import("../Check.zig");
+const Compilation = @import("../Compilation.zig");
+const Diagnostic = @import("../Diagnostic.zig");
+const Layout = @import("../Layout.zig");
+const Literal = @import("../Literal.zig");
+const Pool = @import("../Pool.zig");
+const Token = @import("../Token.zig");
+const Resolve = @import("Resolve.zig");
+const Expr = @import("Expr.zig");
 
-const Closest = Compilation.Closest;
+const Closest = Diagnostic.Closest;
 const Node = AST.Node;
 const Value = Check.Value;
 
@@ -238,7 +240,7 @@ fn messageText(check: *Check, node: Node.Index) Allocator.Error!?[]const u8 {
 fn suggest(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
     var closest: Closest = .{ .target = text };
     for (Builtin.names) |candidate| closest.consider(candidate);
-    return check.comp.didYouMean(closest);
+    return closest.didYouMean(check.comp.arena.allocator());
 }
 
 fn resolveTypes(
@@ -269,7 +271,7 @@ fn resolveTypes(
     }
 
     for (written, 0..) |type_arg, position| {
-        const resolved = try check.resolveWrittenType(type_arg);
+        const resolved = try Resolve.resolveWrittenType(check, type_arg);
         if (resolved == .poison) return false;
         out[position] = resolved;
     }
@@ -580,7 +582,7 @@ fn ptrCast(
     operand: Value,
 ) Allocator.Error!Value {
     const found = check.typeOf(operand);
-    const pointer = try check.pointerAt(node, found, "@ptr_cast", null) orelse return .poison;
+    const pointer = try Expr.pointerAt(check, node, found, "@ptr_cast", null) orelse return .poison;
     const result = try check.pointerTo(wanted, pointer.mutable);
     return check.emitOneValue(node, .ptr_cast, result, Check.refOf(operand));
 }
@@ -596,7 +598,7 @@ fn view(
     assert(values.len == 2);
 
     const found = check.typeOf(values[0]);
-    const pointer = try check.pointerAt(args[0], found, "@view", null) orelse return .poison;
+    const pointer = try Expr.pointerAt(check, args[0], found, "@view", null) orelse return .poison;
 
     const count_type = check.typeOf(values[1]);
     if (Pool.isInteger(count_type) == false) {
@@ -625,7 +627,7 @@ fn intFromPtr(
     operand: Value,
 ) Allocator.Error!Value {
     const found = check.typeOf(operand);
-    _ = try check.pointerAt(operand_node, found, "@int_from_ptr", null) orelse return .poison;
+    _ = try Expr.pointerAt(check, operand_node, found, "@int_from_ptr", null) orelse return .poison;
     return check.emitOneValue(node, .int_from_ptr, .u64_type, Check.refOf(operand));
 }
 
@@ -649,9 +651,6 @@ test "a union with no member for the target says which one is missing" {
     , .x86_64_windows);
     defer comp.deinit();
 
-    try testing.expectEqual(1, comp.diagnosticCount());
-    try testing.expectEqual(
-        Diagnostic.Code.not_a_member,
-        comp.diagnosticAt(0).code,
-    );
+    try testing.expectEqual(1, comp.diagnostics.items.len);
+    try testing.expectEqual(Diagnostic.Code.not_a_member, comp.diagnostics.items[0].diagnostic.code);
 }

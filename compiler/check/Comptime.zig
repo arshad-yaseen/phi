@@ -4,11 +4,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
-const AST = @import("AST.zig");
-const Check = @import("Check.zig");
-const Diagnostic = @import("Diagnostic.zig");
-const IR = @import("IR.zig");
-const Pool = @import("Pool.zig");
+const AST = @import("../AST.zig");
+const Check = @import("../Check.zig");
+const Diagnostic = @import("../Diagnostic.zig");
+const IR = @import("../IR.zig");
+const Pool = @import("../Pool.zig");
 
 const Node = AST.Node;
 const Value = Check.Value;
@@ -146,7 +146,7 @@ fn evaluate(
     const decl = comp.declAt(comp.instanceDecl(instance));
     if (decl.kind == .extern_fn) return evaluator.runtime("a call the linker resolves");
 
-    try comp.ensure(.of(.body, instance), .{ .module = decl.module, .node = decl.node });
+    try comp.ensure(.{ .body = instance }, decl.origin());
     const func = comp.funcOf(instance) orelse return evaluator.runtime("a call");
 
     const cells = try comp.gpa.alloc(Pool.Index, func.insts.len);

@@ -74,60 +74,8 @@ pub const Node = struct {
 
     pub const OptionalIndex = Handle.OptionalOf(Index);
 
-    pub const Tag = enum(u8) {
-        root,
-        import_decl,
-        struct_decl,
-        alias_decl,
-        unit_decl,
-        fn_decl,
-        /// Both `let` and `var`, told apart by `main_token`.
-        var_decl,
-        type_param,
-        param,
-        field,
-
-        block,
-        assign,
-        defer_stmt,
-        if_expr,
-        loop_expr,
-        break_expr,
-        continue_expr,
-        return_expr,
-        match_expr,
-        match_arm,
-
-        builtin,
-        ident,
-        number_literal,
-        string_literal,
-        multiline_string,
-        char_literal,
-
-        field_access,
-        deref,
-        /// `a[x, y]`. Type arguments where `a` is generic, an index otherwise.
-        bracket,
-        call,
-        struct_literal,
-        array_literal,
-        range_expr,
-        struct_field_init,
-
-        binary,
-        unary,
-        is_expr,
-        or_bind,
-
-        array_type,
-        slice_type,
-        pointer_type,
-        /// `A | B`, only in type position. Members are never unions.
-        union_type,
-
-        err,
-    };
+    /// One per `View`, which is where each is documented.
+    pub const Tag = @typeInfo(View).@"union".tag_type.?;
 
     /// Reinterpreted by `tag`. Only `viewOf` reads it.
     const Data = union {
@@ -144,12 +92,6 @@ pub const Node = struct {
 };
 
 comptime {
-    // one view per tag, matched by name, so a missing view is a compile error
-    const tags = @typeInfo(Node.Tag).@"enum".fields;
-    const views = @typeInfo(View).@"union".fields;
-    assert(tags.len == views.len);
-    for (tags, views) |tag, view| assert(std.mem.eql(u8, tag.name, view.name));
-
     assert(@sizeOf(Node.Tag) == 1);
     assert(@sizeOf(Node.Index) == 4);
     assert(@sizeOf(ExtraIndex) == 4);
@@ -302,6 +244,7 @@ pub const View = union(enum) {
     alias_decl: AliasDecl,
     unit_decl: UnitDecl,
     fn_decl: FnDecl,
+    /// Both `let` and `var`, told apart by `main_token`.
     var_decl: VarDecl,
     type_param: TypeParam,
     param: TypedName,
@@ -327,6 +270,7 @@ pub const View = union(enum) {
 
     field_access: FieldAccess,
     deref: Node.Index,
+    /// `a[x, y]`. Type arguments where `a` is generic, an index otherwise.
     bracket: Bracket,
     call: Call,
     struct_literal: StructLiteral,
@@ -342,6 +286,7 @@ pub const View = union(enum) {
     array_type: ArrayType,
     slice_type: Wrap,
     pointer_type: Wrap,
+    /// `A | B`, only in type position. Members are never unions.
     union_type: []const Node.Index,
 
     err,
@@ -448,8 +393,7 @@ pub inline fn viewOf(tree: AST, node: Node.Index) View {
     const data = tree.nodes.items(.data)[node.int()];
     const view = unpack(tree, tree.nodeTag(node), main, data);
 
-    // the comptime block proves the two tag orders align
-    assert(@intFromEnum(view) == @intFromEnum(tree.nodeTag(node)));
+    assert(std.meta.activeTag(view) == tree.nodeTag(node));
     return view;
 }
 

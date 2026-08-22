@@ -4,7 +4,7 @@ error[E0219]: '==' cannot be applied to [2]u32
 2 |     return a == b
   |              ^^ wrong operand type
   |
-  = help: slice them first, as in 'mem.eql(a[0..], b[0..])'
+  = help: slice them first, as in 'mem.equal(a[0..], b[0..])'
 
 error[E0219]: '+' cannot be applied to [2]u32
  --> test/fail/array_ops.phi:6:14

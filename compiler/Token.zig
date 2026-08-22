@@ -89,32 +89,11 @@ pub const Tag = enum(u8) {
 
     /// Fixed text, or null when the text is the source itself.
     pub fn lexeme(tag: Tag) ?[]const u8 {
+        if (tag.isKeyword()) return @tagName(tag)["kw_".len..];
         return switch (tag) {
             .invalid, .eof => null,
             .ident, .number, .string, .string_line, .char, .builtin => null,
             .comment, .doc_comment, .file_doc_comment => null,
-
-            .kw_and => "and",
-            .kw_as => "as",
-            .kw_break => "break",
-            .kw_continue => "continue",
-            .kw_defer => "defer",
-            .kw_else => "else",
-            .kw_extern => "extern",
-            .kw_fn => "fn",
-            .kw_if => "if",
-            .kw_import => "import",
-            .kw_in => "in",
-            .kw_is => "is",
-            .kw_let => "let",
-            .kw_loop => "loop",
-            .kw_match => "match",
-            .kw_not => "not",
-            .kw_or => "or",
-            .kw_pub => "pub",
-            .kw_return => "return",
-            .kw_type => "type",
-            .kw_var => "var",
 
             .l_paren => "(",
             .r_paren => ")",
@@ -159,6 +138,7 @@ pub const Tag = enum(u8) {
             .caret_eq => "^=",
             .lt_lt_eq => "<<=",
             .gt_gt_eq => ">>=",
+            else => unreachable, // every keyword returned above
         };
     }
 

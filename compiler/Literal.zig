@@ -38,11 +38,7 @@ fn decodeSlow(arena: Allocator, text: []const u8) Allocator.Error!Decoded {
                 return .{ .refused = try refusalOf(arena, text, .{ .invalid_character = 0 }) };
             };
             if (std.math.isFinite(value) == false) {
-                return .{ .refused = .{
-                    .code = .bad_number,
-                    .message = "this number is too large for a float",
-                    .label = "does not fit",
-                } };
+                return .{ .refused = badNumber("this number is too large for a float", "does not fit", null) };
             }
             return .{ .float = value };
         },
@@ -63,11 +59,11 @@ fn decodeWide(text: []const u8, base: std.zig.number_literal.Base) Decoded {
     return .{ .int = value };
 }
 
-const too_wide: Decoded = .{ .refused = .{
-    .code = .bad_number,
-    .message = "this number needs more than 128 bits, the width constants fold in",
-    .label = "too large",
-} };
+const too_wide: Decoded = .{ .refused = badNumber(
+    "this number needs more than 128 bits, the width constants fold in",
+    "too large",
+    null,
+) };
 
 fn refusalOf(
     arena: Allocator,
@@ -75,90 +71,66 @@ fn refusalOf(
     failure: std.zig.number_literal.Error,
 ) Allocator.Error!Refusal {
     return switch (failure) {
-        .leading_zero => .{
-            .code = .bad_number,
-            .message = "a decimal number cannot start with zero",
-            .label = "leading zero",
-            .help = "write the '0o' prefix if octal was meant, or drop the zero",
-        },
-        .digit_after_base => .{
-            .code = .bad_number,
-            .message = "a base prefix needs digits after it",
-            .label = "no digits",
-        },
-        .upper_case_base => .{
-            .code = .bad_number,
-            .message = "a base prefix is lowercase: '0x', '0o', or '0b'",
-            .label = "uppercase prefix",
-        },
-        .invalid_float_base => .{
-            .code = .bad_number,
-            .message = "a float is decimal, or hex with a 'p' exponent",
-            .label = "wrong base for a float",
-        },
+        .leading_zero => badNumber(
+            "a decimal number cannot start with zero",
+            "leading zero",
+            "write the '0o' prefix if octal was meant, or drop the zero",
+        ),
+        .digit_after_base => badNumber("a base prefix needs digits after it", "no digits", null),
+        .upper_case_base => badNumber(
+            "a base prefix is lowercase: '0x', '0o', or '0b'",
+            "uppercase prefix",
+            null,
+        ),
+        .invalid_float_base => badNumber(
+            "a float is decimal, or hex with a 'p' exponent",
+            "wrong base for a float",
+            null,
+        ),
         .repeated_underscore,
         .invalid_underscore_after_special,
         .trailing_underscore,
         .exponent_after_underscore,
         .special_after_underscore,
-        => .{
-            .code = .bad_number,
-            .message = "'_' separates digits, so one sits between two of them",
-            .label = "misplaced '_'",
-        },
-        .invalid_digit => |info| .{
-            .code = .bad_number,
-            .message = try std.fmt.allocPrint(arena, "'{c}' is not a {t} digit", .{
-                text[info.i], info.base,
-            }),
-            .label = "not a digit",
-        },
-        .invalid_digit_exponent => |at| .{
-            .code = .bad_number,
-            .message = try std.fmt.allocPrint(arena, "'{c}' is not a digit an exponent takes", .{
-                text[at],
-            }),
-            .label = "not an exponent digit",
-        },
-        .duplicate_period => .{
-            .code = .bad_number,
-            .message = "a number holds one '.'",
-            .label = "a second '.'",
-        },
-        .duplicate_exponent => .{
-            .code = .bad_number,
-            .message = "a number holds one exponent",
-            .label = "a second exponent",
-        },
-        .trailing_special => .{
-            .code = .bad_number,
-            .message = "this number ends before its digits do",
-            .label = "digits expected after this",
-        },
-        .invalid_exponent_sign => |at| .{
-            .code = .bad_number,
-            .message = try std.fmt.allocPrint(
+        => badNumber("'_' separates digits, so one sits between two of them", "misplaced '_'", null),
+        .invalid_digit => |info| badNumber(
+            try std.fmt.allocPrint(arena, "'{c}' is not a {t} digit", .{ text[info.i], info.base }),
+            "not a digit",
+            null,
+        ),
+        .invalid_digit_exponent => |at| badNumber(
+            try std.fmt.allocPrint(arena, "'{c}' is not a digit an exponent takes", .{text[at]}),
+            "not an exponent digit",
+            null,
+        ),
+        .duplicate_period => badNumber("a number holds one '.'", "a second '.'", null),
+        .duplicate_exponent => badNumber("a number holds one exponent", "a second exponent", null),
+        .trailing_special => badNumber(
+            "this number ends before its digits do",
+            "digits expected after this",
+            null,
+        ),
+        .invalid_exponent_sign => |at| badNumber(
+            try std.fmt.allocPrint(
                 arena,
                 "a sign continues an exponent, and '{c}' follows a digit",
                 .{text[at]},
             ),
-            .label = "misplaced sign",
-        },
-        .period_after_exponent => .{
-            .code = .bad_number,
-            .message = "an exponent holds no '.'",
-            .label = "'.' in an exponent",
-        },
-        .invalid_character => .{
-            .code = .bad_number,
-            .message = try std.fmt.allocPrint(arena, "'{s}' is not a number the language knows", .{
-                text,
-            }),
-            .label = "unreadable",
-            .help = "numbers are decimal, hex '0x', octal '0o', or binary '0b', " ++
+            "misplaced sign",
+            null,
+        ),
+        .period_after_exponent => badNumber("an exponent holds no '.'", "'.' in an exponent", null),
+        .invalid_character => badNumber(
+            try std.fmt.allocPrint(arena, "'{s}' is not a number the language knows", .{text}),
+            "unreadable",
+            "numbers are decimal, hex '0x', octal '0o', or binary '0b', " ++
                 "with '.' and 'e' for floats",
-        },
+        ),
     };
+}
+
+fn badNumber(message: []const u8, label: []const u8, help: ?[]const u8) Refusal {
+    return .{ .code = .bad_number, .message = message, .label = label, .help = help };
 }
 
 const codepoint_max = 0x10FFFF;

@@ -42,7 +42,7 @@ error[E0219]: '==' cannot be applied to []u32
 30 |     return a == b
    |              ^^ wrong operand type
    |
-   = help: 'std.mem.eql' compares two views element by element
+   = help: 'mem.equal' compares two views element by element
 
 error[E0219]: '==' cannot be applied to Point
   --> test/fail/equality.phi:34:14

@@ -62,7 +62,7 @@ pub fn entryOf(comp: *Compilation) Allocator.Error!Entry {
             "'main' is not a function", "not a function");
         return .refused;
     }
-    if (comp.typeParamCount(decl_index) > 0) {
+    if (comp.declAt(decl_index).type_params > 0) {
         try reportEntry(comp, decl.node, "a program starts at a plain 'fn main()', and " ++
             "this one is generic", "cannot be generic");
         return .refused;
@@ -82,8 +82,7 @@ pub fn entryOf(comp: *Compilation) Allocator.Error!Entry {
     }
     if (shaped == false) return .refused;
 
-    const origin: Compilation.Origin = .{ .module = .root, .node = decl.node };
-    const instance = try comp.instantiate(decl_index, &.{}, origin);
+    const instance = try comp.instantiate(decl_index, &.{}, decl.origin());
     assert(comp.funcOf(instance) != null);
     return .{ .instance = instance };
 }
@@ -151,7 +150,7 @@ pub fn emit(
 fn writeProgram(backend: *C, entry: Pool.Instance) Fail!void {
     const comp = backend.comp;
 
-    const instance_count = comp.instanceCount();
+    const instance_count = comp.instances.items.len;
     for (comp.ir.bodies) |instance| {
         const func = comp.funcOf(instance) orelse continue;
         backend.enter(func);
@@ -160,7 +159,7 @@ fn writeProgram(backend: *C, entry: Pool.Instance) Fail!void {
         try backend.writeFunc(func);
     }
     // bodies never commit past checking, so nothing registered since carries one
-    for (instance_count..comp.instanceCount()) |raw| {
+    for (instance_count..comp.instances.items.len) |raw| {
         assert(comp.funcOf(@enumFromInt(raw)) == null);
     }
 
@@ -195,7 +194,7 @@ fn writeSignature(
     linkage: Linkage,
 ) Fail!void {
     const comp = backend.comp;
-    assert(comp.instanceAt(instance).rows_state == .done);
+    assert(comp.instanceAt(instance).head == .done);
 
     try writer.writeAll(if (linkage == .local) "static " else "extern ");
     const return_type = comp.instanceType(instance);
@@ -363,7 +362,7 @@ fn ensureTypedef(backend: *C, index: Pool.Index, depth: u32) Fail!void {
         },
         .type_struct => |instance| {
             try comp.ensureRows(instance);
-            if (comp.instanceAt(instance).rows_state != .done) {
+            if (comp.instanceAt(instance).head != .done) {
                 assert(comp.hasErrors());
                 return error.Refused;
             }
@@ -1337,7 +1336,7 @@ test "the entry is found, missed, or refused" {
         \\
     );
     defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnosticCount());
+    try testing.expectEqual(0, comp.diagnostics.items.len);
     try testing.expect(try entryOf(&comp) == .instance);
 
     var absent: Compilation = undefined;
@@ -1348,7 +1347,7 @@ test "the entry is found, missed, or refused" {
     );
     defer absent.deinit();
     try testing.expect(try entryOf(&absent) == .missing);
-    try testing.expectEqual(0, absent.diagnosticCount());
+    try testing.expectEqual(0, absent.diagnostics.items.len);
 
     var shaped: Compilation = undefined;
     try Compilation.testCompile(&shaped,
@@ -1359,5 +1358,5 @@ test "the entry is found, missed, or refused" {
     );
     defer shaped.deinit();
     try testing.expect(try entryOf(&shaped) == .refused);
-    try testing.expectEqual(2, shaped.diagnosticCount());
+    try testing.expectEqual(2, shaped.diagnostics.items.len);
 }

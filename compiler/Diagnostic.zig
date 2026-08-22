@@ -115,6 +115,50 @@ comptime {
 
 pub const Color = enum { off, on };
 
+/// The nearest of the names offered to a misspelt one, by edit distance.
+pub const Closest = struct {
+    target: []const u8,
+    best: ?[]const u8 = null,
+    best_distance: u32 = 3,
+
+    pub fn consider(closest: *Closest, candidate: []const u8) void {
+        const found = distance(closest.target, candidate);
+        if (found < closest.best_distance) {
+            closest.best_distance = found;
+            closest.best = candidate;
+        }
+    }
+
+    pub fn didYouMean(closest: Closest, arena: Allocator) Allocator.Error!?[]const u8 {
+        const found = closest.best orelse return null;
+        return try std.fmt.allocPrint(arena, "did you mean '{s}'?", .{found});
+    }
+
+    /// https://en.wikipedia.org/wiki/Levenshtein_distance
+    fn distance(a: []const u8, b: []const u8) u32 {
+        const cap = 40;
+        const from = a[0..@min(a.len, cap)];
+        const to = b[0..@min(b.len, cap)];
+
+        var row: [cap + 1]u32 = undefined;
+        for (0..to.len + 1) |column| row[column] = @intCast(column);
+
+        for (from, 1..) |byte, at| {
+            var corner = row[0];
+            row[0] = @intCast(at);
+            for (to, 1..) |other, column| {
+                const cost: u32 = if (byte == other) 0 else 1;
+                const replaced = corner + cost;
+                const inserted = row[column - 1] + 1;
+                const removed = row[column] + 1;
+                corner = row[column];
+                row[column] = @min(replaced, @min(inserted, removed));
+            }
+        }
+        return row[to.len];
+    }
+};
+
 pub const RenderError = Allocator.Error || Writer.Error;
 
 const Diagnostic = @This();
