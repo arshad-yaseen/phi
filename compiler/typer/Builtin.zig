@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
-const Check = @import("../Check.zig");
+const Typer = @import("../Typer.zig");
 const Compilation = @import("../Compilation.zig");
 const Diagnostic = @import("../Diagnostic.zig");
 const Layout = @import("../Layout.zig");
@@ -15,7 +15,7 @@ const Expr = @import("Expr.zig");
 
 const Closest = Diagnostic.Closest;
 const Node = AST.Node;
-const Value = Check.Value;
+const Value = Typer.Value;
 
 pub const Builtin = enum {
     ptr_cast,
@@ -97,21 +97,21 @@ pub const Builtin = enum {
         break :blk most;
     };
 
-    pub fn resolve(check: *Check, name_token: Token.Index) Allocator.Error!?Builtin {
-        const comp = check.comp;
-        const name_text = Builtin.nameOf(check.tree.tokenSlice(name_token));
+    pub fn resolve(typer: *Typer, name_token: Token.Index) Allocator.Error!?Builtin {
+        const comp = typer.comp;
+        const name_text = Builtin.nameOf(typer.tree.tokenSlice(name_token));
 
         const which = Builtin.fromName(name_text) orelse {
-            try check.failToken(name_token, .{
+            try typer.failToken(name_token, .{
                 .code = .no_such_member,
                 .message = try comp.fmt("there is no builtin named '@{s}'", .{name_text}),
                 .label = "no such builtin",
-                .help = try suggest(check, name_text),
+                .help = try suggest(typer, name_text),
             });
             return null;
         };
-        if (which.stdOnly() and check.module.space != .std) {
-            try check.failToken(name_token, .{
+        if (which.stdOnly() and typer.module.space != .std) {
+            try typer.failToken(name_token, .{
                 .code = .builtin_outside_std,
                 .message = try comp.fmt("only the standard library reaches '@{s}'", .{name_text}),
                 .label = "not available here",
@@ -122,8 +122,8 @@ pub const Builtin = enum {
         return which;
     }
 
-    pub fn notAValue(check: *Check, node: Node.Index) Allocator.Error!Value {
-        return check.refuse(node, .{
+    pub fn notAValue(typer: *Typer, node: Node.Index) Allocator.Error!Value {
+        return typer.refuse(node, .{
             .code = .not_a_function,
             .message = "a builtin is not a value, so call it",
             .label = "missing the call",
@@ -133,136 +133,136 @@ pub const Builtin = enum {
 
     pub fn call(
         builtin: Builtin,
-        check: *Check,
+        typer: *Typer,
         node: Node.Index,
         type_args: []const Node.Index,
         args: []const Node.Index,
         hint: ?Pool.Index,
     ) Allocator.Error!Value {
-        const comp = check.comp;
+        const comp = typer.comp;
         const form = builtin.shape();
 
         if (args.len != form.args) {
             const name = try comp.fmt("@{s}", .{@tagName(builtin)});
-            try check.failArity(node, name, .value, form.args, args.len, &.{});
+            try typer.failArity(node, name, .value, form.args, args.len, &.{});
             return .poison;
         }
 
         var types: [types_max]Pool.Index = undefined;
-        if (try resolveTypes(check, node, builtin, type_args, &types) == false) return .poison;
+        if (try resolveTypes(typer, node, builtin, type_args, &types) == false) return .poison;
 
         var values: [args_max]Value = undefined;
         for (args, 0..) |argument, position| {
-            values[position] = try check.checkValue(argument, null);
+            values[position] = try typer.checkValue(argument, null);
             if (values[position].stops()) return values[position];
         }
 
         switch (builtin) {
-            .ptr_cast => return ptrCast(check, args[0], types[0], values[0]),
-            .view => return view(check, node, args, values[0..2]),
-            .int_from_ptr => return intFromPtr(check, node, args[0], values[0]),
+            .ptr_cast => return ptrCast(typer, args[0], types[0], values[0]),
+            .view => return view(typer, node, args, values[0..2]),
+            .int_from_ptr => return intFromPtr(typer, node, args[0], values[0]),
             .int_cast, .int_fits => {
                 const written: ?Pool.Index = if (type_args.len == 1) types[0] else null;
                 const wants = if (builtin == .int_cast) int_cast_wants else int_fits_wants;
-                const wanted = try destination(check, node, written, hint, wants) orelse
+                const wanted = try destination(typer, node, written, hint, wants) orelse
                     return .poison;
-                const found = check.typeOf(values[0]);
-                if (Pool.isInteger(found) == false) return check.refuse(args[0], .{
+                const found = typer.typeOf(values[0]);
+                if (Pool.isInteger(found) == false) return typer.refuse(args[0], .{
                     .code = .bad_operand,
                     .message = try comp.fmt("'@{t}' converts a number, and this is {s}", .{
                         builtin, try comp.typeName(found),
                     }),
                     .label = "not a number",
                 });
-                if (builtin == .int_cast) return intCast(check, node, args[0], wanted, values[0]);
-                return intFits(check, node, wanted, values[0]);
+                if (builtin == .int_cast) return intCast(typer, node, args[0], wanted, values[0]);
+                return intFits(typer, node, wanted, values[0]);
             },
-            .size_of, .align_of => return layoutOf(check, node, builtin, types[0]),
-            .min_int, .max_int => return limitOf(check, node, builtin, types[0]),
+            .size_of, .align_of => return layoutOf(typer, node, builtin, types[0]),
+            .min_int, .max_int => return limitOf(typer, node, builtin, types[0]),
             .target_os => return targetMember(
-                check,
+                typer,
                 node,
                 hint,
                 target_os_wants,
                 @tagName(comp.options.target.os()),
             ),
             .target_arch => return targetMember(
-                check,
+                typer,
                 node,
                 hint,
                 target_arch_wants,
                 @tagName(comp.options.target.arch()),
             ),
             .repeat => {
-                const wanted = try destination(check, node, null, hint, repeat_wants) orelse
+                const wanted = try destination(typer, node, null, hint, repeat_wants) orelse
                     return .poison;
-                return repeat(check, node, args[0], wanted, values[0]);
+                return repeat(typer, node, args[0], wanted, values[0]);
             },
             .trap => {
-                try check.trap();
+                try typer.trap();
                 return .diverged;
             },
-            .compile_error => return compileError(check, node, args[0]),
+            .compile_error => return compileError(typer, node, args[0]),
         }
     }
 };
 
-fn compileError(check: *Check, node: Node.Index, message: Node.Index) Allocator.Error!Value {
-    const said = try messageText(check, message) orelse return check.refuse(message, .{
+fn compileError(typer: *Typer, node: Node.Index, message: Node.Index) Allocator.Error!Value {
+    const said = try messageText(typer, message) orelse return typer.refuse(message, .{
         .code = .compile_error,
         .message = "'@compile_error' says why in a string written at the call",
         .label = "no reason here",
         .help = "give one, as in '@compile_error(\"no pages on this target\")'",
     });
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .compile_error,
         .message = said,
         .label = "the program refuses this build",
     });
-    if (check.builder == null) return .poison;
-    try check.trap();
+    if (typer.builder == null) return .poison;
+    try typer.trap();
     return .diverged;
 }
 
-fn messageText(check: *Check, node: Node.Index) Allocator.Error!?[]const u8 {
-    if (check.tree.nodeTag(node) != .string_literal) return null;
+fn messageText(typer: *Typer, node: Node.Index) Allocator.Error!?[]const u8 {
+    if (typer.tree.nodeTag(node) != .string_literal) return null;
 
     var out: std.ArrayList(u8) = .empty;
-    var reading = Literal.bytesOf(check.tree.tokenSlice(check.tree.nodeMainToken(node)));
+    var reading = Literal.bytesOf(typer.tree.tokenSlice(typer.tree.nodeMainToken(node)));
     while (reading.next()) |piece| switch (piece) {
-        .bytes => |run| try out.appendSlice(check.comp.arena.allocator(), run),
+        .bytes => |run| try out.appendSlice(typer.comp.arena.allocator(), run),
         .refused => return null,
     };
     if (out.items.len == 0) return null;
     return out.items;
 }
 
-fn suggest(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
+fn suggest(typer: *Typer, text: []const u8) Allocator.Error!?[]const u8 {
     var closest: Closest = .{ .target = text };
     for (Builtin.names) |candidate| closest.consider(candidate);
-    return closest.didYouMean(check.comp.arena.allocator());
+    return closest.didYouMean(typer.comp.arena.allocator());
 }
 
 fn resolveTypes(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     builtin: Builtin,
     written: []const Node.Index,
     out: *[Builtin.types_max]Pool.Index,
 ) Allocator.Error!bool {
-    const comp = check.comp;
+    const comp = typer.comp;
     const form = builtin.shape();
     assert(form.types_max <= out.len);
 
     if (written.len < form.types_min or written.len > form.types_max) {
         const bound: []const u8 = if (form.types_min < form.types_max) "at most " else "";
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .generic_arguments,
             .message = try comp.fmt("'@{s}' takes {s}{d} type argument{s}, and this writes {d}", .{
                 @tagName(builtin),
                 bound,
                 form.types_max,
-                Check.plural(form.types_max),
+                Typer.plural(form.types_max),
                 written.len,
             }),
             .label = "wrong number of type arguments",
@@ -271,7 +271,7 @@ fn resolveTypes(
     }
 
     for (written, 0..) |type_arg, position| {
-        const resolved = try Resolve.resolveWrittenType(check, type_arg);
+        const resolved = try Resolve.resolveWrittenType(typer, type_arg);
         if (resolved == .poison) return false;
         out[position] = resolved;
     }
@@ -330,16 +330,16 @@ const repeat_wants: Destination = .{
 };
 
 fn destination(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     written: ?Pool.Index,
     hint: ?Pool.Index,
     wants: Destination,
 ) Allocator.Error!?Pool.Index {
-    const comp = check.comp;
+    const comp = typer.comp;
     if (written) |wanted| {
         if (wants.accepts(&comp.pool, wanted)) return wanted;
-        try failDestination(check, node, wanted, wants, "and this is");
+        try failDestination(typer, node, wanted, wants, "and this is");
         return null;
     }
 
@@ -349,11 +349,11 @@ fn destination(
     const landing = comp.pool.firstMember(wanted);
     if (wants.accepts(&comp.pool, landing)) return landing;
 
-    if (check.typeCanHold(landing)) {
-        try failDestination(check, node, landing, wants, "and this lands on");
+    if (typer.typeCanHold(landing)) {
+        try failDestination(typer, node, landing, wants, "and this lands on");
         return null;
     }
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .inference_failed,
         .message = wants.missing,
         .label = "no type in sight",
@@ -363,33 +363,33 @@ fn destination(
 }
 
 fn failDestination(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     found: Pool.Index,
     wants: Destination,
     reached: []const u8,
 ) Allocator.Error!void {
     @branchHint(.cold);
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .bad_operand,
-        .message = try check.comp.fmt("{s}, {s} {s}", .{
+        .message = try typer.comp.fmt("{s}, {s} {s}", .{
             wants.does,
             reached,
-            try check.comp.typeName(found),
+            try typer.comp.typeName(found),
         }),
         .label = wants.label,
     });
 }
 
 fn targetMember(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     hint: ?Pool.Index,
     wants: Destination,
     spelled: []const u8,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    const wanted = try destination(check, node, null, hint, wants) orelse return .poison;
+    const comp = typer.comp;
+    const wanted = try destination(typer, node, null, hint, wants) orelse return .poison;
 
     var members = comp.pool.membersOf(wanted);
     while (members.next()) |member| {
@@ -402,7 +402,7 @@ fn targetMember(
         return .{ .constant = try comp.pool.enter(comp.gpa, wanted, held) };
     }
 
-    return check.refuse(node, .{
+    return typer.refuse(node, .{
         .code = .not_a_member,
         .message = try comp.fmt("this build targets '{s}', and {s} has no member named '{s}'", .{
             spelled,
@@ -415,19 +415,19 @@ fn targetMember(
 }
 
 fn intCast(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     operand_node: Node.Index,
     wanted: Pool.Index,
     operand: Value,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(Pool.isSizedInt(wanted));
     if (operand != .constant) {
-        return check.emitOneValue(node, .int_cast, wanted, Check.refOf(operand));
+        return typer.emitOneValue(node, .int_cast, wanted, Typer.refOf(operand));
     }
     const cast = try comp.pool.castInt(comp.gpa, operand.constant, wanted) orelse {
-        return check.refuse(operand_node, .{
+        return typer.refuse(operand_node, .{
             .code = .out_of_range,
             .message = try comp.fmt("{s} does not hold {s}", .{
                 try comp.typeName(wanted),
@@ -441,21 +441,21 @@ fn intCast(
 }
 
 fn intFits(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     wanted: Pool.Index,
     operand: Value,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(Pool.isSizedInt(wanted));
-    const absent = try check.noneType(node);
+    const absent = try typer.noneType(node);
     if (absent == .poison) return .poison;
     const result = switch (try comp.pool.unite(comp.gpa, &.{ wanted, absent })) {
         .index => |index| index,
         .duplicate, .too_wide => unreachable,
     };
     if (operand != .constant) {
-        return check.emitOneValue(node, .int_fits, result, Check.refOf(operand));
+        return typer.emitOneValue(node, .int_fits, result, Typer.refOf(operand));
     }
     const held = try comp.pool.castInt(comp.gpa, operand.constant, wanted) orelse
         try comp.pool.unitValue(comp.gpa, absent);
@@ -463,14 +463,14 @@ fn intFits(
 }
 
 fn repeat(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     operand_node: Node.Index,
     wanted: Pool.Index,
     operand: Value,
 ) Allocator.Error!Value {
     if (operand != .constant) {
-        return check.refuse(operand_node, .{
+        return typer.refuse(operand_node, .{
             .code = .not_constant,
             .message = "'@repeat' takes a constant, and this is settled at run time",
             .label = "not a constant",
@@ -478,31 +478,31 @@ fn repeat(
         });
     }
 
-    const repeated = try repeatArray(check, node, wanted, operand.constant, 0) orelse
+    const repeated = try repeatArray(typer, node, wanted, operand.constant, 0) orelse
         return .poison;
     return .{ .constant = repeated };
 }
 
 fn repeatArray(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     wanted: Pool.Index,
     value: Pool.Index,
     depth: u32,
 ) Allocator.Error!?Pool.Index {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(depth < AST.nest_max);
 
     const array = comp.pool.keyOf(wanted).type_array;
     const element: Pool.Index = element: {
         if (comp.pool.keyOf(array.child) == .type_array) {
-            break :element try repeatArray(check, node, array.child, value, depth + 1) orelse
+            break :element try repeatArray(typer, node, array.child, value, depth + 1) orelse
                 return null;
         }
         switch (try comp.pool.fit(comp.gpa, value, array.child, .allowed)) {
             .value => |fitted| break :element fitted,
             .does_not_fit, .wrong_kind => {
-                try check.fail(node, .{
+                try typer.fail(node, .{
                     .code = .does_not_fit,
                     .message = try comp.fmt("{s} does not fit in {s}, which is what '{s}' holds", .{
                         try comp.spellValue(value),
@@ -527,19 +527,19 @@ fn repeatArray(
 }
 
 fn layoutOf(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     builtin: Builtin,
     wanted: Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(builtin == .size_of or builtin == .align_of);
 
-    const layout = Layout.of(comp, check.origin(node), wanted) catch |err| switch (err) {
+    const layout = Layout.of(comp, typer.origin(node), wanted) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.Poison => return .poison,
         error.TooLarge => {
-            return check.refuse(node, .{
+            return typer.refuse(node, .{
                 .code = .type_too_large,
                 .message = try comp.fmt("'{s}' is larger than the 4 GiB a type may hold", .{
                     try comp.typeName(wanted),
@@ -549,20 +549,20 @@ fn layoutOf(
         },
     };
 
-    return check.untypedInt(if (builtin == .size_of) layout.size else layout.alignment);
+    return typer.untypedInt(if (builtin == .size_of) layout.size else layout.alignment);
 }
 
 fn limitOf(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     builtin: Builtin,
     wanted: Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(builtin == .min_int or builtin == .max_int);
 
     if (Pool.isInteger(wanted) == false) {
-        return check.refuse(node, .{
+        return typer.refuse(node, .{
             .code = .bad_operand,
             .message = try comp.fmt("'@{s}' needs an integer type, and this is {s}", .{
                 @tagName(builtin), try comp.typeName(wanted),
@@ -572,37 +572,37 @@ fn limitOf(
         });
     }
 
-    return check.untypedInt(if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted));
+    return typer.untypedInt(if (builtin == .min_int) Pool.minInt(wanted) else Pool.maxInt(wanted));
 }
 
 fn ptrCast(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     wanted: Pool.Index,
     operand: Value,
 ) Allocator.Error!Value {
-    const found = check.typeOf(operand);
-    const pointer = try Expr.pointerAt(check, node, found, "@ptr_cast", null) orelse return .poison;
-    const result = try check.pointerTo(wanted, pointer.mutable);
-    return check.emitOneValue(node, .ptr_cast, result, Check.refOf(operand));
+    const found = typer.typeOf(operand);
+    const pointer = try Expr.pointerAt(typer, node, found, "@ptr_cast", null) orelse return .poison;
+    const result = try typer.pointerTo(wanted, pointer.mutable);
+    return typer.emitOneValue(node, .ptr_cast, result, Typer.refOf(operand));
 }
 
 fn view(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     args: []const Node.Index,
     values: []const Value,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(args.len == 2);
     assert(values.len == 2);
 
-    const found = check.typeOf(values[0]);
-    const pointer = try Expr.pointerAt(check, args[0], found, "@view", null) orelse return .poison;
+    const found = typer.typeOf(values[0]);
+    const pointer = try Expr.pointerAt(typer, args[0], found, "@view", null) orelse return .poison;
 
-    const count_type = check.typeOf(values[1]);
+    const count_type = typer.typeOf(values[1]);
     if (Pool.isInteger(count_type) == false) {
-        return check.refuse(args[1], .{
+        return typer.refuse(args[1], .{
             .code = .bad_operand,
             .message = try comp.fmt("'@view' takes a count, and this is {s}", .{
                 try comp.typeName(count_type),
@@ -611,24 +611,24 @@ fn view(
             .help = "a count is a 'u64', the way a view's own '.len' is",
         });
     }
-    const count = try check.coerce(values[1], .u64_type, args[1]);
+    const count = try typer.coerce(values[1], .u64_type, args[1]);
     if (count == .poison) return .poison;
 
-    const result = try check.sliceOf(pointer.child, pointer.mutable);
-    return check.emitValue(node, .slice_from, result, .{
-        .bin = .{ .lhs = Check.refOf(values[0]), .rhs = Check.refOf(count) },
+    const result = try typer.sliceOf(pointer.child, pointer.mutable);
+    return typer.emitValue(node, .slice_from, result, .{
+        .bin = .{ .lhs = Typer.refOf(values[0]), .rhs = Typer.refOf(count) },
     });
 }
 
 fn intFromPtr(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     operand_node: Node.Index,
     operand: Value,
 ) Allocator.Error!Value {
-    const found = check.typeOf(operand);
-    _ = try Expr.pointerAt(check, operand_node, found, "@int_from_ptr", null) orelse return .poison;
-    return check.emitOneValue(node, .int_from_ptr, .u64_type, Check.refOf(operand));
+    const found = typer.typeOf(operand);
+    _ = try Expr.pointerAt(typer, operand_node, found, "@int_from_ptr", null) orelse return .poison;
+    return typer.emitOneValue(node, .int_from_ptr, .u64_type, Typer.refOf(operand));
 }
 
 comptime {

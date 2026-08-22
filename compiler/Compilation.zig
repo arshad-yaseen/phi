@@ -4,7 +4,6 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
 const AST = @import("AST.zig");
-const Check = @import("Check.zig");
 const Diagnostic = @import("Diagnostic.zig");
 const Handle = @import("Handle.zig");
 const IR = @import("IR.zig");
@@ -15,6 +14,7 @@ const Source = @import("Source.zig");
 const Spell = @import("Spell.zig");
 const Target = @import("Target.zig").Target;
 const Token = @import("Token.zig");
+const Typer = @import("Typer.zig");
 
 const Decl = Module.Decl;
 
@@ -43,7 +43,7 @@ calls: ArgsMap(Pool.Instance, Pool.Index) = .empty,
 stack: std.ArrayList(Frame) = .empty,
 /// Bodies waiting to be checked, in the order the program reached them.
 queue: std.ArrayList(Pool.Instance) = .empty,
-scratch: Check.Scratch = .{},
+scratch: Typer.Scratch = .{},
 
 ir: IR.Program = .{},
 diagnostics: std.ArrayList(Entry) = .empty,
@@ -330,14 +330,14 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
     const ok = switch (unit) {
         .decl => |decl_index| try comp.runDecl(decl_index),
         .head => |instance| switch (comp.declAt(comp.instanceDecl(instance)).kind) {
-            .struct_decl => try Check.structRows(comp, instance),
-            .type_alias => try Check.aliasInstance(comp, instance),
-            .fn_decl, .extern_fn => try Check.fnSignature(comp, instance),
+            .struct_decl => try Typer.structRows(comp, instance),
+            .type_alias => try Typer.aliasInstance(comp, instance),
+            .fn_decl, .extern_fn => try Typer.fnSignature(comp, instance),
             .import, .unit_decl, .let => unreachable,
         },
         .body => |instance| switch (comp.declAt(comp.instanceDecl(instance)).kind) {
-            .struct_decl => try Check.structEmbedding(comp, instance),
-            .fn_decl => try Check.fnBody(comp, instance),
+            .struct_decl => try Typer.structEmbedding(comp, instance),
+            .fn_decl => try Typer.fnBody(comp, instance),
             .import, .type_alias, .unit_decl, .let, .extern_fn => unreachable,
         },
     };
@@ -346,17 +346,17 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
 
 fn runDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     const decl = comp.declAt(decl_index);
-    if (decl.type_params > 0 and decl.kind != .extern_fn) return Check.declBounds(comp, decl_index);
+    if (decl.type_params > 0 and decl.kind != .extern_fn) return Typer.declBounds(comp, decl_index);
     switch (decl.kind) {
         .import => return Module.resolveImport(comp, decl_index),
-        .type_alias => return Check.typeAlias(comp, decl_index),
+        .type_alias => return Typer.typeAlias(comp, decl_index),
         .unit_decl => {
             _ = try comp.pool.intern(comp.gpa, .{ .type_unit = decl_index });
             return true;
         },
-        .let => return Check.topLevelLet(comp, decl_index),
+        .let => return Typer.topLevelLet(comp, decl_index),
         .fn_decl => return true,
-        .extern_fn => return Check.externDecl(comp, decl_index),
+        .extern_fn => return Typer.externDecl(comp, decl_index),
         .struct_decl => {
             const origin = decl.origin();
             const instance = try comp.instantiate(decl_index, &.{}, origin);
@@ -732,7 +732,7 @@ fn withTrail(comp: *Compilation, notes_in: []const Diagnostic.Note) Allocator.Er
         defer position += 1;
         if (position == head and elided > 0) {
             out[at] = .{ .message = try comp.fmt("and {d} more instantiation level{s}", .{
-                elided, Check.plural(elided),
+                elided, Typer.plural(elided),
             }) };
             at += 1;
         }

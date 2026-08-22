@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
-const Check = @import("../Check.zig");
+const Typer = @import("../Typer.zig");
 const Compilation = @import("../Compilation.zig");
 const Module = @import("../Module.zig");
 const Pool = @import("../Pool.zig");
@@ -11,10 +11,10 @@ const Token = @import("../Token.zig");
 
 const Decl = Module.Decl;
 const Node = AST.Node;
-const Value = Check.Value;
-const Binding = Check.Binding;
-const type_params_max = Check.type_params_max;
-const bindings_max = Check.bindings_max;
+const Value = Typer.Value;
+const Binding = Typer.Binding;
+const type_params_max = Typer.type_params_max;
+const bindings_max = Typer.bindings_max;
 
 pub fn typeParamNodes(comp: *const Compilation, decl_index: Decl.Index) [2][]const Node.Index {
     const decl = comp.declAt(decl_index);
@@ -34,12 +34,12 @@ pub fn typeParamNodes(comp: *const Compilation, decl_index: Decl.Index) [2][]con
 }
 
 pub fn bindTypeParams(
-    check: *Check,
+    typer: *Typer,
     instance: Pool.Instance,
     buffer: *[bindings_max]Binding,
 ) Allocator.Error!void {
-    const comp = check.comp;
-    assert(check.bindings.len == 0);
+    const comp = typer.comp;
+    assert(typer.bindings.len == 0);
     const decl_index = comp.instanceDecl(instance);
     const where = comp.declAt(decl_index).origin();
 
@@ -62,7 +62,7 @@ pub fn bindTypeParams(
     for (typeParamNodes(comp, decl_index)) |list| {
         for (list) |param| {
             buffer[at] = .{
-                .name = try comp.pool.string(comp.gpa, check.mainTokenText(param)),
+                .name = try comp.pool.string(comp.gpa, typer.mainTokenText(param)),
                 .type = args[at],
                 .bound = boundAt(&bounds, at),
             };
@@ -70,7 +70,7 @@ pub fn bindTypeParams(
         }
     }
     assert(at == count);
-    check.bindings = buffer[0..count];
+    typer.bindings = buffer[0..count];
 }
 
 pub fn boundAt(bounds: []const Pool.Index, at: usize) ?Pool.Index {
@@ -78,20 +78,20 @@ pub fn boundAt(bounds: []const Pool.Index, at: usize) ?Pool.Index {
     return if (bounds[at] == .poison) null else bounds[at];
 }
 
-pub fn boundOf(check: *Check, decl_index: Decl.Index, param: Node.Index) Allocator.Error!?Pool.Index {
-    assert(check.bindings.len == 0);
-    if (check.tree.nodeTag(param) != .type_param) return null;
-    const written = check.tree.viewOf(param).type_param.bound.unwrap() orelse return null;
+pub fn boundOf(typer: *Typer, decl_index: Decl.Index, param: Node.Index) Allocator.Error!?Pool.Index {
+    assert(typer.bindings.len == 0);
+    if (typer.tree.nodeTag(param) != .type_param) return null;
+    const written = typer.tree.viewOf(param).type_param.bound.unwrap() orelse return null;
 
-    if (check.tree.nodeTag(written) == .ident) {
-        for (typeParamNodes(check.comp, decl_index)) |list| {
+    if (typer.tree.nodeTag(written) == .ident) {
+        for (typeParamNodes(typer.comp, decl_index)) |list| {
             for (list) |other| {
-                if (check.tree.nodeTag(other) != .type_param) continue;
-                const other_name = check.mainTokenText(other);
-                if (std.mem.eql(u8, other_name, check.mainTokenText(written)) == false) continue;
-                try check.fail(written, .{
+                if (typer.tree.nodeTag(other) != .type_param) continue;
+                const other_name = typer.mainTokenText(other);
+                if (std.mem.eql(u8, other_name, typer.mainTokenText(written)) == false) continue;
+                try typer.fail(written, .{
                     .code = .not_a_type,
-                    .message = try check.comp.fmt("a bound names concrete types, and '{s}' " ++
+                    .message = try typer.comp.fmt("a bound names concrete types, and '{s}' " ++
                         "is a type parameter", .{other_name}),
                     .label = "not concrete",
                 });
@@ -99,17 +99,17 @@ pub fn boundOf(check: *Check, decl_index: Decl.Index, param: Node.Index) Allocat
             }
         }
     }
-    const bound = try resolveType(check, written);
+    const bound = try resolveType(typer, written);
     return if (bound == .poison) null else bound;
 }
 
-pub fn unionBoundOfName(check: *const Check, node: Node.Index) ?Pool.Index {
-    if (check.tree.nodeTag(node) != .ident) return null;
-    const text = check.mainTokenText(node);
-    for (check.bindings) |binding| {
-        if (check.comp.pool.sameText(binding.name, text) == false) continue;
+pub fn unionBoundOfName(typer: *const Typer, node: Node.Index) ?Pool.Index {
+    if (typer.tree.nodeTag(node) != .ident) return null;
+    const text = typer.mainTokenText(node);
+    for (typer.bindings) |binding| {
+        if (typer.comp.pool.sameText(binding.name, text) == false) continue;
         const bound = binding.bound orelse return null;
-        return if (check.comp.pool.isUnion(bound)) bound else null;
+        return if (typer.comp.pool.isUnion(bound)) bound else null;
     }
     return null;
 }
@@ -142,14 +142,14 @@ pub fn admittedBy(
 }
 
 pub fn boundsHold(
-    check: *Check,
+    typer: *Typer,
     decl_index: Decl.Index,
     args: []const Pool.Index,
     node: Node.Index,
 ) Allocator.Error!bool {
-    const comp = check.comp;
+    const comp = typer.comp;
     var found: [type_params_max]Pool.Index = undefined;
-    const bounds = try comp.boundsOf(decl_index, check.origin(node), &found) orelse return true;
+    const bounds = try comp.boundsOf(decl_index, typer.origin(node), &found) orelse return true;
     const decl = comp.declAt(decl_index);
     const params = typeParamNodes(comp, decl_index)[1];
     assert(params.len == args.len);
@@ -159,7 +159,7 @@ pub fn boundsHold(
         if (bound == .poison) continue;
         if (withinBound(&comp.pool, bound, arg)) continue;
         const tree = comp.treeOf(decl.module);
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .not_a_member,
             .message = try comp.fmt("'{s}' is not a member of '{s}', which bounds '{s}'", .{
                 try comp.typeName(arg),
@@ -174,26 +174,26 @@ pub fn boundsHold(
     return true;
 }
 
-pub fn resolveWrittenType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    const resolved = try resolveType(check, node);
-    if (check.demand_embedding and resolved != .poison) {
-        try Check.walkEmbedded(check.comp, resolved, check.origin(node), 0);
+pub fn resolveWrittenType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    const resolved = try resolveType(typer, node);
+    if (typer.demand_embedding and resolved != .poison) {
+        try Typer.walkEmbedded(typer.comp, resolved, typer.origin(node), 0);
     }
     return resolved;
 }
 
-pub fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    switch (check.tree.viewOf(node)) {
-        .ident => return resolveTypeName(check, node),
-        .field_access => |access| switch (try check.checkExpr(access.lhs, null)) {
+pub fn resolveType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    switch (typer.tree.viewOf(node)) {
+        .ident => return resolveTypeName(typer, node),
+        .field_access => |access| switch (try typer.checkExpr(access.lhs, null)) {
             .named_module => |target| {
-                const member = try exported(check, target, node, access.name_token) orelse
+                const member = try exported(typer, target, node, access.name_token) orelse
                     return .poison;
-                return declAsType(check, member, node);
+                return declAsType(typer, member, node);
             },
             .poison => return .poison,
             else => {
-                try check.fail(node, .{
+                try typer.fail(node, .{
                     .code = .not_a_type,
                     .message = "only a module reaches a type with '.'",
                     .label = "not a type",
@@ -201,25 +201,25 @@ pub fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
                 return .poison;
             },
         },
-        .bracket => return resolveBracketType(check, node),
-        .array_type => |array| return resolveArrayType(check, array),
+        .bracket => return resolveBracketType(typer, node),
+        .array_type => |array| return resolveArrayType(typer, array),
         .slice_type => |slice| {
-            const child = try resolveType(check, slice.child);
+            const child = try resolveType(typer, slice.child);
             if (child == .poison) return .poison;
-            return check.sliceOf(child, slice.is_mutable);
+            return typer.sliceOf(child, slice.is_mutable);
         },
         .pointer_type => |pointer| {
-            const child = try resolveType(check, pointer.child);
+            const child = try resolveType(typer, pointer.child);
             if (child == .poison) return .poison;
-            return check.pointerTo(child, pointer.is_mutable);
+            return typer.pointerTo(child, pointer.is_mutable);
         },
-        .union_type => |members| return resolveUnionType(check, node, members),
-        .match_expr => if (try resolveMatchType(check, node)) |found| return found,
-        .binary => |it| if (it.op == .bit_or) return resolveOrType(check, node, it),
+        .union_type => |members| return resolveUnionType(typer, node, members),
+        .match_expr => if (try resolveMatchType(typer, node)) |found| return found,
+        .binary => |it| if (it.op == .bit_or) return resolveOrType(typer, node, it),
         .err => return .poison,
         else => {},
     }
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .not_a_type,
         .message = "this is a value, and a type belongs here",
         .label = "not a type",
@@ -227,26 +227,26 @@ pub fn resolveType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
     return .poison;
 }
 
-fn resolveMatchType(check: *Check, node: Node.Index) Allocator.Error!?Pool.Index {
-    const chosen = try check.checkExpr(node, null);
+fn resolveMatchType(typer: *Typer, node: Node.Index) Allocator.Error!?Pool.Index {
+    const chosen = try typer.checkExpr(node, null);
     if (chosen.stops()) return .poison;
-    return namedType(check, node, chosen);
+    return namedType(typer, node, chosen);
 }
 
-fn resolveArrayType(check: *Check, view: AST.View.ArrayType) Allocator.Error!Pool.Index {
-    const comp = check.comp;
-    const length = try arrayLength(check, view.length);
-    const child = try resolveType(check, view.child);
+fn resolveArrayType(typer: *Typer, view: AST.View.ArrayType) Allocator.Error!Pool.Index {
+    const comp = typer.comp;
+    const length = try arrayLength(typer, view.length);
+    const child = try resolveType(typer, view.child);
     if (child == .poison) return .poison;
     const count = length orelse return .poison;
     return comp.pool.intern(comp.gpa, .{ .type_array = .{ .child = child, .len = count } });
 }
 
-fn arrayLength(check: *Check, node: Node.Index) Allocator.Error!?u64 {
-    const value = try check.checkValue(node, .u64_type);
+fn arrayLength(typer: *Typer, node: Node.Index) Allocator.Error!?u64 {
+    const value = try typer.checkValue(node, .u64_type);
     if (value.stops()) return null;
     if (value == .runtime) {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .not_constant,
             .message = "an array's length is part of its type, so it is known " ++
                 "before anything runs",
@@ -256,43 +256,43 @@ fn arrayLength(check: *Check, node: Node.Index) Allocator.Error!?u64 {
         return null;
     }
 
-    const met = try check.fitValue(value.constant, .u64_type, node);
+    const met = try typer.fitValue(value.constant, .u64_type, node);
     if (met != .constant) return null;
 
-    const folded = check.comp.pool.keyOf(met.constant).value_int;
+    const folded = typer.comp.pool.keyOf(met.constant).value_int;
     assert(folded.type == .u64_type);
     assert(folded.value >= 0);
     return @intCast(folded.value);
 }
 
 fn resolveUnionType(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     members: []const Node.Index,
 ) Allocator.Error!Pool.Index {
     assert(members.len >= 2);
     if (members.len > Pool.union_members_max) {
-        try failTooWide(check, node);
+        try failTooWide(typer, node);
         return .poison;
     }
 
     var buffer: [Pool.union_members_max]Pool.Index = undefined;
     var clean = true;
     for (members, 0..) |member, at| {
-        buffer[at] = try resolveType(check, member);
+        buffer[at] = try resolveType(typer, member);
         if (buffer[at] == .poison) clean = false;
     }
     if (clean == false) return .poison;
-    return uniteResolved(check, node, buffer[0..members.len], members);
+    return uniteResolved(typer, node, buffer[0..members.len], members);
 }
 
 fn uniteResolved(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     resolved: []const Pool.Index,
     written: []const Node.Index,
 ) Allocator.Error!Pool.Index {
-    const comp = check.comp;
+    const comp = typer.comp;
     switch (try comp.pool.unite(comp.gpa, resolved)) {
         .index => |index| return index,
         .duplicate => |repeat| {
@@ -300,7 +300,7 @@ fn uniteResolved(
             for (written, 0..) |member, at| {
                 if (resolved[at] == repeat) where = member;
             }
-            try check.fail(where, .{
+            try typer.fail(where, .{
                 .code = .duplicate_member,
                 .message = try comp.fmt("'{s}' is already a member of this union", .{
                     try comp.typeName(repeat),
@@ -309,63 +309,63 @@ fn uniteResolved(
                 .help = "members are distinct types, and an alias is not a new type",
             });
         },
-        .too_wide => try failTooWide(check, node),
+        .too_wide => try failTooWide(typer, node),
     }
     return .poison;
 }
 
-fn failGenericBare(check: *Check, node: Node.Index, name: []const u8) Allocator.Error!void {
+fn failGenericBare(typer: *Typer, node: Node.Index, name: []const u8) Allocator.Error!void {
     @branchHint(.cold);
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .generic_arguments,
-        .message = try check.comp.fmt("'{s}' is generic, so it needs its arguments", .{name}),
+        .message = try typer.comp.fmt("'{s}' is generic, so it needs its arguments", .{name}),
         .label = "no arguments here",
-        .help = try check.comp.fmt("write '{s}[...]' with one type per parameter", .{name}),
+        .help = try typer.comp.fmt("write '{s}[...]' with one type per parameter", .{name}),
     });
 }
 
 fn resolveOrType(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     it: AST.View.Binary,
 ) Allocator.Error!Pool.Index {
     assert(it.op == .bit_or);
-    const lhs = try resolveType(check, it.lhs);
-    const rhs = try resolveType(check, it.rhs);
+    const lhs = try resolveType(typer, it.lhs);
+    const rhs = try resolveType(typer, it.rhs);
     if (lhs == .poison or rhs == .poison) return .poison;
-    return uniteResolved(check, node, &.{ lhs, rhs }, &.{});
+    return uniteResolved(typer, node, &.{ lhs, rhs }, &.{});
 }
 
-fn failTooWide(check: *Check, node: Node.Index) Allocator.Error!void {
+fn failTooWide(typer: *Typer, node: Node.Index) Allocator.Error!void {
     @branchHint(.cold);
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .union_too_wide,
-        .message = try check.comp.fmt("flat, a union holds at most {d} members", .{
+        .message = try typer.comp.fmt("flat, a union holds at most {d} members", .{
             Pool.union_members_max,
         }),
         .label = "too wide",
     });
 }
 
-fn resolveTypeName(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    const text = check.mainTokenText(node);
-    for (check.bindings) |binding| {
-        if (check.comp.pool.sameText(binding.name, text)) return binding.type;
+fn resolveTypeName(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    const text = typer.mainTokenText(node);
+    for (typer.bindings) |binding| {
+        if (typer.comp.pool.sameText(binding.name, text)) return binding.type;
     }
     if (Pool.primitiveType(text)) |primitive| return primitive;
-    const decl_index = visibleDecl(check, text) orelse {
-        try check.reportUndefined(node, text);
+    const decl_index = visibleDecl(typer, text) orelse {
+        try typer.reportUndefined(node, text);
         return .poison;
     };
-    return declAsType(check, decl_index, node);
+    return declAsType(typer, decl_index, node);
 }
 
-pub fn visibleDecl(check: *const Check, text: []const u8) ?Decl.Index {
-    if (check.module.findDecl(text)) |own| return own;
+pub fn visibleDecl(typer: *const Typer, text: []const u8) ?Decl.Index {
+    if (typer.module.findDecl(text)) |own| return own;
 
-    const comp = check.comp;
+    const comp = typer.comp;
     const prelude = comp.prelude orelse return null;
-    if (prelude == check.module_index) return null;
+    if (prelude == typer.module_index) return null;
 
     const found = comp.moduleAt(prelude).findDecl(text) orelse return null;
     if (Module.declIsPub(comp, found) == false) return null;
@@ -373,36 +373,36 @@ pub fn visibleDecl(check: *const Check, text: []const u8) ?Decl.Index {
 }
 
 pub fn exported(
-    check: *Check,
+    typer: *Typer,
     target: Module.Index,
     node: Node.Index,
     name_token: Token.Index,
 ) Allocator.Error!?Decl.Index {
-    return Module.findExported(check.comp, target, check.origin(node), name_token);
+    return Module.findExported(typer.comp, target, typer.origin(node), name_token);
 }
 
-fn ensured(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocator.Error!?Decl {
-    try check.comp.ensure(.{ .decl = decl_index }, check.origin(node));
-    const decl = check.comp.declAt(decl_index);
+fn ensured(typer: *Typer, decl_index: Decl.Index, node: Node.Index) Allocator.Error!?Decl {
+    try typer.comp.ensure(.{ .decl = decl_index }, typer.origin(node));
+    const decl = typer.comp.declAt(decl_index);
     return if (decl.state == .done) decl else null;
 }
 
-pub fn declAsType(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocator.Error!Pool.Index {
-    const comp = check.comp;
+pub fn declAsType(typer: *Typer, decl_index: Decl.Index, node: Node.Index) Allocator.Error!Pool.Index {
+    const comp = typer.comp;
     const decl = comp.declAt(decl_index);
     const name = comp.pool.stringText(decl.name);
 
     switch (decl.kind) {
         .struct_decl, .type_alias => {
             if (comp.declAt(decl_index).type_params > 0) {
-                try failGenericBare(check, node, name);
+                try failGenericBare(typer, node, name);
                 return .poison;
             }
             if (decl.kind == .struct_decl) {
-                const instance = try comp.instantiate(decl_index, &.{}, check.origin(node));
+                const instance = try comp.instantiate(decl_index, &.{}, typer.origin(node));
                 return comp.instanceType(instance);
             }
-            const settled = try ensured(check, decl_index, node) orelse return .poison;
+            const settled = try ensured(typer, decl_index, node) orelse return .poison;
             return settled.answer.type;
         },
         .unit_decl => {
@@ -410,8 +410,8 @@ pub fn declAsType(check: *Check, decl_index: Decl.Index, node: Node.Index) Alloc
             return comp.pool.intern(comp.gpa, .{ .type_unit = decl_index });
         },
         .import => {
-            if (try ensured(check, decl_index, node) == null) return .poison;
-            try check.fail(node, .{
+            if (try ensured(typer, decl_index, node) == null) return .poison;
+            try typer.fail(node, .{
                 .code = .not_a_type,
                 .message = try comp.fmt("'{s}' is a module, not a type", .{name}),
                 .label = "a module",
@@ -421,7 +421,7 @@ pub fn declAsType(check: *Check, decl_index: Decl.Index, node: Node.Index) Alloc
         },
         .let, .fn_decl, .extern_fn => {
             const what: []const u8 = if (decl.kind == .let) "a value" else "a function";
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .not_a_type,
                 .message = try comp.fmt("'{s}' is {s}, not a type", .{ name, what }),
                 .label = "not a type",
@@ -431,15 +431,15 @@ pub fn declAsType(check: *Check, decl_index: Decl.Index, node: Node.Index) Alloc
     }
 }
 
-pub fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    const comp = check.comp;
-    const view = check.tree.viewOf(node).bracket;
+pub fn resolveBracketType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    const comp = typer.comp;
+    const view = typer.tree.viewOf(node).bracket;
 
-    const base = try check.checkExpr(view.base, null);
+    const base = try typer.checkExpr(view.base, null);
     const decl_index = switch (base) {
         .named_generic => |decl_index| decl_index,
         .named_type, .named_fn => {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .generic_arguments,
                 .message = if (base == .named_type)
                     "this type takes no type arguments"
@@ -451,7 +451,7 @@ pub fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.
         },
         .poison => return .poison,
         else => {
-            try check.fail(view.base, .{
+            try typer.fail(view.base, .{
                 .code = .not_a_type,
                 .message = "only a generic struct takes type arguments here",
                 .label = "not a generic type",
@@ -463,59 +463,59 @@ pub fn resolveBracketType(check: *Check, node: Node.Index) Allocator.Error!Pool.
     const wanted = comp.declAt(decl_index).type_params;
     if (view.args.len != wanted) {
         const name = comp.pool.stringText(comp.declAt(decl_index).name);
-        try check.failArity(node, name, .type, wanted, view.args.len, &.{});
+        try typer.failArity(node, name, .type, wanted, view.args.len, &.{});
         return .poison;
     }
 
     var args_buffer: [type_params_max]Pool.Index = undefined;
     const args = args_buffer[0..view.args.len];
     for (view.args, args) |arg, *resolved| {
-        resolved.* = try resolveType(check, arg);
+        resolved.* = try resolveType(typer, arg);
         if (resolved.* == .poison) return .poison;
     }
-    if (try boundsHold(check, decl_index, args, node) == false) return .poison;
+    if (try boundsHold(typer, decl_index, args, node) == false) return .poison;
 
-    const instance = try comp.instantiate(decl_index, args, check.origin(node));
+    const instance = try comp.instantiate(decl_index, args, typer.origin(node));
     if (comp.declAt(decl_index).kind == .type_alias) {
-        try comp.ensure(.{ .head = instance }, check.origin(node));
+        try comp.ensure(.{ .head = instance }, typer.origin(node));
         if (comp.instanceAt(instance).head != .done) return .poison;
     }
     return comp.instanceType(instance);
 }
 
-pub fn namedType(check: *Check, node: Node.Index, value: Value) Allocator.Error!?Pool.Index {
+pub fn namedType(typer: *Typer, node: Node.Index, value: Value) Allocator.Error!?Pool.Index {
     switch (value) {
         .named_type => |type_index| return type_index,
         .named_generic => |decl_index| {
-            const decl = check.comp.declAt(decl_index);
-            try failGenericBare(check, node, check.comp.pool.stringText(decl.name));
+            const decl = typer.comp.declAt(decl_index);
+            try failGenericBare(typer, node, typer.comp.pool.stringText(decl.name));
             return .poison;
         },
         else => return null,
     }
 }
 
-pub fn declAsValue(check: *Check, decl_index: Decl.Index, node: Node.Index) Allocator.Error!Value {
-    const comp = check.comp;
+pub fn declAsValue(typer: *Typer, decl_index: Decl.Index, node: Node.Index) Allocator.Error!Value {
+    const comp = typer.comp;
     const decl = comp.declAt(decl_index);
     switch (decl.kind) {
         .let => {
-            const settled = try ensured(check, decl_index, node) orelse return .poison;
+            const settled = try ensured(typer, decl_index, node) orelse return .poison;
             return .{ .constant = settled.answer.constant };
         },
         .fn_decl => return .{ .named_fn = decl_index },
         .extern_fn => {
-            if (try ensured(check, decl_index, node) == null) return .poison;
+            if (try ensured(typer, decl_index, node) == null) return .poison;
             return .{ .named_fn = decl_index };
         },
         .struct_decl => {
             if (comp.declAt(decl_index).type_params > 0) return .{ .named_generic = decl_index };
-            const instance = try comp.instantiate(decl_index, &.{}, check.origin(node));
+            const instance = try comp.instantiate(decl_index, &.{}, typer.origin(node));
             return .{ .named_type = comp.instanceType(instance) };
         },
         .type_alias => {
             if (comp.declAt(decl_index).type_params > 0) return .{ .named_generic = decl_index };
-            const settled = try ensured(check, decl_index, node) orelse return .poison;
+            const settled = try ensured(typer, decl_index, node) orelse return .poison;
             return .{ .named_type = settled.answer.type };
         },
         .unit_decl => {
@@ -523,7 +523,7 @@ pub fn declAsValue(check: *Check, decl_index: Decl.Index, node: Node.Index) Allo
             return .{ .constant = try comp.pool.unitValue(comp.gpa, unit_type) };
         },
         .import => {
-            if (try ensured(check, decl_index, node) == null) return .poison;
+            if (try ensured(typer, decl_index, node) == null) return .poison;
             return .{ .named_module = Module.importedModule(comp, decl_index) };
         },
     }

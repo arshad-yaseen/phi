@@ -3,37 +3,37 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
-const Check = @import("../Check.zig");
+const Typer = @import("../Typer.zig");
 const Compilation = @import("../Compilation.zig");
 const IR = @import("../IR.zig");
 const Module = @import("../Module.zig");
 const Pool = @import("../Pool.zig");
 const Token = @import("../Token.zig");
 const Resolve = @import("Resolve.zig");
-const Narrowing = @import("Narrowing.zig");
+const Narrow = @import("Narrow.zig");
 const Expr = @import("Expr.zig");
 const Aggregate = @import("Aggregate.zig");
 
 const Node = AST.Node;
 const Ref = IR.Ref;
-const Value = Check.Value;
-const broken_ref = Check.broken_ref;
-const refOf = Check.refOf;
-const runtimeValue = Check.runtimeValue;
-const wantsValue = Check.wantsValue;
-const quotedList = Check.quotedList;
+const Value = Typer.Value;
+const broken_ref = Typer.broken_ref;
+const refOf = Typer.refOf;
+const runtimeValue = Typer.runtimeValue;
+const wantsValue = Typer.wantsValue;
+const quotedList = Typer.quotedList;
 
 pub fn checkIf(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     view: AST.View.If,
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
 
     const wants = wantsValue(hint);
     if (wants and view.else_node == .none) {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .type_mismatch,
             .message = "this 'if' has no 'else', so one path through it produces nothing",
             .label = "needs an 'else'",
@@ -41,41 +41,41 @@ pub fn checkIf(
         });
     }
 
-    const cond = try checkCondition(check, view.cond);
+    const cond = try checkCondition(typer, view.cond);
     if (cond == broken_ref) return .poison;
 
     const facts_mark: u32 = @intCast(comp.scratch.facts.items.len);
     defer comp.scratch.facts.shrinkRetainingCapacity(facts_mark);
-    const facts = try Narrowing.gatherFacts(check, view.cond);
+    const facts = try Narrow.gatherFacts(typer, view.cond);
 
-    if (conditionTruth(check, cond)) |truth| {
+    if (conditionTruth(typer, cond)) |truth| {
         const taken = if (truth) view.then_block.toOptional() else view.else_node;
         const proved = if (truth) facts.when_true else facts.when_false;
-        const value = try checkChosen(check, taken, proved, hint);
+        const value = try checkChosen(typer, taken, proved, hint);
 
         if (value != .diverged) {
-            try Narrowing.applyFacts(check, proved);
+            try Narrow.applyFacts(typer, proved);
             return value;
         }
         if (view.else_node != .none) return value;
 
         assert(truth);
-        try fallsPast(check);
-        try Narrowing.applyFacts(check, facts.when_false);
+        try fallsPast(typer);
+        try Narrow.applyFacts(typer, facts.when_false);
         return .void_value;
     }
 
-    const builder = check.body();
+    const builder = typer.body();
     const carries = wants and view.else_node != .none;
-    var join = try Join.open(check, "if", node, carries, hint, node.toOptional());
+    var join = try Join.open(typer, "if", node, carries, hint, node.toOptional());
 
-    const then_block = try check.newBlock();
-    const else_block = try check.newBlock();
-    const join_block = try check.newBlock();
+    const then_block = try typer.newBlock();
+    const else_block = try typer.newBlock();
+    const join_block = try typer.newBlock();
 
-    try check.reopenDead();
+    try typer.reopenDead();
     const entry_reachable = builder.reachable;
-    check.endBlock(.{ .branch = .{
+    typer.endBlock(.{ .branch = .{
         .cond = cond,
         .then_block = then_block,
         .else_block = else_block,
@@ -83,38 +83,38 @@ pub fn checkIf(
 
     const narrows_mark = comp.scratch.narrows.items.len;
 
-    check.startBlock(then_block);
+    typer.startBlock(then_block);
     builder.reachable = entry_reachable;
-    try Narrowing.applyFacts(check, facts.when_true);
-    const then_value = try check.checkExpr(view.then_block, hint);
+    try Narrow.applyFacts(typer, facts.when_true);
+    const then_value = try typer.checkExpr(view.then_block, hint);
     comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
-    try join.take(check, then_value, view.then_block);
-    var join_reachable = check.jumpTo(join_block);
+    try join.take(typer, then_value, view.then_block);
+    var join_reachable = typer.jumpTo(join_block);
 
-    check.startBlock(else_block);
+    typer.startBlock(else_block);
     builder.reachable = entry_reachable;
     var else_value: Value = .diverged;
     if (view.else_node.unwrap()) |else_node| {
-        try Narrowing.applyFacts(check, facts.when_false);
-        else_value = try check.checkExpr(else_node, hint);
+        try Narrow.applyFacts(typer, facts.when_false);
+        else_value = try typer.checkExpr(else_node, hint);
         comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
-        try join.take(check, else_value, else_node);
-        if (check.jumpTo(join_block)) join_reachable = true;
+        try join.take(typer, else_value, else_node);
+        if (typer.jumpTo(join_block)) join_reachable = true;
     } else {
         if (entry_reachable) join_reachable = true;
-        check.endBlock(.{ .jump = join_block });
+        typer.endBlock(.{ .jump = join_block });
     }
 
-    check.startBlock(join_block);
+    typer.startBlock(join_block);
     builder.reachable = join_reachable;
 
     if (then_value == .diverged and (view.else_node == .none or else_value != .diverged)) {
-        try Narrowing.applyFacts(check, facts.when_false);
+        try Narrow.applyFacts(typer, facts.when_false);
     }
     if (then_value != .diverged and view.else_node != .none and else_value == .diverged) {
-        try Narrowing.applyFacts(check, facts.when_true);
+        try Narrow.applyFacts(typer, facts.when_true);
     }
-    return join.close(check, then_value == .diverged and else_value == .diverged);
+    return join.close(typer, then_value == .diverged and else_value == .diverged);
 }
 
 pub const Join = struct {
@@ -128,7 +128,7 @@ pub const Join = struct {
     names_type: Node.OptionalIndex,
 
     fn open(
-        check: *Check,
+        typer: *Typer,
         what: []const u8,
         node: Node.Index,
         carries: bool,
@@ -138,7 +138,7 @@ pub const Join = struct {
         return .{
             .what = what,
             .node = node,
-            .slot = if (carries) try check.emitSlot(node, .empty, hint orelse .poison) else .none,
+            .slot = if (carries) try typer.emitSlot(node, .empty, hint orelse .poison) else .none,
             .result_type = hint orelse .poison,
             .carries = carries,
             .settled = hint != null,
@@ -151,37 +151,37 @@ pub const Join = struct {
         return if (join.settled) join.result_type else null;
     }
 
-    fn take(join: *Join, check: *Check, value: Value, at: Node.Index) Allocator.Error!void {
+    fn take(join: *Join, typer: *Typer, value: Value, at: Node.Index) Allocator.Error!void {
         if (join.carries == false) return;
         if (value == .diverged) return;
-        if (try check.valueOnly(at, value) == false) return;
+        if (try typer.valueOnly(at, value) == false) return;
 
         if (join.settled == false) {
-            const found = check.typeOf(value);
+            const found = typer.typeOf(value);
             if (value == .constant and Pool.isUntyped(found)) {
-                return check.emitStore(at, join.slot, refOf(value));
+                return typer.emitStore(at, join.slot, refOf(value));
             }
             const blamed = join.names_type.unwrap() orelse at;
-            join.result_type = try settleType(check, blamed, found, join.what);
+            join.result_type = try settleType(typer, blamed, found, join.what);
             join.settled = true;
         }
-        const met = try check.coerce(value, join.result_type, at);
-        try check.emitStore(at, join.slot, refOf(met));
+        const met = try typer.coerce(value, join.result_type, at);
+        try typer.emitStore(at, join.slot, refOf(met));
     }
 
-    fn close(join: Join, check: *Check, diverged: bool) Allocator.Error!Value {
+    fn close(join: Join, typer: *Typer, diverged: bool) Allocator.Error!Value {
         if (join.carries == false) return .void_value;
-        try setSlotType(check, join.slot, if (join.settled) join.result_type else .u8_type);
-        try join.settleWaiting(check);
+        try setSlotType(typer, join.slot, if (join.settled) join.result_type else .u8_type);
+        try join.settleWaiting(typer);
 
         if (diverged) return .diverged;
         if (join.result_type == .poison) return .poison;
-        return check.emitOneValue(join.node, .load, join.result_type, join.slot);
+        return typer.emitOneValue(join.node, .load, join.result_type, join.slot);
     }
 
-    fn settleWaiting(join: Join, check: *Check) Allocator.Error!void {
-        const builder = check.body();
-        const pool = &check.comp.pool;
+    fn settleWaiting(join: Join, typer: *Typer) Allocator.Error!void {
+        const builder = typer.body();
+        const pool = &typer.comp.pool;
         const tags = builder.insts.items(.tag);
         const data = builder.insts.items(.data);
         const nodes = builder.insts.items(.node);
@@ -199,59 +199,59 @@ pub const Join = struct {
 
             if (join.settled == false) {
                 const blamed = join.names_type.unwrap() orelse nodes[at];
-                _ = try settleType(check, blamed, pool.typeOfValue(constant), join.what);
+                _ = try settleType(typer, blamed, pool.typeOfValue(constant), join.what);
                 return;
             }
-            const met = try check.fitValue(constant, join.result_type, nodes[at]);
+            const met = try typer.fitValue(constant, join.result_type, nodes[at]);
             data[at].bin.rhs = refOf(met);
         }
     }
 };
 
 fn checkChosen(
-    check: *Check,
+    typer: *Typer,
     arm: Node.OptionalIndex,
     proved: Compilation.Range,
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     const narrows_mark = comp.scratch.narrows.items.len;
     defer comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
 
-    try Narrowing.applyFacts(check, proved);
+    try Narrow.applyFacts(typer, proved);
     const taken = arm.unwrap() orelse return .void_value;
 
-    const value = try check.checkExpr(taken, hint);
+    const value = try typer.checkExpr(taken, hint);
     if (wantsValue(hint)) return value;
-    try check.expectNothing(taken, value);
+    try typer.expectNothing(taken, value);
     return if (value == .diverged) .diverged else .void_value;
 }
 
-fn fallsPast(check: *Check) Allocator.Error!void {
-    const builder = check.body();
+fn fallsPast(typer: *Typer) Allocator.Error!void {
+    const builder = typer.body();
     const reached = builder.reachable;
-    check.startBlock(try check.newBlock());
+    typer.startBlock(try typer.newBlock());
     builder.reachable = reached;
 }
 
 fn settleType(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     found: Pool.Index,
     what: []const u8,
 ) Allocator.Error!Pool.Index {
-    const comp = check.comp;
+    const comp = typer.comp;
     if (found == .poison) return .poison;
-    if (check.typeCanHold(found)) return found;
+    if (typer.typeCanHold(found)) return found;
 
     if (found == .void_type) {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .type_mismatch,
             .message = try comp.fmt("this produces nothing, and the '{s}' needs a value", .{what}),
             .label = "no value here",
         });
     } else {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .var_needs_type,
             .message = try comp.fmt("nothing says what type this '{s}' is", .{what}),
             .label = "no type in sight",
@@ -261,19 +261,19 @@ fn settleType(
     return .poison;
 }
 
-fn loopLabel(check: *Check, token: ?Token.Index) Allocator.Error!Pool.String {
-    const comp = check.comp;
+fn loopLabel(typer: *Typer, token: ?Token.Index) Allocator.Error!Pool.String {
+    const comp = typer.comp;
     const named = token orelse return .empty;
 
-    const text = check.tree.tokenSlice(named);
+    const text = typer.tree.tokenSlice(named);
     const label = try comp.pool.string(comp.gpa, text);
-    for (check.body().loops.items) |other| {
+    for (typer.body().loops.items) |other| {
         if (other.label != label) continue;
-        try check.failToken(named, .{
+        try typer.failToken(named, .{
             .code = .shadows,
             .message = try comp.fmt("':{s}' already names an enclosing loop", .{text}),
             .label = "shadows it",
-            .notes = try check.noteHere(other.node, "first labeled here"),
+            .notes = try typer.noteHere(other.node, "first labeled here"),
         });
         break;
     }
@@ -281,23 +281,23 @@ fn loopLabel(check: *Check, token: ?Token.Index) Allocator.Error!Pool.String {
 }
 
 pub fn checkLoop(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     view: AST.View.Loop,
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    const builder = check.body();
-    assert(check.tree.nodeTag(node) == .loop_expr);
+    const comp = typer.comp;
+    const builder = typer.body();
+    assert(typer.tree.nodeTag(node) == .loop_expr);
 
-    if (check.tree.nodeTag(view.body) != .block) return .poison;
+    if (typer.tree.nodeTag(view.body) != .block) return .poison;
 
-    try check.reopenDead();
+    try typer.reopenDead();
 
     const carries = wantsValue(hint);
     const else_missing = carries and view.head.ends() and view.else_node == .none;
     if (else_missing) {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .type_mismatch,
             .message = "this loop has no 'else', so it has no value when it ends on its own",
             .label = "needs an 'else'",
@@ -305,43 +305,43 @@ pub fn checkLoop(
         });
     }
 
-    var join = try Join.open(check, "loop", node, carries, hint, .none);
-    const label = try loopLabel(check, view.label);
+    var join = try Join.open(typer, "loop", node, carries, hint, .none);
+    const label = try loopLabel(typer, view.label);
 
     const counting: ?AST.View.LoopRange = switch (view.head) {
         .range => |it| it,
         .forever, .cond => null,
     };
-    const counter: ?Counter = if (counting) |it| try startCounter(check, it.name, it.over) else null;
-    try check.reopenDead();
+    const counter: ?Counter = if (counting) |it| try startCounter(typer, it.name, it.over) else null;
+    try typer.reopenDead();
 
-    const header = try check.newBlock();
-    const body_block = try check.newBlock();
-    const exit = try check.newBlock();
-    const else_target: IR.Block.Index = if (view.else_node != .none) try check.newBlock() else exit;
+    const header = try typer.newBlock();
+    const body_block = try typer.newBlock();
+    const exit = try typer.newBlock();
+    const else_target: IR.Block.Index = if (view.else_node != .none) try typer.newBlock() else exit;
     // the increment gets its own block so `continue` hits it before the test
-    const latch: IR.Block.Index = if (counter != null) try check.newBlock() else header;
+    const latch: IR.Block.Index = if (counter != null) try typer.newBlock() else header;
 
-    check.endBlock(.{ .jump = header });
-    check.startBlock(header);
+    typer.endBlock(.{ .jump = header });
+    typer.startBlock(header);
     const holds: ?Ref = switch (view.head) {
         .forever => null,
         .cond => |cond_node| asked: {
-            const cond = try checkCondition(check, cond_node);
-            try check.reopenDead();
+            const cond = try checkCondition(typer, cond_node);
+            try typer.reopenDead();
             break :asked cond;
         },
-        .range => try counterBelowEnd(check, counter),
+        .range => try counterBelowEnd(typer, counter),
     };
     const runs = builder.reachable;
     if (holds) |cond| {
-        check.endBlock(.{ .branch = .{
+        typer.endBlock(.{ .branch = .{
             .cond = cond,
             .then_block = body_block,
             .else_block = else_target,
         } });
     } else {
-        check.endBlock(.{ .jump = body_block });
+        typer.endBlock(.{ .jump = body_block });
     }
 
     try builder.loops.append(comp.gpa, .{
@@ -354,17 +354,17 @@ pub fn checkLoop(
         .broke_reachable = false,
     });
 
-    check.startBlock(body_block);
+    typer.startBlock(body_block);
     builder.reachable = runs;
-    if (counting) |it| try bindCounter(check, it.name, counter);
-    _ = try check.checkBlockValue(view.body, .void_type);
-    if (counting != null) check.popScope();
-    if (check.blockOpen()) check.endBlock(.{ .jump = latch });
+    if (counting) |it| try bindCounter(typer, it.name, counter);
+    _ = try typer.checkBlockValue(view.body, .void_type);
+    if (counting != null) typer.popScope();
+    if (typer.blockOpen()) typer.endBlock(.{ .jump = latch });
 
     if (counter) |it| {
-        check.startBlock(latch);
-        try countOn(check, it);
-        check.endBlock(.{ .jump = header });
+        typer.startBlock(latch);
+        try countOn(typer, it);
+        typer.endBlock(.{ .jump = header });
     }
 
     const finished = builder.loops.getLast();
@@ -373,27 +373,27 @@ pub fn checkLoop(
 
     var else_flows = false;
     if (view.else_node.unwrap()) |else_node| {
-        check.startBlock(else_target);
+        typer.startBlock(else_target);
         builder.reachable = runs and view.head.ends();
         if (view.head.ends() == false) {
-            try check.fail(else_node, .{
+            try typer.fail(else_node, .{
                 .code = .unreachable_code,
                 .message = "this 'else' never runs, because a loop with no " ++
                     "condition never ends on its own",
                 .label = "never runs",
             });
         }
-        const else_value = try check.checkExpr(else_node, join.armHint());
-        try join.take(check, else_value, else_node);
-        else_flows = check.jumpTo(exit);
+        const else_value = try typer.checkExpr(else_node, join.armHint());
+        try join.take(typer, else_value, else_node);
+        else_flows = typer.jumpTo(exit);
     }
 
-    check.startBlock(exit);
+    typer.startBlock(exit);
     const ends_here = if (view.else_node == .none) runs else else_flows;
     const exit_reachable = finished.broke_reachable or (view.head.ends() and ends_here);
     builder.reachable = exit_reachable;
 
-    const value = try join.close(check, exit_reachable == false);
+    const value = try join.close(typer, exit_reachable == false);
     return if (else_missing) .poison else value;
 }
 
@@ -405,66 +405,66 @@ const Counter = struct {
     node: Node.Index,
 };
 
-fn startCounter(check: *Check, name: Node.Index, over: Node.Index) Allocator.Error!?Counter {
-    const comp = check.comp;
-    if (check.tree.nodeTag(over) != .range_expr) return null;
+fn startCounter(typer: *Typer, name: Node.Index, over: Node.Index) Allocator.Error!?Counter {
+    const comp = typer.comp;
+    if (typer.tree.nodeTag(over) != .range_expr) return null;
 
-    const range = check.tree.viewOf(over).range_expr;
+    const range = typer.tree.viewOf(over).range_expr;
     const end_node = range.end.unwrap() orelse return null;
 
-    const first = try Aggregate.checkRangeEnd(check, range.start) orelse return null;
-    const last = try Aggregate.checkRangeEnd(check, end_node) orelse return null;
+    const first = try Aggregate.checkRangeEnd(typer, range.start) orelse return null;
+    const last = try Aggregate.checkRangeEnd(typer, end_node) orelse return null;
     const ends = try Aggregate.settleEnds(
-        check,
+        typer,
         over,
         .{ .value = first, .node = range.start },
         .{ .value = last, .node = end_node },
     ) orelse return null;
-    if (try Aggregate.rangeRunsBackwards(check, over, ends.start, ends.end)) return null;
+    if (try Aggregate.rangeRunsBackwards(typer, over, ends.start, ends.end)) return null;
 
-    const text = check.mainTokenText(name);
+    const text = typer.mainTokenText(name);
     const named: Pool.String = if (Module.isDiscard(text))
         .empty
     else
         try comp.pool.string(comp.gpa, text);
-    const slot = try check.emitSlot(over, named, ends.type);
-    try check.emitStore(over, slot, refOf(ends.start));
+    const slot = try typer.emitSlot(over, named, ends.type);
+    try typer.emitStore(over, slot, refOf(ends.start));
     return .{ .slot = slot, .end = refOf(ends.end), .type = ends.type, .node = over };
 }
 
-fn counterBelowEnd(check: *Check, counter: ?Counter) Allocator.Error!Ref {
+fn counterBelowEnd(typer: *Typer, counter: ?Counter) Allocator.Error!Ref {
     const it = counter orelse return broken_ref;
-    const current = try check.emitOne(it.node, .load, it.type, it.slot);
-    return check.emit(it.node, .cmp_lt, .void_type, .{ .bin = .{ .lhs = current, .rhs = it.end } });
+    const current = try typer.emitOne(it.node, .load, it.type, it.slot);
+    return typer.emit(it.node, .cmp_lt, .void_type, .{ .bin = .{ .lhs = current, .rhs = it.end } });
 }
 
-fn bindCounter(check: *Check, name: Node.Index, counter: ?Counter) Allocator.Error!void {
-    try check.pushScope();
+fn bindCounter(typer: *Typer, name: Node.Index, counter: ?Counter) Allocator.Error!void {
+    try typer.pushScope();
 
-    const text = check.mainTokenText(name);
-    if (Module.isDiscard(text)) return check.failDiscard(name);
-    const named = try check.comp.pool.string(check.comp.gpa, text);
+    const text = typer.mainTokenText(name);
+    if (Module.isDiscard(text)) return typer.failDiscard(name);
+    const named = try typer.comp.pool.string(typer.comp.gpa, text);
 
-    const it = counter orelse return check.declarePoisoned(named, name);
-    const current = try check.emitOne(name, .load, it.type, it.slot);
-    try check.declareLocal(named, name, .let, current, it.type);
+    const it = counter orelse return typer.declarePoisoned(named, name);
+    const current = try typer.emitOne(name, .load, it.type, it.slot);
+    try typer.declareLocal(named, name, .let, current, it.type);
 }
 
-fn countOn(check: *Check, counter: Counter) Allocator.Error!void {
-    const comp = check.comp;
-    const current = try check.emitOne(counter.node, .load, counter.type, counter.slot);
+fn countOn(typer: *Typer, counter: Counter) Allocator.Error!void {
+    const comp = typer.comp;
+    const current = try typer.emitOne(counter.node, .load, counter.type, counter.slot);
     const one = try comp.pool.int(comp.gpa, counter.type, 1);
-    const next = try check.emit(counter.node, .add, counter.type, .{
+    const next = try typer.emit(counter.node, .add, counter.type, .{
         .bin = .{ .lhs = current, .rhs = .fromConstant(one) },
     });
-    try check.emitStore(counter.node, counter.slot, next);
+    try typer.emitStore(counter.node, counter.slot, next);
 }
 
-fn setSlotType(check: *Check, slot: Ref, value_type: Pool.Index) Allocator.Error!void {
-    const builder = check.body();
+fn setSlotType(typer: *Typer, slot: Ref, value_type: Pool.Index) Allocator.Error!void {
+    const builder = typer.body();
     const index = slot.unwrap().inst.int();
     assert(builder.insts.items(.tag)[index] == .local);
-    builder.insts.items(.type)[index] = try check.pointerTo(value_type, true);
+    builder.insts.items(.type)[index] = try typer.pointerTo(value_type, true);
 }
 
 const Subject = struct {
@@ -475,30 +475,30 @@ const Subject = struct {
     ref: Ref,
     narrows: ?Narrows,
 
-    const Narrows = struct { name: Narrowing.Name, set: Pool.Index };
+    const Narrows = struct { name: Narrow.Name, set: Pool.Index };
 };
 
-fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Error!?Subject {
-    const comp = check.comp;
-    if (try Resolve.namedType(check, scrutinee, value)) |named| {
+fn matchSubject(typer: *Typer, scrutinee: Node.Index, value: Value) Allocator.Error!?Subject {
+    const comp = typer.comp;
+    if (try Resolve.namedType(typer, scrutinee, value)) |named| {
         if (named == .poison) return null;
         return .{
-            .set = Resolve.unionBoundOfName(check, scrutinee),
+            .set = Resolve.unionBoundOfName(typer, scrutinee),
             .held = named,
             .ref = broken_ref,
             .narrows = null,
         };
     }
 
-    if (try check.valueOnly(scrutinee, value) == false) return null;
-    const found = check.typeOf(value);
+    if (try typer.valueOnly(scrutinee, value) == false) return null;
+    const found = typer.typeOf(value);
     if (found == .poison) return null;
     if (comp.pool.isUnion(found) == false) {
-        try Expr.failNotUnion(check, scrutinee, found, "'match' asks which member a union holds");
+        try Expr.failNotUnion(typer, scrutinee, found, "'match' asks which member a union holds");
         return null;
     }
 
-    const narrows: ?Subject.Narrows = if (Narrowing.narrowedName(check, scrutinee)) |name|
+    const narrows: ?Subject.Narrows = if (Narrow.narrowedName(typer, scrutinee)) |name|
         .{ .name = name, .set = found }
     else
         null;
@@ -511,33 +511,33 @@ fn matchSubject(check: *Check, scrutinee: Node.Index, value: Value) Allocator.Er
 }
 
 pub fn checkMatch(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     view: AST.View.Match,
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    assert(check.tree.nodeTag(node) == .match_expr);
+    const comp = typer.comp;
+    assert(typer.tree.nodeTag(node) == .match_expr);
 
-    const scrutinee = try check.checkExpr(view.scrutinee, null);
+    const scrutinee = try typer.checkExpr(view.scrutinee, null);
 
-    const subject = try matchSubject(check, view.scrutinee, scrutinee) orelse {
+    const subject = try matchSubject(typer, view.scrutinee, scrutinee) orelse {
         for (view.arms) |arm_node| {
-            if (check.tree.nodeTag(arm_node) != .match_arm) continue;
-            _ = try check.checkExpr(check.tree.viewOf(arm_node).match_arm.body, hint);
+            if (typer.tree.nodeTag(arm_node) != .match_arm) continue;
+            _ = try typer.checkExpr(typer.tree.viewOf(arm_node).match_arm.body, hint);
         }
         return .poison;
     };
 
     const mark = comp.pool.scratch.items.len;
     defer comp.pool.scratch.shrinkRetainingCapacity(mark);
-    const labels = try matchLabels(check, node, view, subject);
+    const labels = try matchLabels(typer, node, view, subject);
 
     if (subject.held) |held| {
         const chosen = for (view.arms, 0..) |_, position| {
             if (comp.pool.covers(comp.pool.scratch.items[mark + position], held)) break position;
         } else labels.otherwise orelse {
-            if (subject.set == null) try check.failToken(check.tree.nodeMainToken(node), .{
+            if (subject.set == null) try typer.failToken(typer.tree.nodeMainToken(node), .{
                 .code = .missing_arm,
                 .message = try comp.fmt("this match has no arm for '{s}'", .{
                     try comp.typeName(held),
@@ -563,42 +563,42 @@ pub fn checkMatch(
             .start = facts_mark,
             .len = @intCast(comp.scratch.facts.items.len - facts_mark),
         };
-        const arm = check.tree.viewOf(view.arms[chosen]).match_arm;
-        return checkChosen(check, arm.body.toOptional(), proved, hint);
+        const arm = typer.tree.viewOf(view.arms[chosen]).match_arm;
+        return checkChosen(typer, arm.body.toOptional(), proved, hint);
     }
 
-    const builder = check.body();
-    try check.reopenDead();
+    const builder = typer.body();
+    try typer.reopenDead();
     const entry_reachable = builder.reachable;
     const narrows_mark = comp.scratch.narrows.items.len;
 
     // the last arm skips its test, exhaustiveness makes it the fall-through
-    const last = lastArm(check.tree, view.arms) orelse return .poison;
+    const last = lastArm(typer.tree, view.arms) orelse return .poison;
 
-    var join = try Join.open(check, "match", node, wantsValue(hint), hint, .none);
-    const join_block = try check.newBlock();
+    var join = try Join.open(typer, "match", node, wantsValue(hint), hint, .none);
+    const join_block = try typer.newBlock();
     var join_reachable = false;
     var all_diverged = true;
 
     for (view.arms, 0..) |arm_node, position| {
-        if (check.tree.nodeTag(arm_node) != .match_arm) continue;
-        const arm = check.tree.viewOf(arm_node).match_arm;
+        if (typer.tree.nodeTag(arm_node) != .match_arm) continue;
+        const arm = typer.tree.viewOf(arm_node).match_arm;
         const arm_type = comp.pool.scratch.items[mark + position];
 
-        const arm_block = try check.newBlock();
+        const arm_block = try typer.newBlock();
         var resume_chain: ?IR.Block.Index = null;
         if (position == last) {
-            check.endBlock(.{ .jump = arm_block });
+            typer.endBlock(.{ .jump = arm_block });
         } else {
-            const chain = try check.newBlock();
+            const chain = try typer.newBlock();
             if (arm_type == .poison) {
-                check.endBlock(.{ .jump = chain });
+                typer.endBlock(.{ .jump = chain });
             } else {
                 // the compiler's own test, typed void, so no 'bool' is asked of the file
-                const holds = try check.emit(arm_node, .union_is, .void_type, .{
+                const holds = try typer.emit(arm_node, .union_is, .void_type, .{
                     .probe = .{ .operand = subject.ref, .member = arm_type },
                 });
-                check.endBlock(.{ .branch = .{
+                typer.endBlock(.{ .branch = .{
                     .cond = holds,
                     .then_block = arm_block,
                     .else_block = chain,
@@ -607,67 +607,67 @@ pub fn checkMatch(
             resume_chain = chain;
         }
 
-        check.startBlock(arm_block);
+        typer.startBlock(arm_block);
         builder.reachable = entry_reachable;
         if (subject.narrows) |narrows| {
             if (arm_type != .poison) {
-                try Narrowing.applyFact(check, .{ .name = narrows.name, .type = arm_type, .node = arm_node });
+                try Narrow.applyFact(typer, .{ .name = narrows.name, .type = arm_type, .node = arm_node });
             }
         }
-        const arm_value = try check.checkExpr(arm.body, join.armHint());
+        const arm_value = try typer.checkExpr(arm.body, join.armHint());
         comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
         if (arm_value != .diverged) {
             all_diverged = false;
-            try join.take(check, arm_value, arm.body);
-            if (join.carries == false) try check.expectNothing(arm.body, arm_value);
+            try join.take(typer, arm_value, arm.body);
+            if (join.carries == false) try typer.expectNothing(arm.body, arm_value);
         }
 
-        if (check.jumpTo(join_block)) {
+        if (typer.jumpTo(join_block)) {
             join_reachable = true;
             if (arm_type != .poison) try comp.pool.scratch.append(comp.gpa, arm_type);
         }
-        if (resume_chain) |chain| check.startBlock(chain);
+        if (resume_chain) |chain| typer.startBlock(chain);
     }
 
-    check.startBlock(join_block);
+    typer.startBlock(join_block);
     builder.reachable = join_reachable;
 
     if (subject.narrows) |narrows| {
         if (labels.clean and join_reachable) {
             const survivors = comp.pool.scratch.items[mark + view.arms.len ..];
-            if (try membersWhere(check, narrows.set, survivors, .covered)) |kept| {
+            if (try membersWhere(typer, narrows.set, survivors, .covered)) |kept| {
                 if (kept != narrows.set) {
-                    try Narrowing.applyFact(check, .{ .name = narrows.name, .type = kept, .node = node });
+                    try Narrow.applyFact(typer, .{ .name = narrows.name, .type = kept, .node = node });
                 }
             }
         }
     }
-    return join.close(check, all_diverged);
+    return join.close(typer, all_diverged);
 }
 
 const Labels = struct { otherwise: ?usize, clean: bool };
 
 fn matchLabels(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     view: AST.View.Match,
     subject: Subject,
 ) Allocator.Error!Labels {
-    const comp = check.comp;
+    const comp = typer.comp;
     const mark = comp.pool.scratch.items.len;
     var otherwise: ?usize = null;
     var clean = true;
 
     for (view.arms, 0..) |arm_node, position| {
         const arm_type: Pool.Index = blk: {
-            if (check.tree.nodeTag(arm_node) != .match_arm) break :blk .poison;
-            const label_node = check.tree.viewOf(arm_node).match_arm.label.unwrap() orelse {
-                if (otherwise != null) break :blk try failArmAfterElse(check, arm_node);
+            if (typer.tree.nodeTag(arm_node) != .match_arm) break :blk .poison;
+            const label_node = typer.tree.viewOf(arm_node).match_arm.label.unwrap() orelse {
+                if (otherwise != null) break :blk try failArmAfterElse(typer, arm_node);
                 otherwise = position;
                 const set = subject.set orelse break :blk .poison;
                 const earlier = comp.pool.scratch.items[mark..];
-                break :blk try membersWhere(check, set, earlier, .uncovered) orelse {
-                    try check.fail(arm_node, .{
+                break :blk try membersWhere(typer, set, earlier, .uncovered) orelse {
+                    try typer.fail(arm_node, .{
                         .code = .duplicate_arm,
                         .message = "every member is already handled, so 'else' can never run",
                         .label = "nothing left for it",
@@ -675,13 +675,13 @@ fn matchLabels(
                     break :blk .poison;
                 };
             };
-            const label = try Resolve.resolveType(check, label_node);
+            const label = try Resolve.resolveType(typer, label_node);
             if (label == .poison) break :blk .poison;
-            if (otherwise != null) break :blk try failArmAfterElse(check, label_node);
+            if (otherwise != null) break :blk try failArmAfterElse(typer, label_node);
             if (subject.set) |set| {
-                if (try Narrowing.labelWithin(check, label_node, label, set) == false) break :blk .poison;
+                if (try Narrow.labelWithin(typer, label_node, label, set) == false) break :blk .poison;
             }
-            if (try matchRepeat(check, view.arms, label_node, label, mark)) break :blk .poison;
+            if (try matchRepeat(typer, view.arms, label_node, label, mark)) break :blk .poison;
             break :blk label;
         };
         if (arm_type == .poison) clean = false;
@@ -691,7 +691,7 @@ fn matchLabels(
     if (subject.set) |set| {
         if (clean) {
             const covered = comp.pool.scratch.items[mark..];
-            if (try checkMatchMissing(check, node, set, covered)) clean = false;
+            if (try checkMatchMissing(typer, node, set, covered)) clean = false;
         }
     }
     return .{ .otherwise = otherwise, .clean = clean };
@@ -703,12 +703,12 @@ fn coveredByAny(pool: *const Pool, sets: []const Pool.Index, member: Pool.Index)
 }
 
 fn membersWhere(
-    check: *Check,
+    typer: *Typer,
     set: Pool.Index,
     sets: []const Pool.Index,
     which: enum { covered, uncovered },
 ) Allocator.Error!?Pool.Index {
-    const comp = check.comp;
+    const comp = typer.comp;
     var kept: [Pool.union_members_max]Pool.Index = undefined;
     var count: u32 = 0;
     for (comp.pool.unionMembers(set)) |member| {
@@ -722,13 +722,13 @@ fn membersWhere(
 }
 
 fn matchRepeat(
-    check: *Check,
+    typer: *Typer,
     arms: []const Node.Index,
     label_node: Node.Index,
     label: Pool.Index,
     mark: usize,
 ) Allocator.Error!bool {
-    const comp = check.comp;
+    const comp = typer.comp;
     const earlier = comp.pool.scratch.items[mark..];
     const named: []const Pool.Index = if (comp.pool.isUnion(label))
         comp.pool.unionMembers(label)
@@ -739,14 +739,14 @@ fn matchRepeat(
         for (earlier, 0..) |arm_type, position| {
             if (comp.pool.covers(arm_type, member) == false) continue;
             const first = arms[position];
-            const first_label = check.tree.viewOf(first).match_arm.label;
-            try check.fail(label_node, .{
+            const first_label = typer.tree.viewOf(first).match_arm.label;
+            try typer.fail(label_node, .{
                 .code = .duplicate_arm,
                 .message = try comp.fmt("'{s}' is already handled by an earlier arm", .{
                     try comp.typeName(member),
                 }),
                 .label = "handled again here",
-                .notes = try check.noteHere(first_label.unwrap() orelse first, "handled here"),
+                .notes = try typer.noteHere(first_label.unwrap() orelse first, "handled here"),
             });
             return true;
         }
@@ -763,9 +763,9 @@ fn lastArm(tree: *const AST, arms: []const Node.Index) ?usize {
     return null;
 }
 
-fn failArmAfterElse(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
+fn failArmAfterElse(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
     @branchHint(.cold);
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .duplicate_arm,
         .message = "'else' already takes every type the arms do not name",
         .label = "never runs",
@@ -774,12 +774,12 @@ fn failArmAfterElse(check: *Check, node: Node.Index) Allocator.Error!Pool.Index 
 }
 
 fn checkMatchMissing(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     set: Pool.Index,
     covered: []const Pool.Index,
 ) Allocator.Error!bool {
-    const comp = check.comp;
+    const comp = typer.comp;
 
     const named_max = 5;
     var missing_count: u32 = 0;
@@ -799,7 +799,7 @@ fn checkMatchMissing(
         })
     else
         try comp.fmt("this match leaves out {s}", .{names});
-    try check.failToken(check.tree.nodeMainToken(node), .{
+    try typer.failToken(typer.tree.nodeMainToken(node), .{
         .code = .missing_arm,
         .message = message,
         .label = "not every member is handled",
@@ -808,22 +808,22 @@ fn checkMatchMissing(
     return true;
 }
 
-fn conditionTruth(check: *const Check, cond: Ref) ?bool {
+fn conditionTruth(typer: *const Typer, cond: Ref) ?bool {
     return switch (cond.unwrap()) {
         .inst => null,
-        .constant => |value| if (value == .poison) null else check.comp.pool.holdsFirst(value),
+        .constant => |value| if (value == .poison) null else typer.comp.pool.holdsFirst(value),
     };
 }
 
-fn checkCondition(check: *Check, node: Node.Index) Allocator.Error!Ref {
-    const value = try check.checkValue(node, null);
-    const found = check.typeOf(value);
+fn checkCondition(typer: *Typer, node: Node.Index) Allocator.Error!Ref {
+    const value = try typer.checkValue(node, null);
+    const found = typer.typeOf(value);
     if (found == .poison) return broken_ref;
-    if (check.comp.pool.isUnion(found)) return refOf(value);
-    try check.fail(node, .{
+    if (typer.comp.pool.isUnion(found)) return refOf(value);
+    try typer.fail(node, .{
         .code = .not_a_union,
-        .message = try check.comp.fmt("this condition is {s}, and a condition is a union", .{
-            try check.comp.typeName(found),
+        .message = try typer.comp.fmt("this condition is {s}, and a condition is a union", .{
+            try typer.comp.typeName(found),
         }),
         .label = "cannot answer",
         .help = "a condition asks whether a union holds its first member",
@@ -832,110 +832,110 @@ fn checkCondition(check: *Check, node: Node.Index) Allocator.Error!Ref {
 }
 
 pub fn checkReturn(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     operand: Node.OptionalIndex,
 ) Allocator.Error!Value {
-    const builder = check.body();
+    const builder = typer.body();
     if (builder.in_defer) {
-        try failDeferLeaves(check, node, "no 'return' here");
+        try failDeferLeaves(typer, node, "no 'return' here");
         return .poison;
     }
 
     if (operand.unwrap()) |value_node| {
         if (builder.return_type == .void_type) {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .type_mismatch,
                 .message = "this function returns nothing, and this 'return' carries a value",
                 .label = "nothing expected",
                 .help = "drop the value, or give the function a return type",
             });
-            _ = try check.checkExpr(value_node, null);
-            check.endBlock(.{ .ret = .none });
+            _ = try typer.checkExpr(value_node, null);
+            typer.endBlock(.{ .ret = .none });
             return .diverged;
         }
-        const value = try check.checkExpr(value_node, builder.return_type);
-        const met = try check.coerce(value, builder.return_type, value_node);
-        if (check.blockOpen() == false) return .diverged;
-        try check.unwindScopesTo(0);
-        check.endBlock(.{ .ret = refOf(met) });
+        const value = try typer.checkExpr(value_node, builder.return_type);
+        const met = try typer.coerce(value, builder.return_type, value_node);
+        if (typer.blockOpen() == false) return .diverged;
+        try typer.unwindScopesTo(0);
+        typer.endBlock(.{ .ret = refOf(met) });
         return .diverged;
     }
 
     if (builder.return_type != .void_type) {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .type_mismatch,
-            .message = try check.comp.fmt("'return' here must carry a {s}", .{
-                try check.comp.typeName(builder.return_type),
+            .message = try typer.comp.fmt("'return' here must carry a {s}", .{
+                try typer.comp.typeName(builder.return_type),
             }),
             .label = "returns nothing",
         });
     }
-    try check.unwindScopesTo(0);
-    check.endBlock(.{ .ret = .none });
+    try typer.unwindScopesTo(0);
+    typer.endBlock(.{ .ret = .none });
     return .diverged;
 }
 
-pub fn checkBreak(check: *Check, node: Node.Index, view: AST.View.Break) Allocator.Error!Value {
-    const builder = check.body();
+pub fn checkBreak(typer: *Typer, node: Node.Index, view: AST.View.Break) Allocator.Error!Value {
+    const builder = typer.body();
 
-    const frame_index = try findLoop(check, node, view.label) orelse {
-        if (view.value.unwrap()) |value_node| _ = try check.checkExpr(value_node, null);
+    const frame_index = try findLoop(typer, node, view.label) orelse {
+        if (view.value.unwrap()) |value_node| _ = try typer.checkExpr(value_node, null);
         return .poison;
     };
-    const frame = loopPtr(check, frame_index).*;
+    const frame = loopPtr(typer, frame_index).*;
 
     if (view.value.unwrap()) |value_node| {
         if (frame.join.carries) {
-            const value = try check.checkExpr(value_node, frame.join.armHint());
-            if (check.blockOpen() == false) return .diverged;
-            try loopPtr(check, frame_index).join.take(check, value, value_node);
+            const value = try typer.checkExpr(value_node, frame.join.armHint());
+            if (typer.blockOpen() == false) return .diverged;
+            try loopPtr(typer, frame_index).join.take(typer, value, value_node);
         } else {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .type_mismatch,
                 .message = "this 'break' carries a value, and its loop is not asked for one",
                 .label = "nothing takes it",
                 .help = "bind the loop, as in 'let v = loop { ... }', or drop the value",
             });
-            _ = try check.checkExpr(value_node, null);
-            if (check.blockOpen() == false) return .diverged;
+            _ = try typer.checkExpr(value_node, null);
+            if (typer.blockOpen() == false) return .diverged;
         }
     } else if (frame.join.carries) {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .type_mismatch,
             .message = "this loop stands where a value is needed, so 'break' must carry it",
             .label = "carries nothing",
         });
     }
 
-    try check.unwindScopesTo(frame.scope_depth);
-    if (builder.reachable) loopPtr(check, frame_index).broke_reachable = true;
-    check.endBlock(.{ .jump = frame.exit });
+    try typer.unwindScopesTo(frame.scope_depth);
+    if (builder.reachable) loopPtr(typer, frame_index).broke_reachable = true;
+    typer.endBlock(.{ .jump = frame.exit });
     return .diverged;
 }
 
-pub fn checkContinue(check: *Check, node: Node.Index, label: ?Token.Index) Allocator.Error!Value {
-    const frame_index = try findLoop(check, node, label) orelse return .poison;
-    const frame = loopPtr(check, frame_index).*;
-    try check.unwindScopesTo(frame.scope_depth);
-    check.endBlock(.{ .jump = frame.header });
+pub fn checkContinue(typer: *Typer, node: Node.Index, label: ?Token.Index) Allocator.Error!Value {
+    const frame_index = try findLoop(typer, node, label) orelse return .poison;
+    const frame = loopPtr(typer, frame_index).*;
+    try typer.unwindScopesTo(frame.scope_depth);
+    typer.endBlock(.{ .jump = frame.header });
     return .diverged;
 }
 
-fn loopPtr(check: *Check, index: usize) *Check.Builder.LoopFrame {
-    const builder = check.body();
+fn loopPtr(typer: *Typer, index: usize) *Typer.Builder.LoopFrame {
+    const builder = typer.body();
     assert(index < builder.loops.items.len);
     return &builder.loops.items[index];
 }
 
-fn findLoop(check: *Check, node: Node.Index, label: ?Token.Index) Allocator.Error!?usize {
-    const builder = check.body();
+fn findLoop(typer: *Typer, node: Node.Index, label: ?Token.Index) Allocator.Error!?usize {
+    const builder = typer.body();
     const found: ?usize = found: {
         const token = label orelse {
             if (builder.loops.items.len == 0) break :found null;
             break :found builder.loops.items.len - 1;
         };
-        const name = try check.comp.pool.string(check.comp.gpa, check.tree.tokenSlice(token));
+        const name = try typer.comp.pool.string(typer.comp.gpa, typer.tree.tokenSlice(token));
         var index = builder.loops.items.len;
         while (index > 0) {
             index -= 1;
@@ -946,21 +946,21 @@ fn findLoop(check: *Check, node: Node.Index, label: ?Token.Index) Allocator.Erro
 
     const escapes_defer = if (found) |at| at < builder.defer_loops_floor else true;
     if (builder.in_defer and escapes_defer) {
-        try failDeferLeaves(check, node, "not allowed here");
+        try failDeferLeaves(typer, node, "not allowed here");
         return null;
     }
     if (found != null) return found;
 
     if (label) |token| {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .outside_loop,
-            .message = try check.comp.fmt("no enclosing loop is labeled ':{s}'", .{
-                check.tree.tokenSlice(token),
+            .message = try typer.comp.fmt("no enclosing loop is labeled ':{s}'", .{
+                typer.tree.tokenSlice(token),
             }),
             .label = "no such loop",
         });
     } else {
-        try check.fail(node, .{
+        try typer.fail(node, .{
             .code = .outside_loop,
             .message = "there is no loop here to leave",
             .label = "outside every loop",
@@ -969,9 +969,9 @@ fn findLoop(check: *Check, node: Node.Index, label: ?Token.Index) Allocator.Erro
     return null;
 }
 
-fn failDeferLeaves(check: *Check, node: Node.Index, label: []const u8) Allocator.Error!void {
+fn failDeferLeaves(typer: *Typer, node: Node.Index, label: []const u8) Allocator.Error!void {
     @branchHint(.cold);
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .defer_cannot_leave,
         .message = "a 'defer' runs on the way out, so it cannot leave again",
         .label = label,
@@ -979,210 +979,210 @@ fn failDeferLeaves(check: *Check, node: Node.Index, label: []const u8) Allocator
 }
 
 pub fn checkShortCircuit(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     view: AST.View.Binary,
 ) Allocator.Error!Value {
     assert(view.op == .bool_and);
-    const comp = check.comp;
-    const lhs = try check.checkExpr(view.lhs, null);
-    const bools = try check.boolType(view.lhs);
-    const lhs_met = try check.coerce(lhs, bools, view.lhs);
+    const comp = typer.comp;
+    const lhs = try typer.checkExpr(view.lhs, null);
+    const bools = try typer.boolType(view.lhs);
+    const lhs_met = try typer.coerce(lhs, bools, view.lhs);
     if (lhs_met == .poison) {
-        try checkAside(check, view.rhs);
+        try checkAside(typer, view.rhs);
         return .poison;
     }
 
     if (lhs_met == .constant) {
-        const truth = check.truthOf(bools, lhs_met.constant) orelse return .poison;
+        const truth = typer.truthOf(bools, lhs_met.constant) orelse return .poison;
         // the constant decided, so the dead side never runs and never gets checked
         if (truth == false) return lhs_met;
-        const rhs = try check.checkExpr(view.rhs, null);
-        return check.coerce(rhs, bools, view.rhs);
+        const rhs = try typer.checkExpr(view.rhs, null);
+        return typer.coerce(rhs, bools, view.rhs);
     }
 
-    const slot = try check.emitSlot(node, .empty, bools);
-    try check.emitStore(node, slot, refOf(lhs_met));
+    const slot = try typer.emitSlot(node, .empty, bools);
+    try typer.emitStore(node, slot, refOf(lhs_met));
 
-    const entry_reachable = check.body().reachable;
-    const rhs_block = try check.newBlock();
-    const join = try check.newBlock();
-    check.endBlock(.{ .branch = .{
+    const entry_reachable = typer.body().reachable;
+    const rhs_block = try typer.newBlock();
+    const join = try typer.newBlock();
+    typer.endBlock(.{ .branch = .{
         .cond = refOf(lhs_met),
         .then_block = rhs_block,
         .else_block = join,
     } });
 
-    check.startBlock(rhs_block);
+    typer.startBlock(rhs_block);
     const facts_mark: u32 = @intCast(comp.scratch.facts.items.len);
     defer comp.scratch.facts.shrinkRetainingCapacity(facts_mark);
 
     const narrows_mark = comp.scratch.narrows.items.len;
-    try Narrowing.applyFacts(check, (try Narrowing.gatherFacts(check, view.lhs)).when_true);
-    const rhs = try check.checkExpr(view.rhs, null);
-    const rhs_met = try check.coerce(rhs, bools, view.rhs);
-    if (rhs_met != .diverged) try check.emitStore(view.rhs, slot, refOf(rhs_met));
+    try Narrow.applyFacts(typer, (try Narrow.gatherFacts(typer, view.lhs)).when_true);
+    const rhs = try typer.checkExpr(view.rhs, null);
+    const rhs_met = try typer.coerce(rhs, bools, view.rhs);
+    if (rhs_met != .diverged) try typer.emitStore(view.rhs, slot, refOf(rhs_met));
     comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
-    if (check.blockOpen()) check.endBlock(.{ .jump = join });
+    if (typer.blockOpen()) typer.endBlock(.{ .jump = join });
 
-    check.startBlock(join);
-    check.body().reachable = entry_reachable;
-    return check.emitOneValue(node, .load, bools, slot);
+    typer.startBlock(join);
+    typer.body().reachable = entry_reachable;
+    return typer.emitOneValue(node, .load, bools, slot);
 }
 
-pub fn checkOr(check: *Check, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Error!Value {
+pub fn checkOr(typer: *Typer, view: AST.View.Binary, hint: ?Pool.Index) Allocator.Error!Value {
     assert(view.op == .bool_or);
-    const lhs = try check.checkValue(view.lhs, hint);
+    const lhs = try typer.checkValue(view.lhs, hint);
     if (lhs == .diverged) return .diverged;
     if (lhs == .poison) {
-        try checkAside(check, view.rhs);
+        try checkAside(typer, view.rhs);
         return .poison;
     }
-    const found = check.typeOf(lhs);
-    if (check.comp.pool.isUnion(found) == false) {
-        try Expr.failNotUnion(check, view.lhs, found, "'or' splits a union");
-        try checkAside(check, view.rhs);
+    const found = typer.typeOf(lhs);
+    if (typer.comp.pool.isUnion(found) == false) {
+        try Expr.failNotUnion(typer, view.lhs, found, "'or' splits a union");
+        try checkAside(typer, view.rhs);
         return .poison;
     }
-    if (check.builder == null) {
+    if (typer.builder == null) {
         assert(lhs == .constant);
-        return checkOrFold(check, view.rhs, lhs.constant, found);
+        return checkOrFold(typer, view.rhs, lhs.constant, found);
     }
-    return checkOrSplit(check, view.lhs, refOf(lhs), found, view.rhs, .none);
+    return checkOrSplit(typer, view.lhs, refOf(lhs), found, view.rhs, .none);
 }
 
-fn checkAside(check: *Check, node: Node.Index) Allocator.Error!void {
-    const builder = check.builder orelse {
-        _ = try check.checkExpr(node, null);
+fn checkAside(typer: *Typer, node: Node.Index) Allocator.Error!void {
+    const builder = typer.builder orelse {
+        _ = try typer.checkExpr(node, null);
         return;
     };
     const reachable = builder.reachable;
-    _ = try check.checkExpr(node, null);
-    try check.reopenDead();
+    _ = try typer.checkExpr(node, null);
+    try typer.reopenDead();
     builder.reachable = reachable;
 }
 
 fn checkOrFold(
-    check: *Check,
+    typer: *Typer,
     rhs_node: Node.Index,
     lhs: Pool.Index,
     lhs_type: Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    assert(check.builder == null);
+    const comp = typer.comp;
+    assert(typer.builder == null);
     assert(comp.pool.typeOfValue(lhs) == lhs_type);
 
     const first = comp.pool.firstMember(lhs_type);
     if (comp.pool.holdsFirst(lhs)) return .{ .constant = comp.pool.heldValue(lhs) };
 
-    const rhs = try check.checkExpr(rhs_node, first);
-    if (check.typeOf(rhs) == lhs_type) return rhs;
-    return check.coerce(rhs, first, rhs_node);
+    const rhs = try typer.checkExpr(rhs_node, first);
+    if (typer.typeOf(rhs) == lhs_type) return rhs;
+    return typer.coerce(rhs, first, rhs_node);
 }
 
 pub fn checkOrBind(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     view: AST.View.OrBind,
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    const lhs = try check.checkValue(view.lhs, hint);
+    const comp = typer.comp;
+    const lhs = try typer.checkValue(view.lhs, hint);
     if (lhs.stops()) return lhs;
 
-    const found = check.typeOf(lhs);
+    const found = typer.typeOf(lhs);
     if (comp.pool.isUnion(found) == false) {
-        try Expr.failNotUnion(check, node, found, "'or' with a handler splits a union");
+        try Expr.failNotUnion(typer, node, found, "'or' with a handler splits a union");
         return .poison;
     }
-    return checkOrSplit(check, view.lhs, refOf(lhs), found, view.block, view.binder.toOptional());
+    return checkOrSplit(typer, view.lhs, refOf(lhs), found, view.block, view.binder.toOptional());
 }
 
 fn checkOrSplit(
-    check: *Check,
+    typer: *Typer,
     lhs_node: Node.Index,
     lhs: Ref,
     lhs_type: Pool.Index,
     rhs_node: Node.Index,
     binder: Node.OptionalIndex,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    const builder = check.body();
+    const comp = typer.comp;
+    const builder = typer.body();
     const first = comp.pool.firstMember(lhs_type);
     const rest = try comp.pool.unionTail(comp.gpa, lhs_type);
 
-    const slot = try check.emitSlot(lhs_node, .empty, lhs_type);
-    try check.emitStore(lhs_node, slot, lhs);
+    const slot = try typer.emitSlot(lhs_node, .empty, lhs_type);
+    try typer.emitStore(lhs_node, slot, lhs);
 
     const entry_reachable = builder.reachable;
-    const rhs_block = try check.newBlock();
-    const join = try check.newBlock();
-    check.endBlock(.{ .branch = .{
+    const rhs_block = try typer.newBlock();
+    const join = try typer.newBlock();
+    typer.endBlock(.{ .branch = .{
         .cond = lhs,
         .then_block = join,
         .else_block = rhs_block,
     } });
 
-    check.startBlock(rhs_block);
+    typer.startBlock(rhs_block);
     var widened = false;
-    if (binder == .none and orPropagates(check, rhs_node)) {
-        const rest_value = try check.emitOne(rhs_node, .union_narrow, rest, lhs);
-        const met = try check.coerce(runtimeValue(rest_value, rest), builder.return_type, rhs_node);
-        try check.unwindScopesTo(0);
-        check.endBlock(.{ .ret = refOf(met) });
+    if (binder == .none and orPropagates(typer, rhs_node)) {
+        const rest_value = try typer.emitOne(rhs_node, .union_narrow, rest, lhs);
+        const met = try typer.coerce(runtimeValue(rest_value, rest), builder.return_type, rhs_node);
+        try typer.unwindScopesTo(0);
+        typer.endBlock(.{ .ret = refOf(met) });
     } else {
         const facts_mark: u32 = @intCast(comp.scratch.facts.items.len);
         defer comp.scratch.facts.shrinkRetainingCapacity(facts_mark);
 
         const narrows_mark = comp.scratch.narrows.items.len;
-        const facts = try Narrowing.gatherFacts(check, lhs_node);
-        try Narrowing.applyFacts(check, facts.when_false);
+        const facts = try Narrow.gatherFacts(typer, lhs_node);
+        try Narrow.applyFacts(typer, facts.when_false);
 
         if (binder.unwrap()) |binder_node| {
-            try check.pushScope();
-            try bindRest(check, binder_node, lhs, rest);
+            try typer.pushScope();
+            try bindRest(typer, binder_node, lhs, rest);
         }
-        const rhs = try check.checkExpr(rhs_node, first);
-        if (binder != .none) check.popScope();
+        const rhs = try typer.checkExpr(rhs_node, first);
+        if (binder != .none) typer.popScope();
 
-        widened = check.typeOf(rhs) == lhs_type;
-        const met = if (widened) rhs else try check.coerce(rhs, first, rhs_node);
+        widened = typer.typeOf(rhs) == lhs_type;
+        const met = if (widened) rhs else try typer.coerce(rhs, first, rhs_node);
         if (met != .diverged) {
             const settled = if (widened or met == .poison)
                 refOf(met)
             else
-                try check.emit(rhs_node, .union_init, lhs_type, .{
+                try typer.emit(rhs_node, .union_init, lhs_type, .{
                     .probe = .{ .operand = refOf(met), .member = first },
                 });
-            try check.emitStore(rhs_node, slot, settled);
+            try typer.emitStore(rhs_node, slot, settled);
         }
         comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
-        if (check.blockOpen()) check.endBlock(.{ .jump = join });
+        if (typer.blockOpen()) typer.endBlock(.{ .jump = join });
     }
 
-    check.startBlock(join);
+    typer.startBlock(join);
     builder.reachable = entry_reachable;
-    const loaded = try check.emitOne(lhs_node, .load, lhs_type, slot);
+    const loaded = try typer.emitOne(lhs_node, .load, lhs_type, slot);
     if (widened) return runtimeValue(loaded, lhs_type);
-    return check.emitOneValue(lhs_node, .union_narrow, first, loaded);
+    return typer.emitOneValue(lhs_node, .union_narrow, first, loaded);
 }
 
-fn orPropagates(check: *const Check, node: Node.Index) bool {
-    if (check.tree.nodeTag(node) != .return_expr) return false;
-    if (check.body().return_type == .void_type) return false;
-    if (check.body().in_defer) return false;
-    return check.tree.viewOf(node).return_expr == .none;
+fn orPropagates(typer: *const Typer, node: Node.Index) bool {
+    if (typer.tree.nodeTag(node) != .return_expr) return false;
+    if (typer.body().return_type == .void_type) return false;
+    if (typer.body().in_defer) return false;
+    return typer.tree.viewOf(node).return_expr == .none;
 }
 
 fn bindRest(
-    check: *Check,
+    typer: *Typer,
     binder_node: Node.Index,
     lhs: Ref,
     rest: Pool.Index,
 ) Allocator.Error!void {
-    const text = check.mainTokenText(binder_node);
-    if (Module.isDiscard(text)) return check.failDiscard(binder_node);
-    const name = try check.comp.pool.string(check.comp.gpa, text);
-    const narrowed = try check.emitOne(binder_node, .union_narrow, rest, lhs);
-    try check.declareLocal(name, binder_node, .let, narrowed, rest);
+    const text = typer.mainTokenText(binder_node);
+    if (Module.isDiscard(text)) return typer.failDiscard(binder_node);
+    const name = try typer.comp.pool.string(typer.comp.gpa, text);
+    const narrowed = try typer.emitOne(binder_node, .union_narrow, rest, lhs);
+    try typer.declareLocal(name, binder_node, .let, narrowed, rest);
 }

@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
-const Check = @import("../Check.zig");
+const Typer = @import("../Typer.zig");
 const IR = @import("../IR.zig");
 const Module = @import("../Module.zig");
 const Pool = @import("../Pool.zig");
@@ -17,56 +17,56 @@ const Place = @import("Place.zig");
 const Decl = Module.Decl;
 const Node = AST.Node;
 const Ref = IR.Ref;
-const Value = Check.Value;
-const runtimeValue = Check.runtimeValue;
-const type_params_max = Check.type_params_max;
-const bindings_max = Check.bindings_max;
-const call_args_max = Check.call_args_max;
-const type_depth_max = Check.type_depth_max;
+const Value = Typer.Value;
+const runtimeValue = Typer.runtimeValue;
+const type_params_max = Typer.type_params_max;
+const bindings_max = Typer.bindings_max;
+const call_args_max = Typer.call_args_max;
+const type_depth_max = Typer.type_depth_max;
 
-pub fn checkCall(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
-    const view = check.tree.viewOf(node).call;
+pub fn checkCall(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    const view = typer.tree.viewOf(node).call;
     if (view.args.len > call_args_max) {
-        return check.refuse(node, .{
+        return typer.refuse(node, .{
             .code = .wrong_arity,
-            .message = try check.comp.fmt("a call takes at most {d} arguments", .{call_args_max}),
+            .message = try typer.comp.fmt("a call takes at most {d} arguments", .{call_args_max}),
         });
     }
 
     var explicit: ?[]const Node.Index = null;
     var callee_node = view.callee;
-    if (check.tree.nodeTag(callee_node) == .bracket) {
-        const bracket = check.tree.viewOf(callee_node).bracket;
+    if (typer.tree.nodeTag(callee_node) == .bracket) {
+        const bracket = typer.tree.viewOf(callee_node).bracket;
         explicit = bracket.args;
         callee_node = bracket.base;
     }
-    const callee = try resolveCallee(check, callee_node) orelse return abandonCall(check, view.args);
+    const callee = try resolveCallee(typer, callee_node) orelse return abandonCall(typer, view.args);
     if (explicit) |written| {
         if (written.len > type_params_max) {
-            try check.fail(view.callee, .{
+            try typer.fail(view.callee, .{
                 .code = .generic_arguments,
-                .message = try check.comp.fmt(
+                .message = try typer.comp.fmt(
                     "a call takes at most {d} type arguments",
                     .{type_params_max},
                 ),
             });
-            return abandonCall(check, view.args);
+            return abandonCall(typer, view.args);
         }
     }
 
     if (callee == .builtin) {
         const which = callee.builtin;
-        if (check.builder == null and which.needsBody()) {
-            const name = try check.comp.fmt("'@{s}'", .{@tagName(which)});
-            return check.needRuntime(node, name);
+        if (typer.builder == null and which.needsBody()) {
+            const name = try typer.comp.fmt("'@{s}'", .{@tagName(which)});
+            return typer.needRuntime(node, name);
         }
-        return which.call(check, node, explicit orelse &.{}, view.args, hint);
+        return which.call(typer, node, explicit orelse &.{}, view.args, hint);
     }
-    return checkCallResolved(check, node, callee, explicit, view.args, hint);
+    return checkCallResolved(typer, node, callee, explicit, view.args, hint);
 }
 
-fn abandonCall(check: *Check, args: []const Node.Index) Allocator.Error!Value {
-    for (args) |argument| _ = try check.checkExpr(argument, null);
+fn abandonCall(typer: *Typer, args: []const Node.Index) Allocator.Error!Value {
+    for (args) |argument| _ = try typer.checkExpr(argument, null);
     return .poison;
 }
 
@@ -77,40 +77,40 @@ const Callee = union(enum) {
     method: struct { receiver: Node.Index, name_token: Token.Index },
 };
 
-fn resolveCallee(check: *Check, node: Node.Index) Allocator.Error!?Callee {
-    switch (check.tree.viewOf(node)) {
+fn resolveCallee(typer: *Typer, node: Node.Index) Allocator.Error!?Callee {
+    switch (typer.tree.viewOf(node)) {
         .builtin => |name_token| {
-            const which = try Builtin.resolve(check, name_token) orelse return null;
+            const which = try Builtin.resolve(typer, name_token) orelse return null;
             return .{ .builtin = which };
         },
-        .field_access => |access| return resolveCalleeMember(check, node, access),
+        .field_access => |access| return resolveCalleeMember(typer, node, access),
         else => {
-            const value = try check.checkExpr(node, null);
-            return calleeOfValue(check, node, value);
+            const value = try typer.checkExpr(node, null);
+            return calleeOfValue(typer, node, value);
         },
     }
 }
 
 fn resolveCalleeMember(
-    check: *Check,
+    typer: *Typer,
     callee_node: Node.Index,
     access: AST.View.FieldAccess,
 ) Allocator.Error!?Callee {
-    const comp = check.comp;
+    const comp = typer.comp;
 
-    if (baseIsNamespace(check, access.lhs)) {
-        const base = try check.checkExpr(access.lhs, null);
+    if (baseIsNamespace(typer, access.lhs)) {
+        const base = try typer.checkExpr(access.lhs, null);
         switch (base) {
             .poison, .diverged => return null,
             .named_module => |target| {
-                const member = try Resolve.exported(check, target, callee_node, access.name_token) orelse
+                const member = try Resolve.exported(typer, target, callee_node, access.name_token) orelse
                     return null;
-                const value = try Resolve.declAsValue(check, member, callee_node);
-                return calleeOfValue(check, callee_node, value);
+                const value = try Resolve.declAsValue(typer, member, callee_node);
+                return calleeOfValue(typer, callee_node, value);
             },
             .named_type => |type_index| {
                 if (comp.pool.keyOf(type_index) != .type_struct) {
-                    try check.failToken(access.name_token, .{
+                    try typer.failToken(access.name_token, .{
                         .code = .no_such_member,
                         .message = try comp.fmt("{s} has no functions to call", .{
                             try comp.typeName(type_index),
@@ -119,12 +119,12 @@ fn resolveCalleeMember(
                     });
                     return null;
                 }
-                const member = try Expr.methodOf(check, type_index, access.name_token) orelse return null;
-                if (try Expr.memberIsVisible(check, member, access.name_token) == false) return null;
+                const member = try Expr.methodOf(typer, type_index, access.name_token) orelse return null;
+                if (try Expr.memberIsVisible(typer, member, access.name_token) == false) return null;
                 return .{ .static = .{ .decl = member, .owner = comp.pool.structOf(type_index) } };
             },
             .named_generic => {
-                try check.fail(access.lhs, .{
+                try typer.fail(access.lhs, .{
                     .code = .generic_arguments,
                     .message = "this is generic, so write its arguments before reaching in",
                     .label = "missing type arguments",
@@ -132,7 +132,7 @@ fn resolveCalleeMember(
                 return null;
             },
             .named_fn => {
-                try Expr.failFieldOnFunction(check, access.name_token);
+                try Expr.failFieldOnFunction(typer, access.name_token);
                 return null;
             },
             .constant, .runtime => {},
@@ -141,37 +141,37 @@ fn resolveCalleeMember(
     return .{ .method = .{ .receiver = access.lhs, .name_token = access.name_token } };
 }
 
-pub fn baseIsNamespace(check: *const Check, node: Node.Index) bool {
+pub fn baseIsNamespace(typer: *const Typer, node: Node.Index) bool {
     var current = node;
     var depth: u32 = 0;
     while (depth < type_depth_max) : (depth += 1) {
-        switch (check.tree.nodeTag(current)) {
-            .ident => return check.findLocalIndex(check.mainTokenText(current)) == null,
-            .field_access => current = check.tree.viewOf(current).field_access.lhs,
-            .bracket => current = check.tree.viewOf(current).bracket.base,
+        switch (typer.tree.nodeTag(current)) {
+            .ident => return typer.findLocalIndex(typer.mainTokenText(current)) == null,
+            .field_access => current = typer.tree.viewOf(current).field_access.lhs,
+            .bracket => current = typer.tree.viewOf(current).bracket.base,
             else => return false,
         }
     }
     return false;
 }
 
-fn calleeOfValue(check: *Check, node: Node.Index, value: Value) Allocator.Error!?Callee {
-    const comp = check.comp;
+fn calleeOfValue(typer: *Typer, node: Node.Index, value: Value) Allocator.Error!?Callee {
+    const comp = typer.comp;
     switch (value) {
         .named_fn => |decl_index| return .{ .direct = decl_index },
         .poison, .diverged => return null,
         .constant, .runtime => {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .not_a_function,
                 .message = try comp.fmt("this is {s}, not a function", .{
-                    try comp.typeName(check.typeOf(value)),
+                    try comp.typeName(typer.typeOf(value)),
                 }),
                 .label = "cannot be called",
             });
             return null;
         },
         .named_type, .named_generic => {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .not_a_function,
                 .message = "a type is not callable, and there are no conversions to call",
                 .label = "a type",
@@ -179,7 +179,7 @@ fn calleeOfValue(check: *Check, node: Node.Index, value: Value) Allocator.Error!
             return null;
         },
         .named_module => {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .not_a_function,
                 .message = "a module is not callable, so name a function inside it",
                 .label = "a module",
@@ -192,14 +192,14 @@ fn calleeOfValue(check: *Check, node: Node.Index, value: Value) Allocator.Error!
 const Receiver = struct { place: Place, node: Node.Index };
 
 fn checkCallResolved(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     callee: Callee,
     explicit: ?[]const Node.Index,
     args: []const Node.Index,
     hint: ?Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
 
     var receiver: ?Receiver = null;
     var owner_args: []const Pool.Index = &.{};
@@ -211,14 +211,14 @@ fn checkCallResolved(
             break :static static.decl;
         },
         .method => |method| method: {
-            const place = try Place.checkPlace(check, method.receiver) orelse return .poison;
+            const place = try Place.checkPlace(typer, method.receiver) orelse return .poison;
             if (place.type == .poison) return .poison;
             receiver = .{ .place = place, .node = method.receiver };
 
             const type_struct = Expr.peelPointer(&comp.pool, place.type).owner;
-            const member = try Expr.methodOf(check, type_struct, method.name_token) orelse
+            const member = try Expr.methodOf(typer, type_struct, method.name_token) orelse
                 return .poison;
-            if (try Expr.memberIsVisible(check, member, method.name_token) == false) return .poison;
+            if (try Expr.memberIsVisible(typer, member, method.name_token) == false) return .poison;
 
             owner_args = comp.instanceArgs(comp.pool.structOf(type_struct));
             break :method member;
@@ -243,17 +243,17 @@ fn checkCallResolved(
     if (explicit) |written| {
         if (written.len != own_count) {
             const declared = try comp.noteOne(decl.module, decl.node, "declared here");
-            try check.failArity(node, fn_name, .type, own_count, written.len, declared);
+            try typer.failArity(node, fn_name, .type, own_count, written.len, declared);
             return .poison;
         }
         for (written, 0..) |argument, position| {
-            const resolved = try Resolve.resolveWrittenType(check, argument);
+            const resolved = try Resolve.resolveWrittenType(typer, argument);
             if (resolved == .poison) return .poison;
             full_args[owner_count + position] = resolved;
         }
     } else if (own_count > 0) {
         const solved = try inferTypeArguments(
-            check,
+            typer,
             node,
             decl_index,
             receiver != null,
@@ -266,16 +266,16 @@ fn checkCallResolved(
     }
     const start: u32 = if (inferred) mark + @as(u32, @intCast(args.len)) else mark;
 
-    if (try Resolve.boundsHold(check, decl_index, full_args[owner_count..][0..own_count], node) == false) {
+    if (try Resolve.boundsHold(typer, decl_index, full_args[owner_count..][0..own_count], node) == false) {
         return .poison;
     }
 
     const instance = try comp.instantiate(
         decl_index,
         full_args[0 .. owner_count + own_count],
-        check.origin(node),
+        typer.origin(node),
     );
-    try comp.ensure(.{ .head = instance }, check.origin(node));
+    try comp.ensure(.{ .head = instance }, typer.origin(node));
     if (comp.instanceAt(instance).head != .done) return .poison;
     const return_type = comp.instanceType(instance);
 
@@ -283,7 +283,7 @@ fn checkCallResolved(
     var receiver_count: u32 = 0;
     if (receiver) |it| {
         if (rows.len == 0) {
-            return check.refuse(node, .{
+            return typer.refuse(node, .{
                 .code = .wrong_arity,
                 .message = try comp.fmt("'{s}' takes no parameters, so it has no receiver", .{
                     fn_name,
@@ -294,7 +294,7 @@ fn checkCallResolved(
             });
         }
         const self_type = comp.rowAt(.from(rows.at(0))).type;
-        const adapted = try adaptReceiver(check, it.node, it.place, self_type, fn_name) orelse
+        const adapted = try adaptReceiver(typer, it.node, it.place, self_type, fn_name) orelse
             return .poison;
         try comp.scratch.operands.append(comp.gpa, .{
             .value = runtimeValue(adapted, self_type),
@@ -306,9 +306,9 @@ fn checkCallResolved(
     const expected = rows.len - receiver_count;
     if (args.len != expected) {
         const declared = try comp.noteOne(decl.module, decl.node, "declared here");
-        try check.failArity(node, fn_name, .value, expected, args.len, declared);
+        try typer.failArity(node, fn_name, .value, expected, args.len, declared);
         if (inferred == false) {
-            for (args) |argument| _ = try check.checkExpr(argument, null);
+            for (args) |argument| _ = try typer.checkExpr(argument, null);
         }
         return .poison;
     }
@@ -321,8 +321,8 @@ fn checkCallResolved(
         const value = if (inferred)
             comp.scratch.operands.items[mark + position].value
         else
-            try check.checkExpr(argument, row_type);
-        const met = try check.coerce(value, row_type, argument);
+            try typer.checkExpr(argument, row_type);
+        const met = try typer.coerce(value, row_type, argument);
         if (met == .poison) clean = false;
         try comp.scratch.operands.append(comp.gpa, .{ .value = met, .initializer = .none });
     }
@@ -330,14 +330,14 @@ fn checkCallResolved(
     assert(comp.scratch.operands.items.len == start + receiver_count + args.len);
 
     const operands = comp.scratch.operands.items[start..];
-    if (check.builder == null) return Comptime.call(check, node, instance, operands);
+    if (typer.builder == null) return Comptime.call(typer, node, instance, operands);
 
-    const payload = try check.emitExtra(&.{ instance.int(), @intCast(operands.len) }, operands);
-    return check.emitValue(node, .call, return_type, .{ .payload = payload });
+    const payload = try typer.emitExtra(&.{ instance.int(), @intCast(operands.len) }, operands);
+    return typer.emitValue(node, .call, return_type, .{ .payload = payload });
 }
 
 fn inferTypeArguments(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     decl_index: Decl.Index,
     has_receiver: bool,
@@ -345,7 +345,7 @@ fn inferTypeArguments(
     hint: ?Pool.Index,
     out: []Pool.Index,
 ) Allocator.Error!bool {
-    const comp = check.comp;
+    const comp = typer.comp;
     const decl = comp.declAt(decl_index);
     const owner_tree = comp.treeOf(decl.module);
     const fn_view = owner_tree.viewOf(decl.node).fn_decl;
@@ -353,12 +353,12 @@ fn inferTypeArguments(
 
     const early: u32 = @intCast(comp.scratch.operands.items.len);
     for (args) |argument| {
-        const value = try check.checkExpr(argument, null);
+        const value = try typer.checkExpr(argument, null);
         try comp.scratch.operands.append(comp.gpa, .{ .value = value, .initializer = .none });
     }
 
     var bound_buffer: [type_params_max]Pool.Index = undefined;
-    const bounds = try comp.boundsOf(decl_index, check.origin(node), &bound_buffer) orelse &.{};
+    const bounds = try comp.boundsOf(decl_index, typer.origin(node), &bound_buffer) orelse &.{};
 
     const receiver_rows: u32 = if (has_receiver) 1 else 0;
     for (fn_view.type_params, 0..) |type_param, param_position| {
@@ -366,7 +366,7 @@ fn inferTypeArguments(
         const bound = Resolve.boundAt(bounds, param_position);
 
         const pinned = pinnedType(
-            check,
+            typer,
             owner_tree,
             fn_view,
             wanted,
@@ -380,7 +380,7 @@ fn inferTypeArguments(
             if (pinned.unread.argument >= args.len) break :literal null;
             const value = comp.scratch.operands.items[early + pinned.unread.argument].value;
             if (value != .constant) break :literal null;
-            break :literal if (Pool.isUntyped(check.typeOf(value))) value.constant else null;
+            break :literal if (Pool.isUntyped(typer.typeOf(value))) value.constant else null;
         };
         var from_hint = hintFor(&comp.pool, owner_tree, fn_view, wanted, hint);
         if (from_hint) |hinted| {
@@ -399,7 +399,7 @@ fn inferTypeArguments(
                     out[param_position] = pinned_type;
                     continue;
                 }
-                try check.fail(node, .{
+                try typer.fail(node, .{
                     .code = .inference_failed,
                     .message = try comp.fmt(
                         "no value parameter of '{s}' pins '{s}', so it must be written",
@@ -418,7 +418,7 @@ fn inferTypeArguments(
         }
 
         if (pin.argument >= args.len) {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .inference_failed,
                 .message = try comp.fmt("'{s}' would be pinned by an argument this call lacks", .{
                     wanted,
@@ -429,15 +429,15 @@ fn inferTypeArguments(
         }
 
         const value = comp.scratch.operands.items[early + pin.argument].value;
-        const found = check.typeOf(value);
+        const found = typer.typeOf(value);
         if (Pool.isUntyped(found)) {
             if (bound) |limit| if (wrapperOf(owner_tree, pin.written) == null) {
-                const met = try check.fitValue(value.constant, limit, args[pin.argument]);
+                const met = try typer.fitValue(value.constant, limit, args[pin.argument]);
                 if (met != .constant) return false;
                 out[param_position] = comp.pool.memberOfValue(met.constant);
                 continue;
             };
-            try check.fail(args[pin.argument], .{
+            try typer.fail(args[pin.argument], .{
                 .code = .inference_failed,
                 .message = "a constant that has not landed has no type to read",
                 .label = try comp.fmt("what type is '{s}'?", .{wanted}),
@@ -451,7 +451,7 @@ fn inferTypeArguments(
         }
 
         const span = owner_tree.nodeSpan(pin.written);
-        try check.fail(args[pin.argument], .{
+        try typer.fail(args[pin.argument], .{
             .code = .inference_failed,
             .message = try comp.fmt("'{s}' takes '{s}' here, so {s} cannot pin '{s}'", .{
                 fn_name,
@@ -477,7 +477,7 @@ const Pinned = union(enum) {
 };
 
 fn pinnedType(
-    check: *Check,
+    typer: *Typer,
     tree: *const AST,
     fn_view: AST.View.FnDecl,
     wanted: []const u8,
@@ -485,7 +485,7 @@ fn pinnedType(
     args_len: u32,
     early: u32,
 ) Pinned {
-    const comp = check.comp;
+    const comp = typer.comp;
     var first: ?Pin = null;
     for (fn_view.params, 0..) |param_node, position| {
         if (position < receiver_rows) continue;
@@ -498,7 +498,7 @@ fn pinnedType(
         if (pin.argument >= args_len) continue;
 
         const value = comp.scratch.operands.items[early + pin.argument].value;
-        const found = check.typeOf(value);
+        const found = typer.typeOf(value);
         if (found == .poison) return .poison;
         if (Pool.isUntyped(found)) {
             const inside = elementTypeInside(&comp.pool, tree, written, value) orelse continue;
@@ -604,22 +604,22 @@ fn peelToTypeParam(
 }
 
 fn adaptReceiver(
-    check: *Check,
+    typer: *Typer,
     receiver_node: Node.Index,
     place: Place,
     self_type: Pool.Index,
     fn_name: []const u8,
 ) Allocator.Error!?Ref {
-    const comp = check.comp;
+    const comp = typer.comp;
     assert(place.type != .poison);
-    if (place.type == self_type) return try Place.placeValue(check, place);
+    if (place.type == self_type) return try Place.placeValue(typer, place);
 
     const place_key = comp.pool.keyOf(place.type);
     switch (comp.pool.keyOf(self_type)) {
         .type_pointer => |wanted| {
             if (place_key == .type_pointer and place_key.type_pointer.child == wanted.child) {
                 if (wanted.mutable and place_key.type_pointer.mutable == false) {
-                    try check.fail(receiver_node, .{
+                    try typer.fail(receiver_node, .{
                         .code = .write_through_pointer,
                         .message = try comp.fmt(
                             "'{s}' writes through its receiver, and this is a '{s}'",
@@ -630,25 +630,25 @@ fn adaptReceiver(
                     });
                     return null;
                 }
-                return try Place.placeValue(check, place);
+                return try Place.placeValue(typer, place);
             }
             if (place.type == wanted.child) {
                 if (wanted.mutable) {
                     if (place.immutable) |why| {
-                        try reportReceiverImmutable(check, receiver_node, place, why, fn_name);
+                        try reportReceiverImmutable(typer, receiver_node, place, why, fn_name);
                         return null;
                     }
                 }
-                const addressed = try Place.placeAddress(check, place) orelse return null;
+                const addressed = try Place.placeAddress(typer, place) orelse return null;
                 return addressed.ref;
             }
         },
         else => if (place_key == .type_pointer and place_key.type_pointer.child == self_type) {
-            const pointer = try Place.placeValue(check, place);
-            return try check.emitOne(receiver_node, .load, self_type, pointer);
+            const pointer = try Place.placeValue(typer, place);
+            return try typer.emitOne(receiver_node, .load, self_type, pointer);
         },
     }
-    try check.fail(receiver_node, .{
+    try typer.fail(receiver_node, .{
         .code = .type_mismatch,
         .message = try comp.fmt("the first parameter of '{s}' is {s}, so {s} " ++
             "cannot be its receiver", .{
@@ -662,7 +662,7 @@ fn adaptReceiver(
 }
 
 fn reportReceiverImmutable(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     place: Place,
     why: Place.Reason,
@@ -671,14 +671,14 @@ fn reportReceiverImmutable(
     const what: []const u8 = switch (why) {
         .let_bound => "was bound with 'let'",
         .param_bound => "is a parameter, a copy that dies with the call",
-        .read_only => |crossed| try check.comp.fmt("sits behind a '{s}', which is read-only", .{
-            try check.comp.typeName(try Place.crossedType(check, crossed, false)),
+        .read_only => |crossed| try typer.comp.fmt("sits behind a '{s}', which is read-only", .{
+            try typer.comp.typeName(try Place.crossedType(typer, crossed, false)),
         }),
         .temporary => "is a temporary that no one else can see",
     };
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .not_assignable,
-        .message = try check.comp.fmt("'{s}' writes through its receiver, and '{s}' {s}", .{
+        .message = try typer.comp.fmt("'{s}' writes through its receiver, and '{s}' {s}", .{
             fn_name, place.root_name, what,
         }),
         .label = "immutable receiver",

@@ -1,3 +1,5 @@
+//! Types a declaration and lowers its body to IR.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -11,14 +13,14 @@ const Layout = @import("Layout.zig");
 const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
 const Token = @import("Token.zig");
-const Aggregate = @import("check/Aggregate.zig");
-const Builtin = @import("check/Builtin.zig").Builtin;
-const Call = @import("check/Call.zig");
-const Expr = @import("check/Expr.zig");
-const Flow = @import("check/Flow.zig");
-const Narrowing = @import("check/Narrowing.zig");
-const Place = @import("check/Place.zig");
-const Resolve = @import("check/Resolve.zig");
+const Aggregate = @import("typer/Aggregate.zig");
+const Builtin = @import("typer/Builtin.zig").Builtin;
+const Call = @import("typer/Call.zig");
+const Expr = @import("typer/Expr.zig");
+const Flow = @import("typer/Flow.zig");
+const Narrow = @import("typer/Narrow.zig");
+const Place = @import("typer/Place.zig");
+const Resolve = @import("typer/Resolve.zig");
 
 const Closest = Diagnostic.Closest;
 const Decl = Module.Decl;
@@ -39,7 +41,7 @@ none_type: Pool.Index,
 /// Field types skip it, their struct gets its own walk.
 demand_embedding: bool,
 
-const Check = @This();
+const Typer = @This();
 
 pub const type_params_max = AST.type_params_max;
 pub const bindings_max = type_params_max * 2;
@@ -78,8 +80,8 @@ pub const Value = union(enum) {
 /// What units stage and stack, shared so the capacity survives across them.
 pub const Scratch = struct {
     rows: std.ArrayList(Compilation.Row) = .empty,
-    narrows: std.ArrayList(Narrowing.Narrow) = .empty,
-    facts: std.ArrayList(Narrowing.Fact) = .empty,
+    narrows: std.ArrayList(Narrow.Narrow) = .empty,
+    facts: std.ArrayList(Narrow.Fact) = .empty,
     operands: std.ArrayList(Operand) = .empty,
     builders: std.ArrayList(*Builder) = .empty,
 
@@ -208,40 +210,40 @@ pub const Builder = struct {
 // The units. Each is one memoized answer, run through `Compilation.ensure`.
 
 pub fn typeAlias(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index);
-    const resolved = try check.aliasTarget(decl_index);
+    var typer = context(comp, decl_index);
+    const resolved = try typer.aliasTarget(decl_index);
     comp.declPtr(decl_index).answer = .{ .type = resolved };
     return resolved != .poison;
 }
 
 pub fn aliasInstance(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, comp.instanceDecl(instance));
-    try Resolve.bindTypeParams(&check, instance, &buffer);
-    const resolved = try check.aliasTarget(comp.instanceDecl(instance));
+    var typer = context(comp, comp.instanceDecl(instance));
+    try Resolve.bindTypeParams(&typer, instance, &buffer);
+    const resolved = try typer.aliasTarget(comp.instanceDecl(instance));
     comp.instancePtr(instance).type = resolved;
     return resolved != .poison;
 }
 
-fn aliasTarget(check: *Check, decl_index: Decl.Index) Allocator.Error!Pool.Index {
-    const view = check.tree.viewOf(check.declNode(decl_index)).alias_decl;
-    return Resolve.resolveWrittenType(check, view.aliased);
+fn aliasTarget(typer: *Typer, decl_index: Decl.Index) Allocator.Error!Pool.Index {
+    const view = typer.tree.viewOf(typer.declNode(decl_index)).alias_decl;
+    return Resolve.resolveWrittenType(typer, view.aliased);
 }
 
 pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index);
-    const view = check.tree.viewOf(check.declNode(decl_index)).var_decl;
+    var typer = context(comp, decl_index);
+    const view = typer.tree.viewOf(typer.declNode(decl_index)).var_decl;
 
     // the annotation first, so a literal can land on what it says
     const annotation: ?Pool.Index = if (view.type_expr.unwrap()) |type_expr|
-        try Resolve.resolveType(&check, type_expr)
+        try Resolve.resolveType(&typer, type_expr)
     else
         null;
 
-    var value = try check.checkValue(view.init_expr, annotation);
+    var value = try typer.checkValue(view.init_expr, annotation);
     assert(value != .runtime);
     assert(value != .diverged);
-    if (annotation) |wanted| value = try check.coerce(value, wanted, view.init_expr);
+    if (annotation) |wanted| value = try typer.coerce(value, wanted, view.init_expr);
 
     const met: Pool.Index = if (value == .constant) value.constant else .poison;
     comp.declPtr(decl_index).answer = .{ .constant = met };
@@ -250,12 +252,12 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
 
 /// The bounds of a generic declaration's own type parameters, resolved once.
 pub fn declBounds(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index);
+    var typer = context(comp, decl_index);
     const decl = comp.declAt(decl_index);
     const params = Resolve.typeParamNodes(comp, decl_index)[1];
     assert(params.len == decl.type_params);
     for (params, 0..) |param, at| {
-        const bound = try Resolve.boundOf(&check, decl_index, param);
+        const bound = try Resolve.boundOf(&typer, decl_index, param);
         comp.bounds.items[decl.bounds + at] = bound orelse .poison;
     }
     return true;
@@ -264,21 +266,21 @@ pub fn declBounds(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bo
 pub fn structRows(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     const decl_index = comp.instanceDecl(instance);
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index);
-    try Resolve.bindTypeParams(&check, instance, &buffer);
-    check.demand_embedding = false;
+    var typer = context(comp, decl_index);
+    try Resolve.bindTypeParams(&typer, instance, &buffer);
+    typer.demand_embedding = false;
 
     // staged, because resolving a field type can build other rows
     const mark = comp.scratch.rows.items.len;
     defer comp.scratch.rows.shrinkRetainingCapacity(mark);
 
     var clean = true;
-    for (check.tree.viewOf(check.declNode(decl_index)).struct_decl.members) |member| {
-        if (check.tree.nodeTag(member) != .field) continue;
-        const field = check.tree.viewOf(member).field;
-        const field_type = try Resolve.resolveType(&check, field.type_expr);
+    for (typer.tree.viewOf(typer.declNode(decl_index)).struct_decl.members) |member| {
+        if (typer.tree.nodeTag(member) != .field) continue;
+        const field = typer.tree.viewOf(member).field;
+        const field_type = try Resolve.resolveType(&typer, field.type_expr);
         if (field_type == .poison) clean = false;
-        try check.stageRow(field.name_token, field_type, member);
+        try typer.stageRow(field.name_token, field_type, member);
     }
     try commitRows(comp, instance, mark);
     return clean;
@@ -317,11 +319,11 @@ pub fn walkEmbedded(
 }
 
 pub fn externDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
-    var check = context(comp, decl_index);
-    const view = check.tree.viewOf(check.declNode(decl_index)).fn_decl;
+    var typer = context(comp, decl_index);
+    const view = typer.tree.viewOf(typer.declNode(decl_index)).fn_decl;
 
-    if (check.module.space != .std) {
-        try check.failToken(view.name_token, .{
+    if (typer.module.space != .std) {
+        try typer.failToken(view.name_token, .{
             .code = .builtin_outside_std,
             .message = "only the standard library declares an 'extern fn'",
             .label = "not available here",
@@ -330,7 +332,7 @@ pub fn externDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bo
         return false;
     }
     if (view.type_params.len > 0) {
-        try check.failToken(view.name_token, .{
+        try typer.failToken(view.name_token, .{
             .code = .extern_generic,
             .message = try comp.fmt("'{s}' is generic, and one symbol has one signature", .{
                 comp.pool.stringText(comp.declAt(decl_index).name),
@@ -346,10 +348,10 @@ pub fn externDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bo
 pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool {
     const decl_index = comp.instanceDecl(instance);
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index);
-    try Resolve.bindTypeParams(&check, instance, &buffer);
+    var typer = context(comp, decl_index);
+    try Resolve.bindTypeParams(&typer, instance, &buffer);
 
-    const view = check.tree.viewOf(check.declNode(decl_index)).fn_decl;
+    const view = typer.tree.viewOf(typer.declNode(decl_index)).fn_decl;
 
     // staged, because resolving a parameter type can build other rows
     const mark = comp.scratch.rows.items.len;
@@ -357,36 +359,36 @@ pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!
 
     var clean = true;
     for (view.params) |param_node| {
-        if (check.tree.nodeTag(param_node) != .param) continue;
-        const param = check.tree.viewOf(param_node).param;
-        const name_text = check.tree.tokenSlice(param.name_token);
+        if (typer.tree.nodeTag(param_node) != .param) continue;
+        const param = typer.tree.viewOf(param_node).param;
+        const name_text = typer.tree.tokenSlice(param.name_token);
 
-        const param_type = try Resolve.resolveWrittenType(&check, param.type_expr);
+        const param_type = try Resolve.resolveWrittenType(&typer, param.type_expr);
         if (param_type == .poison) clean = false;
 
         for (comp.scratch.rows.items[mark..]) |earlier| {
             if (comp.pool.sameText(earlier.name, name_text) == false) continue;
-            try check.fail(param_node, .{
+            try typer.fail(param_node, .{
                 .code = .redeclared,
                 .message = try comp.fmt("'{s}' is already a parameter", .{name_text}),
                 .label = "declared again here",
-                .notes = try check.noteHere(earlier.node, "first declared here"),
+                .notes = try typer.noteHere(earlier.node, "first declared here"),
             });
             clean = false;
             break;
         }
         if (view.is_extern) {
-            if (try check.externCrosses(param_node, param_type, "parameter") == false) clean = false;
+            if (try typer.externCrosses(param_node, param_type, "parameter") == false) clean = false;
         }
-        try check.stageRow(param.name_token, param_type, param_node);
+        try typer.stageRow(param.name_token, param_type, param_node);
     }
     try commitRows(comp, instance, mark);
 
     var return_type: Pool.Index = .void_type;
     if (view.return_type.unwrap()) |type_expr| {
-        return_type = try Resolve.resolveWrittenType(&check, type_expr);
+        return_type = try Resolve.resolveWrittenType(&typer, type_expr);
         if (view.is_extern) {
-            if (try check.externCrosses(type_expr, return_type, "return type") == false) clean = false;
+            if (try typer.externCrosses(type_expr, return_type, "return type") == false) clean = false;
         }
     }
     comp.instancePtr(instance).type = return_type;
@@ -394,14 +396,14 @@ pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!
 }
 
 fn stageRow(
-    check: *Check,
+    typer: *Typer,
     name_token: Token.Index,
     type_index: Pool.Index,
     node: Node.Index,
 ) Allocator.Error!void {
-    const comp = check.comp;
+    const comp = typer.comp;
     try comp.scratch.rows.append(comp.gpa, .{
-        .name = try comp.pool.string(comp.gpa, check.tree.tokenSlice(name_token)),
+        .name = try comp.pool.string(comp.gpa, typer.tree.tokenSlice(name_token)),
         .type = type_index,
         .node = node,
     });
@@ -417,12 +419,12 @@ fn commitRows(comp: *Compilation, instance: Pool.Instance, mark: usize) Allocato
 }
 
 fn externCrosses(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     found: Pool.Index,
     what: []const u8,
 ) Allocator.Error!bool {
-    const comp = check.comp;
+    const comp = typer.comp;
     if (found == .poison) return true;
 
     const help: []const u8 = switch (comp.pool.keyOf(found)) {
@@ -442,7 +444,7 @@ fn externCrosses(
         else => extern_help,
     };
 
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .extern_signature,
         .message = try comp.fmt("a {s} crosses as a number or an address, and this is {s}", .{
             what,
@@ -465,8 +467,8 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     if (comp.instanceAt(instance).head != .done) return false;
 
     var buffer: [bindings_max]Binding = undefined;
-    var check = context(comp, decl_index);
-    try Resolve.bindTypeParams(&check, instance, &buffer);
+    var typer = context(comp, decl_index);
+    try Resolve.bindTypeParams(&typer, instance, &buffer);
 
     const marks = comp.scratch.mark();
     const builder = try comp.scratch.takeBuilder(comp.gpa);
@@ -478,29 +480,29 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
     builder.defer_loops_floor = 0;
     builder.in_defer = false;
     builder.reachable = true;
-    check.builder = builder;
+    typer.builder = builder;
     try builder.insts.ensureTotalCapacity(comp.gpa, 64);
 
-    const view = check.tree.viewOf(check.declNode(decl_index)).fn_decl;
+    const view = typer.tree.viewOf(typer.declNode(decl_index)).fn_decl;
     assert(view.is_extern == false);
     const body_node = view.body.unwrap() orelse return false;
-    if (check.tree.nodeTag(body_node) != .block) return false;
+    if (typer.tree.nodeTag(body_node) != .block) return false;
 
-    const entry = try check.newBlock();
+    const entry = try typer.newBlock();
     assert(entry == .entry);
-    check.startBlock(entry);
+    typer.startBlock(entry);
 
     const rows = comp.instanceRows(instance);
     try builder.locals.ensureTotalCapacity(comp.gpa, rows.len + 8);
     for (rows) |row| {
-        const param_ref = try check.emit(row.node, .param, row.type, .{ .name = row.name });
-        try check.declareLocal(row.name, row.node, .param, param_ref, row.type);
+        const param_ref = try typer.emit(row.node, .param, row.type, .{ .name = row.name });
+        try typer.declareLocal(row.name, row.node, .param, param_ref, row.type);
     }
 
-    _ = try check.checkBlockValue(body_node, .void_type);
-    if (check.blockOpen()) {
+    _ = try typer.checkBlockValue(body_node, .void_type);
+    if (typer.blockOpen()) {
         if (builder.reachable and builder.return_type != .void_type) {
-            try check.failToken(view.name_token, .{
+            try typer.failToken(view.name_token, .{
                 .code = .missing_return,
                 .message = try comp.fmt("not every path through '{s}' returns its {s}", .{
                     comp.pool.stringText(comp.declAt(decl_index).name),
@@ -510,17 +512,17 @@ pub fn fnBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!bool 
                 .help = "every path must end in 'return', or loop forever",
             });
         }
-        check.endBlock(.{ .ret = .none });
+        typer.endBlock(.{ .ret = .none });
     }
     assert(builder.scopes.items.len == 0);
     // every gather site restores its mark, nothing outlives the body
     assert(std.meta.eql(comp.scratch.mark(), marks));
 
-    try check.finishFunc();
+    try typer.finishFunc();
     return true;
 }
 
-fn context(comp: *Compilation, decl_index: Decl.Index) Check {
+fn context(comp: *Compilation, decl_index: Decl.Index) Typer {
     const decl = comp.declAt(decl_index);
     const module = comp.moduleAt(decl.module);
     return .{
@@ -537,50 +539,50 @@ fn context(comp: *Compilation, decl_index: Decl.Index) Check {
     };
 }
 
-fn declNode(check: *const Check, decl_index: Decl.Index) Node.Index {
-    const decl = check.comp.declAt(decl_index);
-    assert(decl.module == check.module_index);
+fn declNode(typer: *const Typer, decl_index: Decl.Index) Node.Index {
+    const decl = typer.comp.declAt(decl_index);
+    assert(decl.module == typer.module_index);
     return decl.node;
 }
 
-pub fn mainTokenText(check: *const Check, node: Node.Index) []const u8 {
-    return check.tree.tokenSlice(check.tree.nodeMainToken(node));
+pub fn mainTokenText(typer: *const Typer, node: Node.Index) []const u8 {
+    return typer.tree.tokenSlice(typer.tree.nodeMainToken(node));
 }
 
-pub fn origin(check: *const Check, node: Node.Index) Compilation.Origin {
-    return .{ .module = check.module_index, .node = node };
+pub fn origin(typer: *const Typer, node: Node.Index) Compilation.Origin {
+    return .{ .module = typer.module_index, .node = node };
 }
 
-pub fn body(check: *const Check) *Builder {
-    return check.builder orelse unreachable;
+pub fn body(typer: *const Typer) *Builder {
+    return typer.builder orelse unreachable;
 }
 
-pub fn pointerTo(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
-    const comp = check.comp;
+pub fn pointerTo(typer: *Typer, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
+    const comp = typer.comp;
     return comp.pool.intern(comp.gpa, .{ .type_pointer = .{ .child = child, .mutable = mutable } });
 }
 
-pub fn sliceOf(check: *Check, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
-    const comp = check.comp;
+pub fn sliceOf(typer: *Typer, child: Pool.Index, mutable: bool) Allocator.Error!Pool.Index {
+    const comp = typer.comp;
     return comp.pool.intern(comp.gpa, .{ .type_slice = .{ .child = child, .mutable = mutable } });
 }
 
 // Lowering. Instructions, blocks, scopes, and locals of the body being built.
 
 pub fn emit(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     tag: IR.Inst.Tag,
     type_index: Pool.Index,
     data: IR.Inst.Data,
 ) Allocator.Error!Ref {
-    const builder = check.body();
-    assert(node.int() < check.tree.nodes.len);
-    try check.reopenDead();
+    const builder = typer.body();
+    assert(node.int() < typer.tree.nodes.len);
+    try typer.reopenDead();
 
     if (builder.insts.len >= IR.Ref.inst_count_max) return error.OutOfMemory;
     const index: IR.Inst.Index = .from(builder.insts.len);
-    try builder.insts.append(check.comp.gpa, .{
+    try builder.insts.append(typer.comp.gpa, .{
         .tag = tag,
         .type = type_index,
         .node = node,
@@ -590,64 +592,64 @@ pub fn emit(
 }
 
 pub fn emitOne(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     tag: IR.Inst.Tag,
     type_index: Pool.Index,
     operand: Ref,
 ) Allocator.Error!Ref {
     assert(operand != .none);
-    return check.emit(node, tag, type_index, .{ .un = operand });
+    return typer.emit(node, tag, type_index, .{ .un = operand });
 }
 
 pub fn emitValue(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     tag: IR.Inst.Tag,
     type_index: Pool.Index,
     data: IR.Inst.Data,
 ) Allocator.Error!Value {
-    return runtimeValue(try check.emit(node, tag, type_index, data), type_index);
+    return runtimeValue(try typer.emit(node, tag, type_index, data), type_index);
 }
 
 pub fn emitOneValue(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     tag: IR.Inst.Tag,
     type_index: Pool.Index,
     operand: Ref,
 ) Allocator.Error!Value {
-    return runtimeValue(try check.emitOne(node, tag, type_index, operand), type_index);
+    return runtimeValue(try typer.emitOne(node, tag, type_index, operand), type_index);
 }
 
 pub fn emitSlot(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     name: Pool.String,
     value_type: Pool.Index,
 ) Allocator.Error!Ref {
-    const slot_type = try check.pointerTo(value_type, true);
-    return check.emit(node, .local, slot_type, .{ .name = name });
+    const slot_type = try typer.pointerTo(value_type, true);
+    return typer.emit(node, .local, slot_type, .{ .name = name });
 }
 
-pub fn emitStore(check: *Check, node: Node.Index, place: Ref, value: Ref) Allocator.Error!void {
+pub fn emitStore(typer: *Typer, node: Node.Index, place: Ref, value: Ref) Allocator.Error!void {
     assert(place != .none);
     assert(value != .none);
-    _ = try check.emit(node, .store, .void_type, .{ .bin = .{ .lhs = place, .rhs = value } });
+    _ = try typer.emit(node, .store, .void_type, .{ .bin = .{ .lhs = place, .rhs = value } });
 }
 
 pub fn emitExtra(
-    check: *Check,
+    typer: *Typer,
     header: []const u32,
     operands: []const Operand,
 ) Allocator.Error!IR.ExtraIndex {
-    const builder = check.body();
+    const builder = typer.body();
     if (builder.extra.items.len + header.len + operands.len > std.math.maxInt(u32)) {
         return error.OutOfMemory;
     }
 
     const start: u32 = @intCast(builder.extra.items.len);
-    try builder.extra.ensureUnusedCapacity(check.comp.gpa, header.len + operands.len);
+    try builder.extra.ensureUnusedCapacity(typer.comp.gpa, header.len + operands.len);
     builder.extra.appendSliceAssumeCapacity(header);
     for (operands) |operand| {
         const ref = refOf(operand.value);
@@ -657,66 +659,66 @@ pub fn emitExtra(
     return @enumFromInt(start);
 }
 
-pub fn newBlock(check: *Check) Allocator.Error!IR.Block.Index {
-    const builder = check.body();
+pub fn newBlock(typer: *Typer) Allocator.Error!IR.Block.Index {
+    const builder = typer.body();
     if (builder.blocks.items.len >= std.math.maxInt(u32)) return error.OutOfMemory;
     const index: IR.Block.Index = .from(builder.blocks.items.len);
-    try builder.blocks.append(check.comp.gpa, .{ .first = 0, .count = 0, .terminator = null });
+    try builder.blocks.append(typer.comp.gpa, .{ .first = 0, .count = 0, .terminator = null });
     return index;
 }
 
-pub fn startBlock(check: *Check, block: IR.Block.Index) void {
-    const builder = check.body();
+pub fn startBlock(typer: *Typer, block: IR.Block.Index) void {
+    const builder = typer.body();
     const opened = builder.blockAt(block);
     assert(opened.terminator == null);
     opened.first = @intCast(builder.insts.len);
     builder.current = block;
 }
 
-pub fn endBlock(check: *Check, terminator: IR.Terminator) void {
-    const builder = check.body();
+pub fn endBlock(typer: *Typer, terminator: IR.Terminator) void {
+    const builder = typer.body();
     const block = builder.currentBlock();
     assert(block.terminator == null);
     block.count = @as(u32, @intCast(builder.insts.len)) - block.first;
     block.terminator = terminator;
 }
 
-pub fn blockOpen(check: *const Check) bool {
-    return check.body().currentBlock().terminator == null;
+pub fn blockOpen(typer: *const Typer) bool {
+    return typer.body().currentBlock().terminator == null;
 }
 
 /// Closes the block with a jump, and says whether anything reachable flowed out.
-pub fn jumpTo(check: *Check, target: IR.Block.Index) bool {
-    if (check.blockOpen() == false) return false;
-    const flowed = check.body().reachable;
-    check.endBlock(.{ .jump = target });
+pub fn jumpTo(typer: *Typer, target: IR.Block.Index) bool {
+    if (typer.blockOpen() == false) return false;
+    const flowed = typer.body().reachable;
+    typer.endBlock(.{ .jump = target });
     return flowed;
 }
 
-pub fn trap(check: *Check) Allocator.Error!void {
-    try check.reopenDead();
-    check.endBlock(.trap);
+pub fn trap(typer: *Typer) Allocator.Error!void {
+    try typer.reopenDead();
+    typer.endBlock(.trap);
 }
 
 /// A closed block gets an unreachable successor, so what follows still checks.
-pub fn reopenDead(check: *Check) Allocator.Error!void {
-    const builder = check.body();
+pub fn reopenDead(typer: *Typer) Allocator.Error!void {
+    const builder = typer.body();
     if (builder.currentBlock().terminator == null) return;
-    check.startBlock(try check.newBlock());
+    typer.startBlock(try typer.newBlock());
     builder.reachable = false;
-    assert(check.blockOpen());
+    assert(typer.blockOpen());
 }
 
-pub fn pushScope(check: *Check) Allocator.Error!void {
-    const builder = check.body();
-    try builder.scopes.append(check.comp.gpa, .{
+pub fn pushScope(typer: *Typer) Allocator.Error!void {
+    const builder = typer.body();
+    try builder.scopes.append(typer.comp.gpa, .{
         .locals_start = @intCast(builder.locals.items.len),
         .defers_start = @intCast(builder.defer_nodes.items.len),
     });
 }
 
-pub fn popScope(check: *Check) void {
-    const builder = check.body();
+pub fn popScope(typer: *Typer) void {
+    const builder = typer.body();
     const scope = builder.scopes.pop() orelse unreachable;
     // innermost first, so a name bound twice inside the scope ends as it was outside it
     var index = builder.locals.items.len;
@@ -734,8 +736,8 @@ pub fn popScope(check: *Check) void {
 }
 
 /// Emits the deferred statements of every scope above `target`, innermost first.
-pub fn unwindScopesTo(check: *Check, target: u32) Allocator.Error!void {
-    const builder = check.body();
+pub fn unwindScopesTo(typer: *Typer, target: u32) Allocator.Error!void {
+    const builder = typer.body();
     assert(target <= builder.scopes.items.len);
 
     var index = builder.scopes.items.len;
@@ -746,14 +748,14 @@ pub fn unwindScopesTo(check: *Check, target: u32) Allocator.Error!void {
         var defer_index = defers_end;
         while (defer_index > scope.defers_start) {
             defer_index -= 1;
-            try check.emitDefer(builder.defer_nodes.items[defer_index]);
+            try typer.emitDefer(builder.defer_nodes.items[defer_index]);
         }
         defers_end = scope.defers_start;
     }
 }
 
-fn emitDefer(check: *Check, node: Node.Index) Allocator.Error!void {
-    const builder = check.body();
+fn emitDefer(typer: *Typer, node: Node.Index) Allocator.Error!void {
+    const builder = typer.body();
     const outer = builder.in_defer;
     const floor = builder.defer_loops_floor;
 
@@ -763,19 +765,19 @@ fn emitDefer(check: *Check, node: Node.Index) Allocator.Error!void {
         builder.in_defer = outer;
         builder.defer_loops_floor = floor;
     }
-    try check.checkStatement(node);
+    try typer.checkStatement(node);
 }
 
 pub fn declareLocal(
-    check: *Check,
+    typer: *Typer,
     name: Pool.String,
     node: Node.Index,
     kind: Builder.Local.Kind,
     ref: Ref,
     type_index: Pool.Index,
 ) Allocator.Error!void {
-    const builder = check.body();
-    const comp = check.comp;
+    const builder = typer.body();
+    const comp = typer.comp;
     const text = comp.pool.stringText(name);
 
     const clash: ?Diagnostic.Report = clash: {
@@ -783,9 +785,9 @@ pub fn declareLocal(
             .code = .shadows,
             .message = try comp.fmt("'{s}' is already in scope", .{text}),
             .label = "shadows the outer one",
-            .notes = try check.noteHere(check.localAt(other).node, "first bound here"),
+            .notes = try typer.noteHere(typer.localAt(other).node, "first bound here"),
         };
-        for (check.bindings) |binding| {
+        for (typer.bindings) |binding| {
             if (binding.name != name) continue;
             break :clash .{
                 .code = .shadows,
@@ -798,15 +800,15 @@ pub fn declareLocal(
             .message = try comp.fmt("'{s}' is the name of a type every file can see", .{text}),
             .label = "shadows it",
         };
-        if (check.module.findDecl(text)) |decl_index| break :clash .{
+        if (typer.module.findDecl(text)) |decl_index| break :clash .{
             .code = .shadows,
             .message = try comp.fmt("'{s}' is already declared in this file", .{text}),
             .label = "shadows it",
-            .notes = try check.noteHere(comp.declAt(decl_index).node, "declared here"),
+            .notes = try typer.noteHere(comp.declAt(decl_index).node, "declared here"),
         };
         break :clash null;
     };
-    if (clash) |report| try check.fail(node, report);
+    if (clash) |report| try typer.fail(node, report);
 
     // room first, so a name never points at a local that failed to land
     try builder.locals.ensureUnusedCapacity(comp.gpa, 1);
@@ -823,85 +825,85 @@ pub fn declareLocal(
     gop.value_ptr.* = index;
 }
 
-pub fn declarePoisoned(check: *Check, name: Pool.String, node: Node.Index) Allocator.Error!void {
-    try check.declareLocal(name, node, .let, broken_ref, .poison);
+pub fn declarePoisoned(typer: *Typer, name: Pool.String, node: Node.Index) Allocator.Error!void {
+    try typer.declareLocal(name, node, .let, broken_ref, .poison);
 }
 
 /// Past a handful the table wins, which keeps a body of thousands linear.
 const scan_max = 32;
 
-pub fn findLocalIndex(check: *const Check, text: []const u8) ?Builder.Local.Index {
-    const builder = check.builder orelse return null;
+pub fn findLocalIndex(typer: *const Typer, text: []const u8) ?Builder.Local.Index {
+    const builder = typer.builder orelse return null;
     const locals = builder.locals.items;
 
     if (locals.len > scan_max) {
         // declaring a local interns its name, so one nothing interned is no local
-        const name = check.comp.pool.lookupString(text) orelse return null;
+        const name = typer.comp.pool.lookupString(text) orelse return null;
         return builder.names.get(name);
     }
     var index = locals.len;
     while (index > 0) {
         index -= 1;
-        if (check.comp.pool.sameText(locals[index].name, text)) return .from(index);
+        if (typer.comp.pool.sameText(locals[index].name, text)) return .from(index);
     }
     return null;
 }
 
-pub fn localAt(check: *const Check, index: Builder.Local.Index) Builder.Local {
-    const builder = check.body();
+pub fn localAt(typer: *const Typer, index: Builder.Local.Index) Builder.Local {
+    const builder = typer.body();
     assert(index.int() < builder.locals.items.len);
     return builder.locals.items[index.int()];
 }
 
 // Statements and blocks.
 
-pub fn checkBlockValue(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
-    assert(check.tree.nodeTag(node) == .block);
-    const comp = check.comp;
-    const statements = check.tree.viewOf(node).block;
+pub fn checkBlockValue(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    assert(typer.tree.nodeTag(node) == .block);
+    const comp = typer.comp;
+    const statements = typer.tree.viewOf(node).block;
 
-    const builder = check.builder orelse return check.constantBlock(node, hint);
+    const builder = typer.builder orelse return typer.constantBlock(node, hint);
 
-    try check.pushScope();
+    try typer.pushScope();
     const depth: u32 = @intCast(builder.scopes.items.len - 1);
-    defer check.popScope();
+    defer typer.popScope();
 
     const narrows_mark = comp.scratch.narrows.items.len;
     defer comp.scratch.narrows.shrinkRetainingCapacity(narrows_mark);
 
     var value: Value = .void_value;
     for (statements, 0..) |statement, position| {
-        if (check.blockOpen() == false or builder.reachable == false) {
-            if (position > 0) try check.fail(statement, .{
+        if (typer.blockOpen() == false or builder.reachable == false) {
+            if (position > 0) try typer.fail(statement, .{
                 .code = .unreachable_code,
                 .message = "this cannot be reached",
                 .label = "never runs",
-                .notes = try check.noteHere(statements[position - 1], "the block already left here"),
+                .notes = try typer.noteHere(statements[position - 1], "the block already left here"),
             });
             break;
         }
         const tail = position + 1 == statements.len;
-        if (tail and wantsValue(hint) and tagIsStatement(check.tree.nodeTag(statement)) == false) {
-            value = try check.checkExpr(statement, hint);
+        if (tail and wantsValue(hint) and tagIsStatement(typer.tree.nodeTag(statement)) == false) {
+            value = try typer.checkExpr(statement, hint);
         } else {
-            try check.checkStatement(statement);
+            try typer.checkStatement(statement);
         }
     }
 
-    if (check.blockOpen() == false or builder.reachable == false) return .diverged;
-    try check.unwindScopesTo(depth);
+    if (typer.blockOpen() == false or builder.reachable == false) return .diverged;
+    try typer.unwindScopesTo(depth);
     return value;
 }
 
-fn constantBlock(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
-    assert(check.builder == null);
-    const statements = check.tree.viewOf(node).block;
+fn constantBlock(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    assert(typer.builder == null);
+    const statements = typer.tree.viewOf(node).block;
 
     if (statements.len == 0) return .void_value;
-    if (statements.len == 1 and tagIsStatement(check.tree.nodeTag(statements[0])) == false) {
-        return check.checkExpr(statements[0], hint);
+    if (statements.len == 1 and tagIsStatement(typer.tree.nodeTag(statements[0])) == false) {
+        return typer.checkExpr(statements[0], hint);
     }
-    return check.needRuntime(node, "a block that holds statements");
+    return typer.needRuntime(node, "a block that holds statements");
 }
 
 fn tagIsStatement(tag: Node.Tag) bool {
@@ -911,63 +913,63 @@ fn tagIsStatement(tag: Node.Tag) bool {
     };
 }
 
-fn checkStatement(check: *Check, node: Node.Index) Allocator.Error!void {
-    assert(check.builder != null);
-    switch (check.tree.viewOf(node)) {
-        .var_decl => try check.checkVarDecl(node),
-        .assign => |assign| try check.checkAssign(node, assign),
-        .defer_stmt => |deferred| try check.body().defer_nodes.append(check.comp.gpa, deferred),
+fn checkStatement(typer: *Typer, node: Node.Index) Allocator.Error!void {
+    assert(typer.builder != null);
+    switch (typer.tree.viewOf(node)) {
+        .var_decl => try typer.checkVarDecl(node),
+        .assign => |assign| try typer.checkAssign(node, assign),
+        .defer_stmt => |deferred| try typer.body().defer_nodes.append(typer.comp.gpa, deferred),
         .err => {},
         else => {
-            const value = try check.checkExpr(node, .void_type);
-            if (check.guardStatement(node)) |lhs| {
-                const mark: u32 = @intCast(check.comp.scratch.facts.items.len);
-                defer check.comp.scratch.facts.shrinkRetainingCapacity(mark);
-                try Narrowing.applyFacts(check, (try Narrowing.gatherFacts(check, lhs)).when_true);
+            const value = try typer.checkExpr(node, .void_type);
+            if (typer.guardStatement(node)) |lhs| {
+                const mark: u32 = @intCast(typer.comp.scratch.facts.items.len);
+                defer typer.comp.scratch.facts.shrinkRetainingCapacity(mark);
+                try Narrow.applyFacts(typer, (try Narrow.gatherFacts(typer, lhs)).when_true);
                 return;
             }
-            try check.expectNothing(node, value);
+            try typer.expectNothing(node, value);
         },
     }
 }
 
 /// `x is T or return`, whose left side holds for the rest of the block.
-fn guardStatement(check: *const Check, node: Node.Index) ?Node.Index {
-    if (check.tree.nodeTag(node) != .binary) return null;
-    const view = check.tree.viewOf(node).binary;
+fn guardStatement(typer: *const Typer, node: Node.Index) ?Node.Index {
+    if (typer.tree.nodeTag(node) != .binary) return null;
+    const view = typer.tree.viewOf(node).binary;
     if (view.op != .bool_or) return null;
-    return switch (check.tree.nodeTag(view.rhs)) {
+    return switch (typer.tree.nodeTag(view.rhs)) {
         .return_expr, .break_expr, .continue_expr => view.lhs,
         else => null,
     };
 }
 
-fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
-    const comp = check.comp;
-    const view = check.tree.viewOf(node).var_decl;
-    const name_text = check.tree.tokenSlice(view.name_token);
+fn checkVarDecl(typer: *Typer, node: Node.Index) Allocator.Error!void {
+    const comp = typer.comp;
+    const view = typer.tree.viewOf(node).var_decl;
+    const name_text = typer.tree.tokenSlice(view.name_token);
 
-    if (Module.isDiscard(name_text)) return check.failDiscard(node);
+    if (Module.isDiscard(name_text)) return typer.failDiscard(node);
     const name = try comp.pool.string(comp.gpa, name_text);
 
     const annotation: ?Pool.Index = if (view.type_expr.unwrap()) |type_expr|
-        try Resolve.resolveWrittenType(check, type_expr)
+        try Resolve.resolveWrittenType(typer, type_expr)
     else
         null;
 
-    var value = try check.checkValue(view.init_expr, annotation);
-    if (annotation) |wanted| value = try check.coerce(value, wanted, view.init_expr);
+    var value = try typer.checkValue(view.init_expr, annotation);
+    if (annotation) |wanted| value = try typer.coerce(value, wanted, view.init_expr);
 
-    const value_type = check.typeOf(value);
+    const value_type = typer.typeOf(value);
     if (value_type == .void_type) {
-        try check.fail(view.init_expr, .{
+        try typer.fail(view.init_expr, .{
             .code = .type_mismatch,
             .message = "this produces nothing, so there is nothing to bind",
             .label = "no value here",
         });
-        return check.declarePoisoned(name, node);
+        return typer.declarePoisoned(name, node);
     }
-    if (value_type == .poison) return check.declarePoisoned(name, node);
+    if (value_type == .poison) return typer.declarePoisoned(name, node);
 
     if (view.is_mutable and value == .constant and Pool.isUntyped(value_type)) {
         assert(annotation == null);
@@ -976,12 +978,12 @@ fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
             .value_float => "f64",
             .value_aggregate => |it| try comp.fmt("[{d}]{s}", .{
                 it.elems.len,
-                try Aggregate.elementExample(check, it),
+                try Aggregate.elementExample(typer, it),
             }),
             else => null,
         };
         if (example) |shape| {
-            try check.fail(node, .{
+            try typer.fail(node, .{
                 .code = .var_needs_type,
                 .message = try comp.fmt("'{s}' needs a type before it can vary", .{name_text}),
                 .label = "no type to hold it",
@@ -989,43 +991,43 @@ fn checkVarDecl(check: *Check, node: Node.Index) Allocator.Error!void {
                     name_text, shape,
                 }),
             });
-            return check.declarePoisoned(name, node);
+            return typer.declarePoisoned(name, node);
         }
     }
 
     if (view.is_mutable) {
-        const slot = try check.emitSlot(node, name, value_type);
-        try check.emitStore(node, slot, refOf(value));
-        return check.declareLocal(name, node, .var_slot, slot, value_type);
+        const slot = try typer.emitSlot(node, name, value_type);
+        try typer.emitStore(node, slot, refOf(value));
+        return typer.declareLocal(name, node, .var_slot, slot, value_type);
     }
-    try check.declareLocal(name, node, .let, refOf(value), value_type);
+    try typer.declareLocal(name, node, .let, refOf(value), value_type);
 }
 
-fn checkAssign(check: *Check, node: Node.Index, assign: AST.View.Assign) Allocator.Error!void {
-    if (assign.op == null and check.tree.nodeTag(assign.lhs) == .ident) {
-        if (Module.isDiscard(check.mainTokenText(assign.lhs))) {
-            _ = try check.checkValue(assign.rhs, null);
+fn checkAssign(typer: *Typer, node: Node.Index, assign: AST.View.Assign) Allocator.Error!void {
+    if (assign.op == null and typer.tree.nodeTag(assign.lhs) == .ident) {
+        if (Module.isDiscard(typer.mainTokenText(assign.lhs))) {
+            _ = try typer.checkValue(assign.rhs, null);
             return;
         }
     }
 
-    const place = try Place.checkPlace(check, assign.lhs) orelse {
-        _ = try check.checkExpr(assign.rhs, null);
+    const place = try Place.checkPlace(typer, assign.lhs) orelse {
+        _ = try typer.checkExpr(assign.rhs, null);
         return;
     };
     if (place.immutable) |why| {
-        try Place.reportImmutable(check, assign.lhs, place, why);
-        _ = try check.checkExpr(assign.rhs, place.type);
+        try Place.reportImmutable(typer, assign.lhs, place, why);
+        _ = try typer.checkExpr(assign.rhs, place.type);
         return;
     }
     assert(place.kind == .address);
     if (place.type == .poison) return;
 
     const value: Value = if (assign.op) |op| folded: {
-        const held = try Place.placeValue(check, place);
-        const rhs = try check.checkValue(assign.rhs, place.type);
+        const held = try Place.placeValue(typer, place);
+        const rhs = try typer.checkValue(assign.rhs, place.type);
         if (rhs.stops()) return;
-        break :folded try Expr.combine(check, .{
+        break :folded try Expr.combine(typer, .{
             .node = node,
             .op = op,
             .op_token = assign.op_token,
@@ -1034,46 +1036,46 @@ fn checkAssign(check: *Check, node: Node.Index, assign: AST.View.Assign) Allocat
             .rhs = rhs,
             .rhs_node = assign.rhs,
         });
-    } else try check.checkExpr(assign.rhs, place.type);
+    } else try typer.checkExpr(assign.rhs, place.type);
 
-    const met = try check.coerce(value, place.type, assign.rhs);
+    const met = try typer.coerce(value, place.type, assign.rhs);
     if (met == .poison) return;
-    try check.emitStore(node, place.ref, refOf(met));
+    try typer.emitStore(node, place.ref, refOf(met));
 }
 
 // Expressions. The dispatcher, and what every kind of value answers.
 
-pub fn checkExpr(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
-    if (check.builder == null) {
-        if (runtimeOnly(check.tree.nodeTag(node))) |what| return check.needRuntime(node, what);
+pub fn checkExpr(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    if (typer.builder == null) {
+        if (runtimeOnly(typer.tree.nodeTag(node))) |what| return typer.needRuntime(node, what);
     }
 
-    switch (check.tree.viewOf(node)) {
-        .builtin => return Builtin.notAValue(check, node),
-        .ident => return Expr.checkIdent(check, node),
-        .number_literal => return Expr.checkNumber(check, node),
-        .string_literal => return Expr.checkString(check, node),
-        .multiline_string => |view| return Expr.checkMultilineString(check, view),
-        .char_literal => return Expr.checkChar(check, node),
-        .block => return check.checkBlockValue(node, hint),
-        .if_expr => |view| return Flow.checkIf(check, node, view, hint),
-        .loop_expr => |view| return Flow.checkLoop(check, node, view, hint),
-        .match_expr => |view| return Flow.checkMatch(check, node, view, hint),
-        .return_expr => |operand| return Flow.checkReturn(check, node, operand),
-        .break_expr => |view| return Flow.checkBreak(check, node, view),
-        .continue_expr => |label| return Flow.checkContinue(check, node, label),
-        .binary => |view| return Expr.checkBinary(check, node, view, hint),
-        .unary => |view| return Expr.checkUnary(check, node, view),
-        .is_expr => |view| return Narrowing.checkIs(check, node, view),
-        .or_bind => |view| return Flow.checkOrBind(check, node, view, hint),
-        .field_access => |view| return Expr.checkFieldAccess(check, node, view),
-        .deref => return Place.checkDeref(check, node),
-        .call => return Call.checkCall(check, node, hint),
-        .bracket => |view| return Aggregate.checkBracketExpr(check, node, view),
-        .struct_literal => return Aggregate.checkStructLiteral(check, node, hint),
-        .array_literal => return Aggregate.checkArrayLiteral(check, node, hint),
+    switch (typer.tree.viewOf(node)) {
+        .builtin => return Builtin.notAValue(typer, node),
+        .ident => return Expr.checkIdent(typer, node),
+        .number_literal => return Expr.checkNumber(typer, node),
+        .string_literal => return Expr.checkString(typer, node),
+        .multiline_string => |view| return Expr.checkMultilineString(typer, view),
+        .char_literal => return Expr.checkChar(typer, node),
+        .block => return typer.checkBlockValue(node, hint),
+        .if_expr => |view| return Flow.checkIf(typer, node, view, hint),
+        .loop_expr => |view| return Flow.checkLoop(typer, node, view, hint),
+        .match_expr => |view| return Flow.checkMatch(typer, node, view, hint),
+        .return_expr => |operand| return Flow.checkReturn(typer, node, operand),
+        .break_expr => |view| return Flow.checkBreak(typer, node, view),
+        .continue_expr => |label| return Flow.checkContinue(typer, node, label),
+        .binary => |view| return Expr.checkBinary(typer, node, view, hint),
+        .unary => |view| return Expr.checkUnary(typer, node, view),
+        .is_expr => |view| return Narrow.checkIs(typer, node, view),
+        .or_bind => |view| return Flow.checkOrBind(typer, node, view, hint),
+        .field_access => |view| return Expr.checkFieldAccess(typer, node, view),
+        .deref => return Place.checkDeref(typer, node),
+        .call => return Call.checkCall(typer, node, hint),
+        .bracket => |view| return Aggregate.checkBracketExpr(typer, node, view),
+        .struct_literal => return Aggregate.checkStructLiteral(typer, node, hint),
+        .array_literal => return Aggregate.checkArrayLiteral(typer, node, hint),
         .array_type, .slice_type, .pointer_type, .union_type => {
-            const resolved = try Resolve.resolveType(check, node);
+            const resolved = try Resolve.resolveType(typer, node);
             return if (resolved == .poison) .poison else .{ .named_type = resolved };
         },
         .err => return .poison,
@@ -1096,12 +1098,12 @@ fn runtimeOnly(tag: Node.Tag) ?[]const u8 {
     };
 }
 
-pub fn checkValue(check: *Check, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
-    const value = try check.checkExpr(node, hint);
-    return if (try check.valueOnly(node, value)) value else .poison;
+pub fn checkValue(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    const value = try typer.checkExpr(node, hint);
+    return if (try typer.valueOnly(node, value)) value else .poison;
 }
 
-pub fn valueOnly(check: *Check, node: Node.Index, value: Value) Allocator.Error!bool {
+pub fn valueOnly(typer: *Typer, node: Node.Index, value: Value) Allocator.Error!bool {
     const report: Diagnostic.Report = switch (value) {
         .constant, .runtime, .poison, .diverged => return true,
         .named_type, .named_generic => .{
@@ -1122,19 +1124,19 @@ pub fn valueOnly(check: *Check, node: Node.Index, value: Value) Allocator.Error!
             .label = "a module, where a value belongs",
         },
     };
-    try check.fail(node, report);
+    try typer.fail(node, report);
     return false;
 }
 
-pub fn expectNothing(check: *Check, node: Node.Index, value: Value) Allocator.Error!void {
-    if (try check.valueOnly(node, value) == false) return;
-    const found = check.typeOf(value);
+pub fn expectNothing(typer: *Typer, node: Node.Index, value: Value) Allocator.Error!void {
+    if (try typer.valueOnly(node, value) == false) return;
+    const found = typer.typeOf(value);
     if (found == .void_type or found == .poison) return;
 
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = .value_unused,
-        .message = if (check.typeCanHold(found))
-            try check.comp.fmt("this {s} goes nowhere", .{try check.comp.typeName(found)})
+        .message = if (typer.typeCanHold(found))
+            try typer.comp.fmt("this {s} goes nowhere", .{try typer.comp.typeName(found)})
         else
             "this value goes nowhere",
         .label = "unused value",
@@ -1142,11 +1144,11 @@ pub fn expectNothing(check: *Check, node: Node.Index, value: Value) Allocator.Er
     });
 }
 
-pub fn needRuntime(check: *Check, node: Node.Index, what: []const u8) Allocator.Error!Value {
-    assert(check.builder == null);
-    return check.refuse(node, .{
+pub fn needRuntime(typer: *Typer, node: Node.Index, what: []const u8) Allocator.Error!Value {
+    assert(typer.builder == null);
+    return typer.refuse(node, .{
         .code = .not_constant,
-        .message = try check.comp.fmt(
+        .message = try typer.comp.fmt(
             "this must settle before anything runs, and {s} happens at run time",
             .{what},
         ),
@@ -1155,9 +1157,9 @@ pub fn needRuntime(check: *Check, node: Node.Index, what: []const u8) Allocator.
     });
 }
 
-pub fn typeOf(check: *const Check, value: Value) Pool.Index {
+pub fn typeOf(typer: *const Typer, value: Value) Pool.Index {
     return switch (value) {
-        .constant => |constant| check.comp.pool.typeOfValue(constant),
+        .constant => |constant| typer.comp.pool.typeOfValue(constant),
         .runtime => |runtime| runtime.type,
         .poison, .diverged => .poison,
         .named_type, .named_generic, .named_fn, .named_module => .poison,
@@ -1177,14 +1179,14 @@ pub fn runtimeValue(ref: Ref, type_index: Pool.Index) Value {
     return .{ .runtime = .{ .ref = ref, .type = type_index } };
 }
 
-pub fn untypedInt(check: *Check, value: i128) Allocator.Error!Value {
-    return .{ .constant = try check.comp.pool.int(check.comp.gpa, .untyped_int_type, value) };
+pub fn untypedInt(typer: *Typer, value: i128) Allocator.Error!Value {
+    return .{ .constant = try typer.comp.pool.int(typer.comp.gpa, .untyped_int_type, value) };
 }
 
-pub fn typeCanHold(check: *const Check, type_index: Pool.Index) bool {
+pub fn typeCanHold(typer: *const Typer, type_index: Pool.Index) bool {
     if (type_index == .void_type) return false;
     if (Pool.isUntyped(type_index)) return false;
-    return check.comp.pool.isType(type_index);
+    return typer.comp.pool.isType(type_index);
 }
 
 pub fn wantsValue(hint: ?Pool.Index) bool {
@@ -1193,28 +1195,28 @@ pub fn wantsValue(hint: ?Pool.Index) bool {
 }
 
 /// Two unit members, the first meaning yes. `bool` is declared, never built in.
-pub fn boolType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    if (check.bool_type == .poison) check.bool_type = try check.preludeType(node, .bool);
-    return check.bool_type;
+pub fn boolType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    if (typer.bool_type == .poison) typer.bool_type = try typer.preludeType(node, .bool);
+    return typer.bool_type;
 }
 
-pub fn noneType(check: *Check, node: Node.Index) Allocator.Error!Pool.Index {
-    if (check.none_type == .poison) check.none_type = try check.preludeType(node, .none);
-    return check.none_type;
+pub fn noneType(typer: *Typer, node: Node.Index) Allocator.Error!Pool.Index {
+    if (typer.none_type == .poison) typer.none_type = try typer.preludeType(node, .none);
+    return typer.none_type;
 }
 
 fn preludeType(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     which: enum { bool, none },
 ) Allocator.Error!Pool.Index {
-    const pool = &check.comp.pool;
+    const pool = &typer.comp.pool;
     const name = switch (which) {
         .bool => Module.bool_name,
         .none => Module.none_name,
     };
-    if (Resolve.visibleDecl(check, name)) |decl_index| {
-        const found = try Resolve.declAsType(check, decl_index, node);
+    if (Resolve.visibleDecl(typer, name)) |decl_index| {
+        const found = try Resolve.declAsType(typer, decl_index, node);
         const shaped = switch (which) {
             .bool => pool.isUnion(found) and pool.unionMemberCount(found) == 2 and
                 pool.keyOf(pool.unionMemberAt(found, 0)) == .type_unit and
@@ -1223,7 +1225,7 @@ fn preludeType(
         };
         if (shaped) return found;
     }
-    try check.fail(node, switch (which) {
+    try typer.fail(node, switch (which) {
         .bool => .{
             .code = .no_prelude_type,
             .message = "this needs 'bool', a union of two unit types",
@@ -1240,14 +1242,14 @@ fn preludeType(
     return .poison;
 }
 
-pub fn settledTruth(check: *Check, node: Node.Index, holds: bool) Allocator.Error!Value {
-    const bools = try check.boolType(node);
-    return .{ .constant = try check.comp.pool.truth(check.comp.gpa, bools, holds) };
+pub fn settledTruth(typer: *Typer, node: Node.Index, holds: bool) Allocator.Error!Value {
+    const bools = try typer.boolType(node);
+    return .{ .constant = try typer.comp.pool.truth(typer.comp.gpa, bools, holds) };
 }
 
-pub fn truthOf(check: *const Check, bools: Pool.Index, constant: Pool.Index) ?bool {
+pub fn truthOf(typer: *const Typer, bools: Pool.Index, constant: Pool.Index) ?bool {
     if (bools == .poison) return null;
-    const pool = &check.comp.pool;
+    const pool = &typer.comp.pool;
     const found = pool.memberOfValue(constant);
     if (found == pool.unionMemberAt(bools, 0)) return true;
     if (found == pool.unionMemberAt(bools, 1)) return false;
@@ -1257,47 +1259,47 @@ pub fn truthOf(check: *const Check, bools: Pool.Index, constant: Pool.Index) ?bo
 // Coercion, the one place a value meets the type it lands on.
 
 pub fn coerce(
-    check: *Check,
+    typer: *Typer,
     value: Value,
     wanted: Pool.Index,
     node: Node.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     if (wanted == .poison) return .poison;
 
     switch (value) {
         .poison => return .poison,
         .diverged => return .diverged,
-        .constant => |constant| return check.fitValue(constant, wanted, node),
+        .constant => |constant| return typer.fitValue(constant, wanted, node),
         .runtime => |runtime| {
             if (runtime.type == wanted) return value;
             if (runtime.type == .poison) return .poison;
 
             if (Pool.widens(runtime.type, wanted)) {
-                return check.emitOneValue(node, .widen, wanted, runtime.ref);
+                return typer.emitOneValue(node, .widen, wanted, runtime.ref);
             }
             if (writesThrough(&comp.pool, runtime.type, wanted)) |writable| {
                 if (writable) return runtimeValue(runtime.ref, wanted);
-                try check.failNeedsWritable(node, runtime.type, wanted);
+                try typer.failNeedsWritable(node, runtime.type, wanted);
                 return .poison;
             }
             if (comp.pool.isUnion(wanted)) {
                 if (comp.pool.subsumes(wanted, runtime.type)) {
-                    return check.emitValue(node, .union_init, wanted, .{
+                    return typer.emitValue(node, .union_init, wanted, .{
                         .probe = .{ .operand = runtime.ref, .member = runtime.type },
                     });
                 }
                 if (unionMemberFor(&comp.pool, wanted, runtime.type)) |member| {
                     // membership settles the second step, so it cannot come back here
-                    const met = try check.coerce(value, member, node);
+                    const met = try typer.coerce(value, member, node);
                     if (met == .poison) return .poison;
-                    return check.coerce(met, wanted, node);
+                    return typer.coerce(met, wanted, node);
                 }
             }
-            return check.reportMismatch(node, value, wanted);
+            return typer.reportMismatch(node, value, wanted);
         },
         else => {
-            _ = try check.valueOnly(node, value);
+            _ = try typer.valueOnly(node, value);
             return .poison;
         },
     }
@@ -1327,14 +1329,14 @@ fn unionMemberFor(pool: *const Pool, wanted: Pool.Index, found: Pool.Index) ?Poo
 }
 
 fn failNeedsWritable(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     found: Pool.Index,
     wanted: Pool.Index,
 ) Allocator.Error!void {
     @branchHint(.cold);
-    const comp = check.comp;
-    try check.fail(node, .{
+    const comp = typer.comp;
+    try typer.fail(node, .{
         .code = .write_through_pointer,
         .message = try comp.fmt("this is {s}, and {s} is needed to write", .{
             try comp.typeName(found),
@@ -1349,35 +1351,35 @@ fn failNeedsWritable(
 }
 
 pub fn fitValue(
-    check: *Check,
+    typer: *Typer,
     constant: Pool.Index,
     wanted: Pool.Index,
     node: Node.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
+    const comp = typer.comp;
     if (constant == .poison or wanted == .poison) return .poison;
     return switch (try comp.pool.fit(comp.gpa, constant, wanted, .allowed)) {
         .value => |final| .{ .constant = final },
         .does_not_fit => fitted: {
-            try check.fail(node, try check.doesNotFit(constant, wanted, "an untyped constant " ++
+            try typer.fail(node, try typer.doesNotFit(constant, wanted, "an untyped constant " ++
                 "takes any type its value fits, and this value does not fit this one"));
             break :fitted .poison;
         },
-        .wrong_kind => try check.reportMismatch(node, .{ .constant = constant }, wanted),
+        .wrong_kind => try typer.reportMismatch(node, .{ .constant = constant }, wanted),
     };
 }
 
 pub fn doesNotFit(
-    check: *Check,
+    typer: *Typer,
     constant: Pool.Index,
     wanted: Pool.Index,
     help: ?[]const u8,
 ) Allocator.Error!Diagnostic.Report {
     return .{
         .code = .does_not_fit,
-        .message = try check.comp.fmt("{s} does not fit in {s}", .{
-            try check.comp.spellValue(constant),
-            try check.comp.typeName(wanted),
+        .message = try typer.comp.fmt("{s} does not fit in {s}", .{
+            try typer.comp.spellValue(constant),
+            try typer.comp.typeName(wanted),
         }),
         .label = "past the type's edge",
         .help = help,
@@ -1385,13 +1387,13 @@ pub fn doesNotFit(
 }
 
 fn reportMismatch(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     value: Value,
     wanted: Pool.Index,
 ) Allocator.Error!Value {
-    const comp = check.comp;
-    const found = check.typeOf(value);
+    const comp = typer.comp;
+    const found = typer.typeOf(value);
 
     const narrowable = found != .poison and wanted != .poison and
         comp.pool.isUnion(found) and comp.pool.subsumes(found, wanted);
@@ -1416,7 +1418,7 @@ fn reportMismatch(
         break :help "nothing converts on its own";
     };
 
-    return check.refuse(node, .{
+    return typer.refuse(node, .{
         .code = if (narrowable) .not_narrowed else .type_mismatch,
         .message = try comp.fmt("expected {s}, found {s}", .{
             try comp.typeName(wanted),
@@ -1429,42 +1431,42 @@ fn reportMismatch(
 
 // Reporting.
 
-pub fn fail(check: *Check, node: Node.Index, report: Diagnostic.Report) Allocator.Error!void {
-    try check.comp.reportNode(check.module_index, node, report);
+pub fn fail(typer: *Typer, node: Node.Index, report: Diagnostic.Report) Allocator.Error!void {
+    try typer.comp.reportNode(typer.module_index, node, report);
 }
 
 pub fn failToken(
-    check: *Check,
+    typer: *Typer,
     token: Token.Index,
     report: Diagnostic.Report,
 ) Allocator.Error!void {
-    try check.comp.reportToken(check.module_index, token, report);
+    try typer.comp.reportToken(typer.module_index, token, report);
 }
 
-pub fn refuse(check: *Check, node: Node.Index, report: Diagnostic.Report) Allocator.Error!Value {
-    try check.fail(node, report);
+pub fn refuse(typer: *Typer, node: Node.Index, report: Diagnostic.Report) Allocator.Error!Value {
+    try typer.fail(node, report);
     return .poison;
 }
 
 pub fn refuseToken(
-    check: *Check,
+    typer: *Typer,
     token: Token.Index,
     report: Diagnostic.Report,
 ) Allocator.Error!Value {
-    try check.failToken(token, report);
+    try typer.failToken(token, report);
     return .poison;
 }
 
 pub fn noteHere(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     message: []const u8,
 ) Allocator.Error![]Diagnostic.Note {
-    return check.comp.noteOne(check.module_index, node, message);
+    return typer.comp.noteOne(typer.module_index, node, message);
 }
 
-pub fn failDiscard(check: *Check, node: Node.Index) Allocator.Error!void {
-    try check.fail(node, .{
+pub fn failDiscard(typer: *Typer, node: Node.Index) Allocator.Error!void {
+    try typer.fail(node, .{
         .code = .discard_reserved,
         .message = "'_' is not a name, and only discards a value",
         .label = "not a name",
@@ -1472,26 +1474,26 @@ pub fn failDiscard(check: *Check, node: Node.Index) Allocator.Error!void {
     });
 }
 
-pub fn reportUndefined(check: *Check, node: Node.Index, text: []const u8) Allocator.Error!void {
-    try check.fail(node, .{
+pub fn reportUndefined(typer: *Typer, node: Node.Index, text: []const u8) Allocator.Error!void {
+    try typer.fail(node, .{
         .code = .undefined_name,
-        .message = try check.comp.fmt("nothing named '{s}' is in scope here", .{text}),
+        .message = try typer.comp.fmt("nothing named '{s}' is in scope here", .{text}),
         .label = "unknown name",
-        .help = try check.suggestName(text),
+        .help = try typer.suggestName(text),
     });
 }
 
-fn suggestName(check: *Check, text: []const u8) Allocator.Error!?[]const u8 {
-    const comp = check.comp;
+fn suggestName(typer: *Typer, text: []const u8) Allocator.Error!?[]const u8 {
+    const comp = typer.comp;
     var closest: Closest = .{ .target = text };
 
-    if (check.builder) |builder| {
+    if (typer.builder) |builder| {
         for (builder.locals.items) |local| closest.consider(comp.pool.stringText(local.name));
     }
-    for (check.bindings) |binding| closest.consider(comp.pool.stringText(binding.name));
-    considerDecls(comp, &closest, check.module.decls);
+    for (typer.bindings) |binding| closest.consider(comp.pool.stringText(binding.name));
+    considerDecls(comp, &closest, typer.module.decls);
     if (comp.prelude) |prelude| {
-        if (prelude != check.module_index) considerDecls(comp, &closest, comp.moduleAt(prelude).decls);
+        if (prelude != typer.module_index) considerDecls(comp, &closest, comp.moduleAt(prelude).decls);
     }
     for (Pool.primitive_names) |name| closest.consider(name);
 
@@ -1506,7 +1508,7 @@ fn considerDecls(comp: *const Compilation, closest: *Closest, range: Compilation
 pub const Arguments = enum { value, type };
 
 pub fn failArity(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     name: []const u8,
     of: Arguments,
@@ -1515,16 +1517,16 @@ pub fn failArity(
     notes: []const Diagnostic.Note,
 ) Allocator.Error!void {
     @branchHint(.cold);
-    try check.fail(node, .{
+    try typer.fail(node, .{
         .code = switch (of) {
             .value => .wrong_arity,
             .type => .generic_arguments,
         },
         .message = switch (of) {
-            .value => try check.comp.fmt("'{s}' takes {d} argument{s}, and this call has {d}", .{
+            .value => try typer.comp.fmt("'{s}' takes {d} argument{s}, and this call has {d}", .{
                 name, wanted, plural(wanted), written,
             }),
-            .type => try check.comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
+            .type => try typer.comp.fmt("'{s}' takes {d} type argument{s}, and this writes {d}", .{
                 name, wanted, plural(wanted), written,
             }),
         },
@@ -1550,10 +1552,10 @@ pub fn quotedList(
 
 const block_dead = std.math.maxInt(u32);
 
-fn finishFunc(check: *Check) Allocator.Error!void {
-    const comp = check.comp;
+fn finishFunc(typer: *Typer) Allocator.Error!void {
+    const comp = typer.comp;
     const gpa = comp.gpa;
-    const builder = check.body();
+    const builder = typer.body();
     const block_count = builder.blocks.items.len;
     assert(block_count > 0);
     assert(builder.block_map.items.len == 0);
@@ -1617,7 +1619,7 @@ fn finishFunc(check: *Check) Allocator.Error!void {
     }
 
     // the pair of the range assertion `emit` makes on the way in
-    const tree_nodes = check.tree.nodes.len;
+    const tree_nodes = typer.tree.nodes.len;
     for (into.items(.node)[insts_start..]) |node| assert(node.int() < tree_nodes);
 
     const extra_start: u32 = @intCast(comp.ir.extra.items.len);

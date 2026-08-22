@@ -5,13 +5,13 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
 const AST = @import("../AST.zig");
-const Check = @import("../Check.zig");
+const Typer = @import("../Typer.zig");
 const Diagnostic = @import("../Diagnostic.zig");
 const IR = @import("../IR.zig");
 const Pool = @import("../Pool.zig");
 
 const Node = AST.Node;
-const Value = Check.Value;
+const Value = Typer.Value;
 
 /// Back edges and calls one evaluation may spend.
 const budget = 1000;
@@ -19,7 +19,7 @@ const budget = 1000;
 /// Frames one evaluation may stack, which a body that recurses without end reaches.
 const depth_max = 64;
 
-check: *Check,
+typer: *Typer,
 node: Node.Index,
 bools: Pool.Index,
 spent: u32 = 0,
@@ -30,22 +30,22 @@ const Comptime = @This();
 const Error = Allocator.Error || error{Refused};
 
 /// The receiver is one more than a call may write.
-const Args = [Check.call_args_max + 1]Pool.Index;
+const Args = [Typer.call_args_max + 1]Pool.Index;
 
 pub fn call(
-    check: *Check,
+    typer: *Typer,
     node: Node.Index,
     instance: Pool.Instance,
-    operands: []const Check.Operand,
+    operands: []const Typer.Operand,
 ) Allocator.Error!Value {
     var args: Args = undefined;
     assert(operands.len <= args.len);
     for (operands, args[0..operands.len]) |operand, *argument| {
-        if (operand.value != .constant) return check.needRuntime(node, "this argument");
+        if (operand.value != .constant) return typer.needRuntime(node, "this argument");
         argument.* = operand.value.constant;
     }
 
-    var evaluator: Comptime = .{ .check = check, .node = node, .bools = try check.boolType(node) };
+    var evaluator: Comptime = .{ .typer = typer, .node = node, .bools = try typer.boolType(node) };
     if (evaluator.bools == .poison) return .poison;
     const answer = evaluator.run(instance, args[0..operands.len]) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -56,7 +56,7 @@ pub fn call(
 
 fn refuse(evaluator: *Comptime, report: Diagnostic.Report) Error {
     @branchHint(.cold);
-    try evaluator.check.fail(evaluator.node, report);
+    try evaluator.typer.fail(evaluator.node, report);
     return error.Refused;
 }
 
@@ -72,7 +72,7 @@ fn trapped(evaluator: *Comptime) Error {
 fn tooLong(evaluator: *Comptime) Error {
     return evaluator.refuse(.{
         .code = .comptime_too_long,
-        .message = try evaluator.check.comp.fmt(
+        .message = try evaluator.typer.comp.fmt(
             "this call takes more than {d} loops and calls to settle",
             .{budget},
         ),
@@ -83,7 +83,7 @@ fn tooLong(evaluator: *Comptime) Error {
 fn runtime(evaluator: *Comptime, what: []const u8) Error {
     return evaluator.refuse(.{
         .code = .not_constant,
-        .message = try evaluator.check.comp.fmt(
+        .message = try evaluator.typer.comp.fmt(
             "this must settle before anything runs, and {s} happens at run time",
             .{what},
         ),
@@ -121,13 +121,13 @@ const Frame = struct {
     }
 
     fn tagOf(frame: Frame, inst: IR.Inst.Index) IR.Inst.Tag {
-        const tags = frame.evaluator.check.comp.ir.insts.items(.tag);
+        const tags = frame.evaluator.typer.comp.ir.insts.items(.tag);
         return tags[frame.func.insts.at(inst.int())];
     }
 };
 
 fn run(evaluator: *Comptime, instance: Pool.Instance, args: []const Pool.Index) Error!Pool.Index {
-    const comp = evaluator.check.comp;
+    const comp = evaluator.typer.comp;
     if (comp.calls.get(instance, args)) |answer| return answer;
 
     const answer = try evaluator.evaluate(instance, args);
@@ -140,7 +140,7 @@ fn evaluate(
     instance: Pool.Instance,
     args: []const Pool.Index,
 ) Error!Pool.Index {
-    const comp = evaluator.check.comp;
+    const comp = evaluator.typer.comp;
     if (evaluator.depth == depth_max) return evaluator.tooLong();
 
     const decl = comp.declAt(comp.instanceDecl(instance));
@@ -183,7 +183,7 @@ fn evaluate(
 }
 
 fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
-    const comp = evaluator.check.comp;
+    const comp = evaluator.typer.comp;
     const pool = &comp.pool;
     const gpa = comp.gpa;
     const inst = comp.instAt(frame.func.insts.start + at);
@@ -264,7 +264,7 @@ fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
 }
 
 fn settle(evaluator: *Comptime, folded: Pool.Fold) Error!Pool.Index {
-    const comp = evaluator.check.comp;
+    const comp = evaluator.typer.comp;
     return switch (folded) {
         .value => |value| value,
         .truth => |holds| try comp.pool.truth(comp.gpa, evaluator.bools, holds),
@@ -277,7 +277,7 @@ fn settle(evaluator: *Comptime, folded: Pool.Fold) Error!Pool.Index {
 fn callAt(evaluator: *Comptime, frame: Frame, inst: IR.Inst) Error!Pool.Index {
     try evaluator.spend();
 
-    const it = IR.callAt(evaluator.check.comp.funcExtra(frame.func), inst.data.payload);
+    const it = IR.callAt(evaluator.typer.comp.funcExtra(frame.func), inst.data.payload);
     var args: Args = undefined;
     assert(it.args.len <= args.len);
     for (it.args, args[0..it.args.len]) |argument, *slot| slot.* = try frame.at(argument);
