@@ -19,7 +19,6 @@ source: Source,
 tree: AST,
 space: Space,
 decls: Range,
-/// Top-level names, keyed by source text. Members go through their struct.
 names: std.StringHashMapUnmanaged(Decl.Index),
 
 const Module = @This();
@@ -142,7 +141,7 @@ pub fn register(
     try comp.module_map.put(gpa, key, index);
 
     // one instruction per two tree nodes, measured against bodies that lower
-    try comp.insts.ensureTotalCapacity(gpa, comp.insts.len + module.tree.nodes.len / 2);
+    try comp.ir.insts.ensureTotalCapacity(gpa, comp.ir.insts.len + module.tree.nodes.len / 2);
 
     if (module.tree.errors.len > 0) try comp.adoptParseErrors(index, module.tree.errors);
 
@@ -178,7 +177,6 @@ fn registerDecls(comp: *Compilation, module: *Module, index: Module.Index) Alloc
                 .type_params = @intCast(decl.type_params.len),
             },
             .var_decl => |decl| .{ .kind = .let, .name_token = decl.name_token },
-            // the parser puts only declarations and holes at the root
             .err => continue,
             else => unreachable,
         };
@@ -325,8 +323,8 @@ fn appendDecl(
 
 fn spaceDir(comp: *const Compilation, space: Space) ?[]const u8 {
     return switch (space) {
-        .root => comp.root_dir,
-        .std => comp.std_dir,
+        .root => comp.rootDir(),
+        .std => comp.options.std_dir,
     };
 }
 
@@ -338,7 +336,7 @@ pub fn loadModule(comp: *Compilation, space: Space, sub: []const u8) Allocator.E
 
     const base = spaceDir(comp, space) orelse return null;
     const path = try comp.fmt("{s}/{s}.phi", .{ std.mem.trimEnd(u8, base, "/\\"), sub });
-    const source = comp.loader.load(comp.loader.context, comp.gpa, comp.io, path) catch |err|
+    const source = comp.options.loader.load(comp.options.loader.context, comp.gpa, comp.io, path) catch |err|
         switch (err) {
             error.ReadFailed, error.SourceTooLarge => return null,
             error.OutOfMemory => return error.OutOfMemory,
@@ -472,7 +470,6 @@ pub fn declIsPub(comp: *const Compilation, decl_index: Decl.Index) bool {
     };
 }
 
-/// Only what another file could have reached, so no suggestion is a dead end.
 fn suggestIn(
     comp: *Compilation,
     module: *const Module,

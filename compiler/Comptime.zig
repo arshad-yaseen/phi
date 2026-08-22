@@ -29,10 +29,9 @@ const Comptime = @This();
 
 const Error = Allocator.Error || error{Refused};
 
-/// A call's arguments. The receiver is one more than a call may write.
+/// The receiver is one more than a call may write.
 const Args = [Check.call_args_max + 1]Pool.Index;
 
-/// The call's answer, or poison where it was refused and reported.
 pub fn call(
     check: *Check,
     node: Node.Index,
@@ -61,7 +60,6 @@ fn refuse(evaluator: *Comptime, report: Diagnostic.Report) Error {
     return error.Refused;
 }
 
-/// The program stopped itself, which at run time would be a trap.
 fn trapped(evaluator: *Comptime) Error {
     return evaluator.refuse(.{
         .code = .comptime_trapped,
@@ -71,7 +69,6 @@ fn trapped(evaluator: *Comptime) Error {
     });
 }
 
-/// A limit a written program can reach, so it is named where it is spent.
 fn tooLong(evaluator: *Comptime) Error {
     return evaluator.refuse(.{
         .code = .comptime_too_long,
@@ -83,7 +80,6 @@ fn tooLong(evaluator: *Comptime) Error {
     });
 }
 
-/// An instruction that has no meaning before the program runs.
 fn runtime(evaluator: *Comptime, what: []const u8) Error {
     return evaluator.refuse(.{
         .code = .not_constant,
@@ -100,7 +96,6 @@ fn spend(evaluator: *Comptime) Error!void {
     if (evaluator.spent > budget) return evaluator.tooLong();
 }
 
-/// One cell per instruction, what it answered, or for a `local` what it holds.
 const Frame = struct {
     evaluator: *Comptime,
     func: IR.Func,
@@ -126,12 +121,11 @@ const Frame = struct {
     }
 
     fn tagOf(frame: Frame, inst: IR.Inst.Index) IR.Inst.Tag {
-        const tags = frame.evaluator.check.comp.insts.items(.tag);
+        const tags = frame.evaluator.check.comp.ir.insts.items(.tag);
         return tags[frame.func.insts.at(inst.int())];
     }
 };
 
-/// The answer a call gives, run once however often the program writes it.
 fn run(evaluator: *Comptime, instance: Pool.Instance, args: []const Pool.Index) Error!Pool.Index {
     const comp = evaluator.check.comp;
     if (comp.calls.get(instance, args)) |answer| return answer;
@@ -153,9 +147,7 @@ fn evaluate(
     if (decl.kind == .extern_fn) return evaluator.runtime("a call the linker resolves");
 
     try comp.ensure(.of(.body, instance), .{ .module = decl.module, .node = decl.node });
-    const func_index = comp.instanceAt(instance).func.unwrap() orelse
-        return evaluator.runtime("a call");
-    const func = comp.funcAt(func_index);
+    const func = comp.funcOf(instance) orelse return evaluator.runtime("a call");
 
     const cells = try comp.gpa.alloc(Pool.Index, func.insts.len);
     defer comp.gpa.free(cells);
@@ -196,7 +188,6 @@ fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
     const gpa = comp.gpa;
     const inst = comp.instAt(frame.func.insts.start + at);
     const answer: Pool.Index = switch (inst.tag) {
-        // a param is bound by the call, and a local is its own slot
         .param, .local => return,
         .store => {
             const it = inst.data.bin;
@@ -272,7 +263,6 @@ fn step(evaluator: *Comptime, frame: Frame, at: u32) Error!void {
     frame.cells[at] = answer;
 }
 
-/// A fold the checker would take as a value. Anything else must stop the run.
 fn settle(evaluator: *Comptime, folded: Pool.Fold) Error!Pool.Index {
     const comp = evaluator.check.comp;
     return switch (folded) {

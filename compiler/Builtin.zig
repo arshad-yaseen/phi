@@ -54,7 +54,6 @@ pub const Builtin = enum {
         };
     }
 
-    /// Std-only is the price of being able to break a guarantee the checker made.
     pub fn stdOnly(builtin: Builtin) bool {
         return switch (builtin) {
             .ptr_cast, .view, .int_from_ptr => true,
@@ -183,14 +182,14 @@ pub const Builtin = enum {
                 node,
                 hint,
                 target_os_wants,
-                @tagName(comp.target.os()),
+                @tagName(comp.options.target.os()),
             ),
             .target_arch => return targetMember(
                 check,
                 node,
                 hint,
                 target_arch_wants,
-                @tagName(comp.target.arch()),
+                @tagName(comp.options.target.arch()),
             ),
             .repeat => {
                 const wanted = try destination(check, node, null, hint, repeat_wants) orelse
@@ -345,11 +344,9 @@ fn destination(
     const wanted = hint orelse .void_type;
     if (wants.accepts(&comp.pool, wanted)) return wanted;
 
-    // a union otherwise lands on its first member, the way a value entering it does
     const landing = comp.pool.firstMember(wanted);
     if (wants.accepts(&comp.pool, landing)) return landing;
 
-    // a type that cannot be the destination is not the same as no type at all
     if (check.typeCanHold(landing)) {
         try failDestination(check, node, landing, wants, "and this lands on");
         return null;
@@ -382,7 +379,6 @@ fn failDestination(
     });
 }
 
-/// The member the target spells, so the library names them and the compiler picks.
 fn targetMember(
     check: *Check,
     node: Node.Index,
@@ -454,7 +450,6 @@ fn intFits(
     if (absent == .poison) return .poison;
     const result = switch (try comp.pool.unite(comp.gpa, &.{ wanted, absent })) {
         .index => |index| index,
-        // an integer type is never `none`, and two members are never too wide
         .duplicate, .too_wide => unreachable,
     };
     if (operand != .constant) {
@@ -494,7 +489,6 @@ fn repeatArray(
     depth: u32,
 ) Allocator.Error!?Pool.Index {
     const comp = check.comp;
-    // a written type nests no deeper than the parser allows
     assert(depth < AST.nest_max);
 
     const array = comp.pool.keyOf(wanted).type_array;
@@ -591,7 +585,6 @@ fn ptrCast(
     return check.emitOneValue(node, .ptr_cast, result, Check.refOf(operand));
 }
 
-/// A view of `count` elements at a pointer, as writable as the pointer.
 fn view(
     check: *Check,
     node: Node.Index,

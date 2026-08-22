@@ -1,0 +1,11 @@
+error[E0212]: 'u8' is not a member of 'Box[u8]', which bounds 'T'
+ --> test/fail/bound_names_itself.phi:6:12
+  |
+6 |     let b: Box[u8] = .{ item: 1 }
+  |            ^^^^^^ outside the bound
+note: bounded here
+ --> test/fail/bound_names_itself.phi:1:10
+  |
+1 | type Box[T: Box[u8]] = {
+  |          ^^^^^^^^^
+

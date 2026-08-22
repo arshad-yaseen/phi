@@ -21,48 +21,24 @@ const Decl = Module.Decl;
 gpa: Allocator,
 io: std.Io,
 pool: Pool,
-/// Heap-stable, because analysis holds a module while loading others.
+/// Heap-stable, analysis holds a module while loading others.
 modules: std.ArrayList(*Module) = .empty,
 module_map: std.StringHashMapUnmanaged(Module.Index) = .empty,
 decls: std.ArrayList(Decl) = .empty,
 instances: std.ArrayList(Instance) = .empty,
-/// Instances by declaration and bracket arguments, which every row's `args` ranges over.
 instance_map: ArgsMap(Decl.Index, Pool.Instance) = .empty,
 rows: std.ArrayList(Row) = .empty,
-/// Marked and restored, because one signature can demand another.
-rows_scratch: std.ArrayList(Row) = .empty,
-/// One per body being checked, since bodies nest. Kept for the capacity.
-builders: std.ArrayList(*Check.Builder) = .empty,
-/// How many of `builders` are in use. The rest are cleared and waiting.
-builder_depth: u32 = 0,
-/// What conditions proved, innermost last. Not the builder's, because a type narrows too.
-narrows: std.ArrayList(Check.Narrow) = .empty,
-/// Gathered per condition, marked and restored.
-facts: std.ArrayList(Check.Fact) = .empty,
-operands: std.ArrayList(Check.Operand) = .empty,
-body_queue: std.ArrayList(Pool.Instance) = .empty,
-funcs: std.ArrayList(IR.Func) = .empty,
-insts: IR.InstList = .empty,
-inst_extra: std.ArrayList(u32) = .empty,
-blocks: std.ArrayList(IR.Block) = .empty,
+work: Check.Work = .{},
+ir: IR.Program = .{},
 diagnostics: std.ArrayList(Entry) = .empty,
 /// One row per (module, code, anchor), so re-walked code reports once.
 reported: std.AutoHashMapUnmanaged(ReportKey, void) = .empty,
 layouts: std.AutoHashMapUnmanaged(Pool.Index, Layout) = .empty,
-/// What a call the compiler ran answered, so it runs once per argument list.
 calls: ArgsMap(Pool.Instance, Pool.Index) = .empty,
 prelude: ?Module.Index = null,
-/// The bodies the program runs, in the order it reached them from its entry.
-program: []const Pool.Instance = &.{},
-
-stack: std.ArrayList(Frame) = .empty,
 arena: std.heap.ArenaAllocator,
 
-loader: Loader,
-target: Target,
-root_dir: []const u8,
-root_stem: []const u8,
-std_dir: ?[]const u8,
+options: Options,
 
 const Compilation = @This();
 
@@ -70,27 +46,21 @@ pub const instantiate_max = 64;
 pub const analyze_max = 128;
 const diagnostics_max = 256;
 
-/// A declaration plus its bracket arguments, memoized so identity is the row.
 pub const Instance = struct {
     decl: Decl.Index,
     args: Range,
     type: Pool.Index,
     rows: Range,
     origin: Origin,
-    /// The instance whose checking first demanded this one.
     parent: Pool.OptionalInstance,
-    /// Generic ancestors, this instance included.
     depth: u32,
     func: IR.Func.OptionalIndex,
-    /// Queued to ship, which being checked does not imply.
     queued: bool,
-    /// How far the shallow half got, meaning the fields or the signature.
     rows_state: Decl.State,
-    /// How far the deep half got, meaning what a field embeds or what a body does.
     deep_state: Decl.State,
 };
 
-/// The one loading seam. A host replaces it to serve unsaved editor buffers.
+/// The one loading seam. A host replaces it to serve unsaved buffers.
 pub const Loader = struct {
     context: ?*anyopaque,
     load: *const fn (
@@ -129,13 +99,11 @@ pub const Range = struct {
         return range.start + position;
     }
 
-    /// The one way a range reads the table it points into.
     pub fn slice(range: Range, items: anytype) @TypeOf(items) {
         assert(range.end() <= items.len);
         return items[range.start..range.end()];
     }
 
-    /// What a table grew by, from where it stood to where it stands.
     pub fn since(start: u32, len: usize) Range {
         assert(len >= start);
         return .{ .start = start, .len = @intCast(len - start) };
@@ -174,9 +142,9 @@ pub const Unit = struct {
 
 pub const Origin = struct { module: Module.Index, node: AST.Node.Index };
 
-const Frame = struct { unit: Unit, origin: Origin };
+pub const Frame = struct { unit: Unit, origin: Origin };
 
-/// A report names a node or a token, never an offset that shifts under edits.
+/// A report names a node or a token, never an offset that edits shift.
 const ReportAnchor = enum(u8) { node, token };
 
 const ReportKey = struct {
@@ -207,15 +175,11 @@ pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Al
         .io = io,
         .pool = undefined,
         .arena = .init(gpa),
-        .loader = options.loader,
-        .target = options.target,
-        .root_dir = std.fs.path.dirname(options.root_path) orelse ".",
-        .root_stem = std.fs.path.stem(options.root_path),
-        .std_dir = options.std_dir,
+        .options = options,
     };
 
-    try comp.stack.ensureTotalCapacity(gpa, analyze_max);
-    errdefer comp.stack.deinit(gpa);
+    try comp.work.stack.ensureTotalCapacity(gpa, analyze_max);
+    errdefer comp.work.deinit(gpa);
 
     try comp.pool.init(gpa);
 }
@@ -230,31 +194,18 @@ pub fn deinit(comp: *Compilation) void {
     comp.modules.deinit(gpa);
     comp.module_map.deinit(gpa);
 
-    comp.funcs.deinit(gpa);
-    comp.insts.deinit(gpa);
-    comp.inst_extra.deinit(gpa);
-    comp.blocks.deinit(gpa);
+    comp.ir.deinit(gpa);
 
-    for (comp.builders.items) |builder| {
-        builder.deinit(gpa);
-        gpa.destroy(builder);
-    }
-    comp.builders.deinit(gpa);
-    comp.narrows.deinit(gpa);
-    comp.facts.deinit(gpa);
+    comp.work.deinit(gpa);
     comp.calls.deinit(gpa);
-    comp.operands.deinit(gpa);
-    comp.body_queue.deinit(gpa);
     comp.pool.deinit(gpa);
     comp.decls.deinit(gpa);
     comp.instances.deinit(gpa);
     comp.instance_map.deinit(gpa);
     comp.rows.deinit(gpa);
-    comp.rows_scratch.deinit(gpa);
     comp.diagnostics.deinit(gpa);
     comp.reported.deinit(gpa);
     comp.layouts.deinit(gpa);
-    comp.stack.deinit(gpa);
     comp.arena.deinit();
     comp.* = undefined;
 }
@@ -262,9 +213,9 @@ pub fn deinit(comp: *Compilation) void {
 pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
     assert(comp.modules.items.len == 0);
 
-    const in_std = if (comp.std_dir) |dir| pathInside(dir, comp.root_dir) else false;
+    const in_std = if (comp.options.std_dir) |dir| pathInside(dir, comp.rootDir()) else false;
     const space: Module.Space = if (in_std) .std else .root;
-    const key = try comp.fmt("{t}:{s}", .{ space, comp.root_stem });
+    const key = try comp.fmt("{t}:{s}", .{ space, std.fs.path.stem(comp.options.root_path) });
 
     const index = try Module.register(comp, key, space, root_source);
     assert(index == .root);
@@ -272,26 +223,22 @@ pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
 
     comp.prelude = try Module.loadModule(comp, .std, Module.prelude_name);
 
-    // the program is what the entry reaches, and every body those call
     var program: []Pool.Instance = &.{};
     if (comp.entryDecl()) |entry| {
         try comp.settleDecl(index, entry);
         program = try comp.drainBodies();
     }
 
-    // then the rest, checked for what it says rather than to run it
     var rest_decls = comp.ownDecls(module.decls);
     while (rest_decls.next()) |decl_index| try comp.settleDecl(index, decl_index);
     const rest = try comp.drainBodies();
 
-    // a file that is no program stands as what it declares
     if (program.len == 0) program = rest;
     std.sort.pdq(Pool.Instance, program, comp, beforeInSource);
-    comp.program = program;
-    assert(comp.stack.items.len == 0);
+    comp.ir.bodies = program;
+    assert(comp.work.stack.items.len == 0);
 }
 
-/// A declaration settles, and every body it names joins the queue.
 fn settleDecl(
     comp: *Compilation,
     module: Module.Index,
@@ -326,48 +273,42 @@ fn enqueueBody(comp: *Compilation, instance: Pool.Instance) Allocator.Error!void
     assert(kind == .fn_decl);
     if (comp.instanceAt(instance).queued) return;
     comp.instancePtr(instance).queued = true;
-    try comp.body_queue.append(comp.gpa, instance);
+    try comp.work.body_queue.append(comp.gpa, instance);
 }
 
-/// Only taking allocates, so returning one cannot fail.
 pub fn takeBuilder(comp: *Compilation) Allocator.Error!*Check.Builder {
-    if (comp.builder_depth == comp.builders.items.len) {
-        const fresh = try comp.gpa.create(Check.Builder);
-        fresh.* = .empty;
-        try comp.builders.append(comp.gpa, fresh);
-    }
-    defer comp.builder_depth += 1;
-    return comp.builders.items[comp.builder_depth];
+    try comp.work.builders.ensureUnusedCapacity(comp.gpa, 1);
+    if (comp.work.builders.pop()) |waiting| return waiting;
+
+    const fresh = try comp.gpa.create(Check.Builder);
+    fresh.* = .empty;
+    return fresh;
 }
 
-pub fn releaseBuilder(comp: *Compilation) void {
-    assert(comp.builder_depth > 0);
-    comp.builder_depth -= 1;
-    comp.builders.items[comp.builder_depth].clear();
+pub fn releaseBuilder(comp: *Compilation, builder: *Check.Builder) void {
+    builder.clear();
+    comp.work.builders.appendAssumeCapacity(builder);
 }
 
-/// Calls come from finished IR, so when a body was checked cannot show.
 fn drainBodies(comp: *Compilation) Allocator.Error![]Pool.Instance {
     var drained: std.ArrayList(Pool.Instance) = .empty;
     var next: usize = 0;
-    while (next < comp.body_queue.items.len) : (next += 1) {
-        const instance = comp.body_queue.items[next];
+    while (next < comp.work.body_queue.items.len) : (next += 1) {
+        const instance = comp.work.body_queue.items[next];
         const origin = comp.instanceAt(instance).origin;
         try comp.ensure(.of(.signature, instance), origin);
         try comp.ensure(.of(.body, instance), origin);
         try drained.append(comp.arena.allocator(), instance);
 
-        const func = comp.instanceAt(instance).func.unwrap() orelse continue;
-        try comp.queueCallees(comp.funcAt(func));
+        try comp.queueCallees(comp.funcOf(instance) orelse continue);
     }
-    comp.body_queue.clearRetainingCapacity();
+    comp.work.body_queue.clearRetainingCapacity();
     return drained.items;
 }
 
-/// The bodies a body calls, which is how a program reaches past its entry.
 fn queueCallees(comp: *Compilation, func: IR.Func) Allocator.Error!void {
-    const tags = comp.insts.items(.tag);
-    const data = comp.insts.items(.data);
+    const tags = comp.ir.insts.items(.tag);
+    const data = comp.ir.insts.items(.data);
     const extra = comp.funcExtra(func);
     for (func.insts.start..func.insts.end()) |at| {
         if (tags[at] != .call) continue;
@@ -375,7 +316,6 @@ fn queueCallees(comp: *Compilation, func: IR.Func) Allocator.Error!void {
     }
 }
 
-/// The file a body is written in, then where in that file.
 fn beforeInSource(comp: *const Compilation, a: Pool.Instance, b: Pool.Instance) bool {
     const one = comp.declAt(comp.instanceDecl(a));
     const other = comp.declAt(comp.instanceDecl(b));
@@ -383,7 +323,6 @@ fn beforeInSource(comp: *const Compilation, a: Pool.Instance, b: Pool.Instance) 
         return std.mem.lessThan(u8, comp.moduleAt(one.module).key, comp.moduleAt(other.module).key);
     }
     if (one.node != other.node) return one.node.int() < other.node.int();
-    // one generic, instantiated more than once, which only its arguments tell apart
     return a.int() < b.int();
 }
 
@@ -401,7 +340,7 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
         .unanalyzed => {},
     }
 
-    if (comp.stack.items.len >= analyze_max) return comp.refuseUnit(unit, origin, .{
+    if (comp.work.stack.items.len >= analyze_max) return comp.refuseUnit(unit, origin, .{
         .code = .analysis_too_deep,
         .message = try comp.fmt(
             "checking this follows a chain more than {d} declarations deep",
@@ -412,7 +351,6 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
             "the compiler follows",
     });
 
-    // only bracket arguments count against the instantiation limit
     if (unit.kind != .decl and comp.instanceAt(@enumFromInt(unit.index)).depth > instantiate_max) {
         return comp.refuseUnit(unit, origin, .{
             .code = .instantiates_too_deep,
@@ -426,15 +364,14 @@ pub fn ensure(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!vo
 
     comp.unitState(unit).* = .in_progress;
     // the depth check above keeps this under what `init` reserved
-    assert(comp.stack.items.len < analyze_max);
-    comp.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
-    defer _ = comp.stack.pop();
+    assert(comp.work.stack.items.len < analyze_max);
+    comp.work.stack.appendAssumeCapacity(.{ .unit = unit, .origin = origin });
+    defer _ = comp.work.stack.pop();
 
-    // no unit sees what a branch above it proved
-    const narrows_mark = comp.narrows.items.len;
-    defer comp.narrows.shrinkRetainingCapacity(narrows_mark);
-    const facts_mark = comp.facts.items.len;
-    defer comp.facts.shrinkRetainingCapacity(facts_mark);
+    const narrows_mark = comp.work.narrows.items.len;
+    defer comp.work.narrows.shrinkRetainingCapacity(narrows_mark);
+    const facts_mark = comp.work.facts.items.len;
+    defer comp.work.facts.shrinkRetainingCapacity(facts_mark);
 
     const ok = switch (unit.kind) {
         .decl => try comp.runDecl(@enumFromInt(unit.index)),
@@ -484,7 +421,7 @@ fn runDecl(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     }
 }
 
-/// Where a unit's answer is kept. Derived per call, because running one grows the tables.
+/// Derived per call, because running a unit grows the tables.
 fn unitState(comp: *Compilation, unit: Unit) *Decl.State {
     return switch (unit.kind) {
         .decl => &comp.declPtr(@enumFromInt(unit.index)).state,
@@ -493,7 +430,6 @@ fn unitState(comp: *Compilation, unit: Unit) *Decl.State {
     };
 }
 
-/// A re-entry is a cycle. The chain back becomes the notes.
 fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!void {
     @branchHint(.cold);
 
@@ -509,11 +445,11 @@ fn reportCycle(comp: *Compilation, unit: Unit, origin: Origin) Allocator.Error!v
         .rows, .signature, .body => circle,
     };
 
-    const position = for (comp.stack.items, 0..) |frame, at| {
+    const position = for (comp.work.stack.items, 0..) |frame, at| {
         if (frame.unit.eql(unit)) break at;
     } else unreachable; // in progress means on the stack
 
-    const below = comp.stack.items[position + 1 ..];
+    const below = comp.work.stack.items[position + 1 ..];
     const chain = try comp.arena.allocator().alloc(Diagnostic.Note, below.len);
     for (below, chain) |frame, *note| {
         note.* = comp.noteAt(frame.origin.module, frame.origin.node, try comp.fmt(
@@ -642,11 +578,14 @@ pub fn rowAt(comp: *const Compilation, index: Row.Index) Row {
 }
 
 pub fn funcAt(comp: *const Compilation, index: IR.Func.Index) IR.Func {
-    assert(index.int() < comp.funcs.items.len);
-    return comp.funcs.items[index.int()];
+    assert(index.int() < comp.ir.funcs.items.len);
+    return comp.ir.funcs.items[index.int()];
 }
 
-/// The declarations a module writes at its top level, the members inside them left out.
+pub fn funcOf(comp: *const Compilation, instance: Pool.Instance) ?IR.Func {
+    return comp.funcAt(comp.instanceAt(instance).func.unwrap() orelse return null);
+}
+
 pub fn ownDecls(comp: *const Compilation, range: Range) OwnDecls {
     return .{ .comp = comp, .range = range };
 }
@@ -665,6 +604,10 @@ pub const OwnDecls = struct {
         return null;
     }
 };
+
+pub fn rootDir(comp: *const Compilation) []const u8 {
+    return std.fs.path.dirname(comp.options.root_path) orelse ".";
+}
 
 pub fn hasErrors(comp: *const Compilation) bool {
     return comp.diagnostics.items.len > 0;
@@ -694,18 +637,17 @@ pub fn instanceRows(comp: *const Compilation, index: Pool.Instance) []const Row 
 }
 
 pub fn funcBlocks(comp: *const Compilation, func: IR.Func) []const IR.Block {
-    return func.blocks.slice(comp.blocks.items);
+    return func.blocks.slice(comp.ir.blocks.items);
 }
 
 pub fn funcExtra(comp: *const Compilation, func: IR.Func) []const u32 {
-    return func.extra.slice(comp.inst_extra.items);
+    return func.extra.slice(comp.ir.extra.items);
 }
 
-/// Where a checked body joins the program, and its instance learns where it landed.
 pub fn commitFunc(comp: *Compilation, func: IR.Func) Allocator.Error!void {
-    assert(comp.instanceAt(func.instance).func == .none);
-    try comp.funcs.append(comp.gpa, func);
-    const index: IR.Func.Index = .from(comp.funcs.items.len - 1);
+    assert(comp.funcOf(func.instance) == null);
+    try comp.ir.funcs.append(comp.gpa, func);
+    const index: IR.Func.Index = .from(comp.ir.funcs.items.len - 1);
     comp.instancePtr(func.instance).func = index.toOptional();
 }
 
@@ -723,11 +665,10 @@ pub fn diagnosticAt(comp: *const Compilation, index: usize) Diagnostic {
 }
 
 pub fn instAt(comp: *const Compilation, at: u32) IR.Inst {
-    assert(at < comp.insts.len);
-    return comp.insts.get(at);
+    assert(at < comp.ir.insts.len);
+    return comp.ir.insts.get(at);
 }
 
-/// A map keyed by an id and an argument list, every list kept in one side table.
 fn ArgsMap(comptime Id: type, comptime V: type) type {
     return struct {
         map: std.HashMapUnmanaged(Key, V, Context, load_percentage) = .empty,
@@ -752,7 +693,6 @@ fn ArgsMap(comptime Id: type, comptime V: type) type {
             return self.map.getAdapted(lookup, Adapter{ .lists = self.lists.items });
         }
 
-        /// The slot for the key, and the range its arguments now live at.
         pub fn getOrPut(
             self: *Self,
             gpa: Allocator,
@@ -801,7 +741,6 @@ fn ArgsMap(comptime Id: type, comptime V: type) type {
             }
         };
 
-        /// Asks with arguments in hand, so a repeat costs no copy of them.
         const Adapter = struct {
             lists: []const Pool.Index,
 
@@ -879,8 +818,8 @@ fn report(
 }
 
 fn currentUnit(comp: *const Compilation) ?Unit {
-    if (comp.stack.items.len == 0) return null;
-    return comp.stack.items[comp.stack.items.len - 1].unit;
+    if (comp.work.stack.items.len == 0) return null;
+    return comp.work.stack.items[comp.work.stack.items.len - 1].unit;
 }
 
 fn currentInstance(comp: *const Compilation) Pool.OptionalInstance {
@@ -889,7 +828,6 @@ fn currentInstance(comp: *const Compilation) Pool.OptionalInstance {
     return @enumFromInt(unit.index);
 }
 
-/// The parser budgets and orders its own reports, so nothing is deduplicated here.
 pub fn adoptParseErrors(
     comp: *Compilation,
     module: Module.Index,
@@ -908,7 +846,6 @@ pub fn adoptParseErrors(
     }
 }
 
-/// The notes, then the instantiation chain behind the report, its middle elided past eight.
 fn withTrail(
     comp: *Compilation,
     notes_in: []const Diagnostic.Note,
@@ -921,7 +858,6 @@ fn withTrail(
     while (current.unwrap()) |instance| : (current = comp.instanceAt(instance).parent) {
         const row = comp.instanceAt(instance);
         depth += @intFromBool(row.args.len > 0);
-        // a parent is created before its child, so the walk must descend
         if (row.parent.unwrap()) |above| assert(above.int() < instance.int());
     }
     const elided = depth -| shown_max;
@@ -1053,15 +989,14 @@ fn entryBefore(_: void, entry: Entry, other: Entry) bool {
 
 pub fn dumpIR(comp: *const Compilation, writer: *Writer) Writer.Error!void {
     var printed = false;
-    for (comp.program) |instance| {
-        const index = comp.instanceAt(instance).func.unwrap() orelse continue;
+    for (comp.ir.bodies) |instance| {
+        const func = comp.funcOf(instance) orelse continue;
         if (printed) try writer.writeByte('\n');
         printed = true;
-        try Spell.writeFunc(comp, comp.funcAt(index), writer);
+        try Spell.writeFunc(comp, func, writer);
     }
 }
 
-/// What a program starts at, which its root file declares.
 pub const entry_name = "main";
 
 pub fn entryDecl(comp: *const Compilation) ?Decl.Index {
@@ -1197,7 +1132,7 @@ test "a call chain compiles at any depth" {
     try testCompile(&comp, deep.written());
     defer comp.deinit();
     try testing.expectEqual(0, comp.diagnostics.items.len);
-    try testing.expectEqual(levels + 1, comp.funcs.items.len);
+    try testing.expectEqual(levels + 1, comp.ir.funcs.items.len);
 }
 
 test "the deepest nesting that reaches analysis does not overflow the stack" {

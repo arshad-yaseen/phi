@@ -1,5 +1,3 @@
-//! One item per type and per payload.
-
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -103,13 +101,11 @@ pub fn primitiveType(text: []const u8) ?Index {
 
 pub const primitive_names = primitives.keys();
 
-/// Whether an interned string spells a primitive name, which `init` interns first.
 pub fn isPrimitiveName(name: String) bool {
     if (name == .empty) return false;
     return name.int() < primitive_bytes_end;
 }
 
-/// Offset zero is the empty string, then the primitive names back to back.
 const primitive_bytes_end = blk: {
     var total: u32 = 1;
     for (primitive_names) |name| total += name.len + 1;
@@ -134,7 +130,6 @@ pub const Key = union(enum) {
     type_array: Array,
     type_slice: Slice,
     type_struct: Instance,
-    /// A nominal unit type. Never generic, so the declaration is the identity.
     type_unit: Module.Decl.Index,
     /// Ordered distinct members, none a union. Stale at the next intern.
     type_union: []const Index,
@@ -144,15 +139,12 @@ pub const Key = union(enum) {
     /// Ordered elements. Borrowed from `extra`, stale at the next intern.
     value_aggregate: Aggregate,
     value_unit: Index,
-    /// A constant that knows its union. The union, then the member constant.
     value_union: Wrapped,
-    /// A view of bytes the program owns, which is what a constant becomes on a `[]T`.
     value_slice: Viewed,
-    /// An array whose every element is the same, held once. The length is in the type.
     value_repeat: Repeat,
 
     pub const Pointer = struct { child: Index, mutable: bool };
-    /// A length no layout can hold is refused where the size is asked, not here.
+    /// A length no layout can hold is refused where the size is asked.
     pub const Array = struct { child: Index, len: u64 };
     pub const Slice = struct { child: Index, mutable: bool };
     pub const Int = struct { type: Index, value: i128 };
@@ -204,7 +196,6 @@ pub const TypeKey = union(enum) {
     type_union: []const Index,
 };
 
-/// The value arms of `Key`, and `poison`, which is a broken value as much as a broken type.
 pub const ValueKey = union(enum) {
     poison,
     value_int: Key.Int,
@@ -496,7 +487,6 @@ pub const union_members_max = 255;
 
 pub const Unite = union(enum) {
     index: Index,
-    /// Already in the flattened list. An alias is not a new type.
     duplicate: Index,
     too_wide,
 };
@@ -622,7 +612,6 @@ pub fn membersOf(pool: *const Pool, index: Index) Members {
     return .{ .pool = pool, .index = index };
 }
 
-/// A union's first member, and any other type itself.
 pub fn firstMember(pool: *const Pool, index: Index) Index {
     if (pool.isUnion(index) == false) return index;
     return pool.unionMemberAt(index, 0);
@@ -650,6 +639,10 @@ pub fn string(pool: *Pool, gpa: Allocator, text: []const u8) Allocator.Error!Str
 
     assert(std.mem.eql(u8, pool.stringText(offset), text));
     return offset;
+}
+
+pub fn lookupString(pool: *const Pool, text: []const u8) ?String {
+    return pool.string_map.getKeyAdapted(text, StringAdapter{ .bytes = &pool.bytes });
 }
 
 pub fn sameText(pool: *const Pool, name: String, text: []const u8) bool {
@@ -690,7 +683,7 @@ pub fn heldValue(pool: *const Pool, value: Index) Index {
     return pool.keyOf(value).value_union.value;
 }
 
-/// Whether a union constant holds its type's first member, the edge a condition takes.
+/// Whether it holds its type's first member, the edge a condition takes.
 pub fn holdsFirst(pool: *const Pool, value: Index) bool {
     return pool.memberOfValue(value) == pool.firstMember(pool.typeOfValue(value));
 }
@@ -701,7 +694,6 @@ pub fn int(pool: *Pool, gpa: Allocator, type_index: Index, value: i128) Allocato
     return pool.intern(gpa, .{ .value_int = .{ .type = type_index, .value = value } });
 }
 
-/// An integer constant retyped to `wanted`, or null where the type does not hold it.
 pub fn castInt(pool: *Pool, gpa: Allocator, value: Index, wanted: Index) Allocator.Error!?Index {
     assert(isSizedInt(wanted));
     const written = pool.keyOf(value).value_int.value;
@@ -713,7 +705,6 @@ pub fn unitValue(pool: *Pool, gpa: Allocator, unit_type: Index) Allocator.Error!
     return pool.intern(gpa, .{ .value_unit = unit_type });
 }
 
-/// `value` as a constant of `union_type`. One already in a union enters as what it holds.
 pub fn enter(pool: *Pool, gpa: Allocator, union_type: Index, value: Index) Allocator.Error!Index {
     const held = switch (pool.keyOf(value)) {
         .value_union => |it| it.value,
@@ -722,7 +713,6 @@ pub fn enter(pool: *Pool, gpa: Allocator, union_type: Index, value: Index) Alloc
     return pool.intern(gpa, .{ .value_union = .{ .type = union_type, .value = held } });
 }
 
-/// A union constant narrowed to `wanted`, which is poison where it holds no member of it.
 pub fn narrowTo(pool: *Pool, gpa: Allocator, value: Index, wanted: Index) Allocator.Error!Index {
     if (value == .poison) return .poison;
     const held = pool.heldValue(value);
@@ -731,7 +721,6 @@ pub fn narrowTo(pool: *Pool, gpa: Allocator, value: Index, wanted: Index) Alloca
     return pool.enter(gpa, wanted, held);
 }
 
-/// Yes or no in `bools`, two unit members of which the first means yes.
 pub fn truth(pool: *Pool, gpa: Allocator, bools: Index, holds: bool) Allocator.Error!Index {
     if (bools == .poison) return .poison;
     const member = pool.unionMemberAt(bools, if (holds) 0 else 1);
@@ -752,7 +741,6 @@ pub fn isType(pool: *const Pool, index: Index) bool {
     };
 }
 
-/// With `aggregateAt`, for walks that intern. `keyOf` only borrows.
 pub fn aggregateLen(pool: *const Pool, index: Index) u64 {
     return switch (pool.keyOf(index)) {
         .value_aggregate => |it| it.elems.len,
@@ -838,7 +826,6 @@ fn exactFloat(value: i128, type_index: Index) ?f64 {
     return wide;
 }
 
-/// The lowest value an integer type holds. Exact, because every width folds in 128 bits.
 pub fn minInt(type_index: Index) i128 {
     assert(isSizedInt(type_index));
     if (isSignedInt(type_index) == false) return 0;
@@ -945,7 +932,6 @@ pub fn fold(
             if (op == .shift_right) break :shifted a.int >> amount;
             break :shifted std.math.shlExact(i128, a.int, amount) catch return .overflow;
         },
-        // comparisons returned above, `and` and `or` never fold
         else => unreachable,
     };
     return pool.internInt(gpa, value, result_type);
@@ -1004,7 +990,6 @@ pub const Fit = union(enum) {
 /// Whether a settled constant may widen on the way in. An element never does.
 pub const Widen = enum { allowed, refused };
 
-/// An untyped constant meets any type its value fits, a settled one its own or wider.
 pub fn fit(
     pool: *Pool,
     gpa: Allocator,

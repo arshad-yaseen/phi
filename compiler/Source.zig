@@ -1,5 +1,3 @@
-//! A source file, zero padded so the tokenizer needs no bounds checks.
-
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;

@@ -1,0 +1,8 @@
+type Box[T: Box[u8]] = {
+    item: T
+}
+
+fn main() {
+    let b: Box[u8] = .{ item: 1 }
+    _ = b
+}

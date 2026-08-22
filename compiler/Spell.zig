@@ -42,7 +42,6 @@ pub fn writeType(comp: *const Compilation, writer: *Writer, index: Pool.Index) W
                 return writer.writeAll(comp.pool.stringText(comp.declAt(decl).name));
             },
             .type_union => |members| {
-                // a member is never a union, so this recursion is one level
                 for (members, 0..) |member, position| {
                     if (position > 0) try writer.writeAll(" | ");
                     try writeType(comp, writer, member);
@@ -169,7 +168,6 @@ fn writeConstant(
         },
         .value_unit => |unit_type| try writeType(comp, writer, unit_type),
         .value_union => |it| try writeConstant(comp, writer, it.value),
-        // bytes first, then the view, so storage and a view of it never print alike
         .value_slice => |it| {
             try writeConstant(comp, writer, it.data);
             try writer.writeByte(':');
@@ -193,7 +191,6 @@ pub fn writeConstantBare(
 const depth_max = 1024;
 
 comptime {
-    // the parser bounds how deep a tree nests, so this walk never truncates one
     assert(depth_max > AST.nest_max);
 }
 

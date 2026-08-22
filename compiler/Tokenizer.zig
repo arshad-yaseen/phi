@@ -14,7 +14,6 @@ pending: ?u32,
 
 pub const TokenList = std.MultiArrayList(Token);
 
-/// Comments, set aside for tools. Each runs from its start to the end of the line.
 pub const CommentList = std.ArrayList(Token);
 
 const Tokenizer = @This();
@@ -58,7 +57,6 @@ pub fn next(tokenizer: *Tokenizer) Token {
     const token = tokenizer.scan();
     if (token.tag.isComment()) return token;
     switch (token.tag) {
-        // a line opening with a selector, a range, or another `\\` continues the one above
         .dot, .dot_star, .dot_dot, .string_line => {},
         else => if (tokenizer.insertedSemi(token)) |semi| return semi,
     }
@@ -115,7 +113,6 @@ fn scan(tokenizer: *Tokenizer) Token {
             '/' => continue :state .slash,
             '"' => continue :state .string,
             '\'' => continue :state .char,
-            // `\\` opens a line of a multi-line string, and one `\` is stray bytes
             '\\' => continue :state if (source[cursor + 1] == '\\') .string_line else .invalid,
             // `@` opens a builtin only when a name follows, and is stray bytes otherwise
             '@' => continue :state if (is_ident[source[cursor + 1]]) .builtin else .invalid,
@@ -211,7 +208,6 @@ fn scan(tokenizer: *Tokenizer) Token {
     return .{ .tag = tag, .start = start };
 }
 
-/// Byte just past a token. Rescans, tokens don't store lengths.
 pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
     assert(start <= source.len);
     switch (tag) {
@@ -229,7 +225,6 @@ pub fn tokenEnd(source: [:0]const u8, tag: Token.Tag, start: u32) u32 {
             while (cursor < source.len and is_token_start[source[cursor]] == false) cursor += 1;
             return cursor;
         },
-        // every other tag spells fixed text
         else => {
             const fixed = Token.lexeme_len[@intFromEnum(tag)];
             assert(fixed > 0);

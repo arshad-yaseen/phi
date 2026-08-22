@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 tag: Tag,
-/// The end is rescanned by `Tokenizer.tokenEnd`, never stored.
 start: u32,
 
 pub const Tag = enum(u8) {

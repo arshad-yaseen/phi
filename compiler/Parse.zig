@@ -133,7 +133,6 @@ fn ensureProgress(self: *Parse, before: Token.Index) void {
     if (self.eof() == false) assert(self.token_index.int() > before.int());
 }
 
-/// One level deeper, or false at the limit. Every true `enter` pairs with a `leave`.
 fn enter(self: *Parse) bool {
     assert(self.depth <= depth_max);
     if (self.depth == depth_max) return false;
@@ -261,7 +260,6 @@ fn tooDeep(self: *Parse) Allocator.Error!Node.Index {
     return self.hole();
 }
 
-/// Over the rest of an item, so one mistake reports once.
 fn skipToTerminator(self: *Parse, closer: Token.Tag) void {
     assert(self.token_index.int() <= self.eof_index.int());
 
@@ -275,7 +273,6 @@ fn skipToTerminator(self: *Parse, closer: Token.Tag) void {
     assert(self.token_index.int() <= self.eof_index.int());
 }
 
-/// What stood between two items. Only a bare line break leaves doubt.
 const Terminator = enum { none, line, comma };
 
 fn eatTerminators(self: *Parse) Terminator {
@@ -290,7 +287,6 @@ fn eatTerminators(self: *Parse) Terminator {
 fn expectTerminator(self: *Parse, closer: Token.Tag) Allocator.Error!void {
     if (self.eatTerminators() != .none) return;
     switch (self.current()) {
-        // a bracket or the file itself also ends an item
         .r_paren, .r_bracket, .r_brace, .eof => return,
         else => {},
     }
@@ -306,7 +302,6 @@ fn expectTerminator(self: *Parse, closer: Token.Tag) Allocator.Error!void {
     self.skipToTerminator(closer);
 }
 
-/// A line opening with one of these may continue the line above. `.` is already joined.
 const continues_line = TokenSet.initMany(&.{
     .minus,     .ampersand,
     .tilde,     .l_paren,
@@ -429,7 +424,6 @@ fn extraOpt(self: *Parse, node: Node.OptionalIndex) Allocator.Error!void {
 }
 
 fn extraList(self: *Parse, items: []const Node.Index) Allocator.Error!void {
-    // one item per node at most
     assert(items.len <= self.nodes.len);
     try self.extraWord(@intCast(items.len));
 
@@ -483,7 +477,6 @@ const List = struct {
     code: Diagnostic.Code,
     expected: []const u8,
     help: ?[]const u8 = null,
-    /// What means this list was never closed. Nothing does, for a file.
     bails: TokenSet = ends_list,
 };
 
@@ -504,7 +497,6 @@ fn parseList(self: *Parse, list: List) Allocator.Error!void {
 
     var item_end = self.token_index;
     var line_break_only = false;
-    // a run of junk between two good items is one mistake, so it reports once
     var in_junk_run = false;
     while (self.at(list.closer) == false and self.eof() == false) {
         const before = self.token_index;
@@ -1042,7 +1034,6 @@ fn parseLabeledLoop(self: *Parse) Allocator.Error!Node.Index {
     return self.parseLoop();
 }
 
-/// What the arms carry, which is all that differs between the two.
 const Arms = enum { value, type };
 
 fn parseMatch(self: *Parse, arms: Arms) Allocator.Error!Node.Index {

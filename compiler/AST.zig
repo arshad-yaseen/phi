@@ -112,14 +112,12 @@ pub const Node = struct {
         call,
         struct_literal,
         array_literal,
-        /// `a..b` and `a..`. Only a bracket takes one.
         range_expr,
         struct_field_init,
 
         binary,
         unary,
         is_expr,
-        /// `e or name { ... }`, the handler form of `or`.
         or_bind,
 
         array_type,
@@ -220,7 +218,6 @@ pub const OperInfo = struct { prec: u8, assoc: Assoc, op: BinaryOp };
 /// Where `is` sits too, testing like a comparison.
 pub const compare_prec = 3;
 
-/// The one place a token maps to an infix operator. Null where it is not one.
 pub const oper_table: [Token.tag_count]?OperInfo = blk: {
     @setEvalBranchQuota(8000);
     var table: [Token.tag_count]?OperInfo = @splat(null);
@@ -260,7 +257,6 @@ pub const unary_table: [Token.tag_count]?UnaryOp = blk: {
     break :blk table;
 };
 
-/// What a compound assignment folds in. A plain `=` has none, so `assigns` decides.
 pub const assign_table: [Token.tag_count]?BinaryOp = blk: {
     @setEvalBranchQuota(8000);
     var table: [Token.tag_count]?BinaryOp = @splat(null);
@@ -283,12 +279,10 @@ pub fn assigns(tag: Token.Tag) bool {
     return tag == .eq or assign_table[@intFromEnum(tag)] != null;
 }
 
-/// The operator a `.binary` node's token spells, which the parser built it from.
 fn infixOf(tag: Token.Tag) OperInfo {
     return oper_table[@intFromEnum(tag)] orelse unreachable;
 }
 
-/// The operator a `.unary` node's token spells, which the parser built it from.
 fn prefixOf(tag: Token.Tag) UnaryOp {
     return unary_table[@intFromEnum(tag)] orelse unreachable;
 }
@@ -352,11 +346,10 @@ pub const View = union(enum) {
 
     err,
 
-    /// `import a/b/c as d`, whose names sit two tokens apart over the '/' between them.
+    /// `import a/b/c as d`, whose names sit two tokens apart over the '/'.
     pub const Import = struct {
         first_token: Token.Index,
         last_token: Token.Index,
-        /// The last name, or what `as` renamed it to.
         binding_token: Token.Index,
     };
     pub const StructDecl = struct {
@@ -719,7 +712,6 @@ pub fn commentText(tree: AST, at: Token) []const u8 {
 
 pub fn docsAbove(tree: AST, node: Node.Index) []const Token {
     var next = tree.tokenStart(tree.declStart(node));
-    // comments are in source order, so the run ends where the declaration starts
     const end = std.sort.lowerBound(Token, tree.comments, next, commentOrder);
 
     var first = end;
@@ -783,8 +775,8 @@ pub fn nodeSpan(tree: AST, node: Node.Index) Diagnostic.Span {
     const last = edgeToken(tree, node, .rightmost);
     const start = tree.tokenStart(first);
     const end = tree.tokenEnd(last);
+    // a hole can straddle repaired positions
     if (start > end) {
-        // a hole can straddle repaired positions
         return .{ .start = start, .end = start };
     }
     return .{ .start = start, .end = end };
@@ -840,10 +832,8 @@ fn leftStep(tree: AST, node: Node.Index) Step {
         .bracket => |it| .{ .down = it.base },
         .call => |it| .{ .down = it.callee },
         .range_expr => |it| .{ .down = it.start },
-        // a union writes at least two members, so both edges exist
         .union_type => |members| .{ .down = members[0] },
         .struct_literal => |it| unwrapOr(it.type_expr, main),
-        // an arm with no label began at the `else` keyword
         .match_arm => |it| unwrapOr(it.label, main.before(1)),
     };
 }
@@ -890,7 +880,6 @@ fn rightStep(tree: AST, node: Node.Index) Step {
         .call => |it| lastOf(it.args, .{ .at = main.after(1) }),
         .array_literal => |elements| lastOf(elements, .{ .at = main.after(1) }),
         .struct_literal => |it| lastOf(it.fields, .{ .at = main.after(2) }),
-        // recovery can leave a match with no arms
         .match_expr => |it| lastOf(it.arms, .{ .down = it.scrutinee }),
     };
 }

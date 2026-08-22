@@ -12,13 +12,29 @@ pub const ExtraIndex = Handle.Index("inst extra");
 
 pub const InstList = std.MultiArrayList(Inst);
 
+/// What a compilation produces: every lowered body, and the tables they range over.
+pub const Program = struct {
+    /// The bodies the program runs, in the order it reached them from its entry.
+    bodies: []const Pool.Instance = &.{},
+    funcs: std.ArrayList(Func) = .empty,
+    insts: InstList = .empty,
+    extra: std.ArrayList(u32) = .empty,
+    blocks: std.ArrayList(Block) = .empty,
+
+    pub fn deinit(program: *Program, gpa: std.mem.Allocator) void {
+        inline for (@typeInfo(Program).@"struct".fields) |field| {
+            if (@typeInfo(field.type) == .@"struct") @field(program, field.name).deinit(gpa);
+        }
+        program.* = undefined;
+    }
+};
+
 pub const Call = struct { callee: Pool.Instance, args: []const Ref };
 
-/// One body, three ranges into the shared tables, every inner index relative to them.
+/// One body, three ranges into the shared tables, every inner index relative.
 pub const Func = struct {
     instance: Pool.Instance,
     insts: Compilation.Range,
-    /// One `Ref` per word.
     extra: Compilation.Range,
     /// Block zero is the entry, and every block is reachable.
     blocks: Compilation.Range,
@@ -130,7 +146,7 @@ pub const Inst = struct {
         slice_len,
         slice_ptr,
         slice_make,
-        /// A view over a count of elements at a pointer, on the caller's word alone.
+        /// A view of a count of elements at a pointer, on the caller's word alone.
         slice_from,
 
         add,
@@ -160,15 +176,12 @@ pub const Inst = struct {
         bit_not,
 
         ptr_cast,
-        /// The address a pointer holds, as a `u64`.
         int_from_ptr,
-        /// Converts into a type holding every value of the old one, so nothing is lost.
         widen,
         /// The value when the type holds it, the union's other member when not.
         int_cast,
         int_fits,
 
-        /// A value entering a union, with the member the checker admitted it as.
         union_init,
         /// Whether the union holds the member, or any of a union of them. Void for a branch.
         union_is,
@@ -177,7 +190,7 @@ pub const Inst = struct {
         call,
         aggregate_init,
 
-        /// The tag a binary operator lowers to. Both enums list them in one order.
+        /// Both enums list the binary operators in one order.
         pub fn ofBinary(op: AST.BinaryOp) Tag {
             assert(op != .bool_and);
             assert(op != .bool_or);

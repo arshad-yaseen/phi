@@ -1,5 +1,3 @@
-//! Decodes what a number, character, or string literal spells, or the refusal to report.
-
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -243,7 +241,6 @@ pub fn bytesOf(literal: []const u8) Bytes {
     return .{ .text = literal, .cursor = 1, .encoded = @splat(0), .stopped = false };
 }
 
-/// The bytes one `\\` line spells. Raw, so nothing inside it is an escape.
 pub fn textLine(line: []const u8) []const u8 {
     assert(line.len >= 2);
     assert(line[0] == '\\');
@@ -524,7 +521,6 @@ test "a '\\\\' line is its bytes, the marker and the line ending dropped" {
     try testing.expectEqualStrings("\"quoted\"", textLine("\\\\\"quoted\""));
     try testing.expectEqualStrings("not // a comment", textLine("\\\\not // a comment"));
     try testing.expectEqualStrings("crlf", textLine("\\\\crlf\r"));
-    // one '\r' ends the line, and a second one is text the author wrote
     try testing.expectEqualStrings("kept\r", textLine("\\\\kept\r\r"));
 }
 

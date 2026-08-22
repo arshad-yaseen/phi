@@ -1,5 +1,3 @@
-//! A `u32` row number with its own type, so indexes into two tables can't mix.
-
 const std = @import("std");
 const assert = std.debug.assert;
 

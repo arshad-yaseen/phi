@@ -60,7 +60,6 @@ fn ofBounded(
             .i16, .u16 => .{ .size = 2, .alignment = 2 },
             .i32, .u32, .f32 => .{ .size = 4, .alignment = 4 },
             .i64, .u64, .f64 => .{ .size = 8, .alignment = 8 },
-            // a written type is never void or untyped
             .void, .untyped_int, .untyped_float, .untyped_aggregate => unreachable,
         },
         .type_pointer => addressed(comp, 0),
@@ -81,7 +80,7 @@ fn ofBounded(
 pub const slice_len_size = 8;
 
 fn addressed(comp: *const Compilation, beside: u32) Layout {
-    const address = comp.target.pointerSize();
+    const address = comp.options.target.pointerSize();
     const alignment = @max(address, beside);
     return .{
         .size = std.mem.alignForward(u32, address + beside, alignment),

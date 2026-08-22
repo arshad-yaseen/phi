@@ -45,6 +45,9 @@
 - Every diagnostic code is renumbered, closing the gaps the retired ones left.
 - A match arm that covers the whole union, `else` included, no longer stops the
   compiler.
+- A bound that names the declaration it bounds is reported rather than stopping
+  the compiler.
+- A body with thousands of locals checks in time proportional to their count.
 
 ### Command line
 
