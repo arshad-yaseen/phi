@@ -807,7 +807,7 @@ fn writeFunc(backend: *C, func: IR.Func) Fail!void {
 fn writeLine(backend: *C, node: AST.Node.Index) Fail!void {
     const module = backend.comp.moduleAt(backend.origin.module);
     const start = module.tree.tokenStart(module.tree.nodeMainToken(node));
-    const at = try module.source.lineColumn(backend.gpa, start);
+    const at = module.source.lineColumn(start);
     assert(at.line > 0);
     assert(at.column > 0);
 
@@ -1324,39 +1324,4 @@ fn writeCondition(backend: *C, cond: Ref) Fail!void {
 
     assert(pool.isUnion(found));
     try backend.writeMemberTest(cond, pool.firstMember(found));
-}
-
-const testing = std.testing;
-
-test "the entry is found, missed, or refused" {
-    var comp: Compilation = undefined;
-    try Compilation.testCompile(&comp,
-        \\fn main() {
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
-    try testing.expect(try entryOf(&comp) == .instance);
-
-    var absent: Compilation = undefined;
-    try Compilation.testCompile(&absent,
-        \\fn helper() {
-        \\}
-        \\
-    );
-    defer absent.deinit();
-    try testing.expect(try entryOf(&absent) == .missing);
-    try testing.expectEqual(0, absent.diagnostics.items.len);
-
-    var shaped: Compilation = undefined;
-    try Compilation.testCompile(&shaped,
-        \\fn main(a: i64) i64 {
-        \\    return a
-        \\}
-        \\
-    );
-    defer shaped.deinit();
-    try testing.expect(try entryOf(&shaped) == .refused);
-    try testing.expectEqual(2, shaped.diagnostics.items.len);
 }

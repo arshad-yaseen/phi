@@ -1,0 +1,12 @@
+error[E0301]: 'main' takes parameters, and the start of a program takes none
+ --> test/fail/entry_signature.phi:1:1
+  |
+1 | fn main(a: i64) i64 {
+  | ^^^^^^^^^^^^^^^^^^^^^ no parameters here
+
+error[E0301]: 'main' returns a value, and the start of a program returns nothing
+ --> test/fail/entry_signature.phi:1:17
+  |
+1 | fn main(a: i64) i64 {
+  |                 ^^^ no return type here
+

@@ -445,7 +445,9 @@ fn bindCounter(typer: *Typer, name: Node.Index, counter: ?Counter) Allocator.Err
     if (Module.isDiscard(text)) return typer.failDiscard(name);
     const named = try typer.comp.pool.string(typer.comp.gpa, text);
 
+    typer.link(name, .{ .local = name });
     const it = counter orelse return typer.declarePoisoned(named, name);
+    typer.answerType(name, it.type);
     const current = try typer.emitOne(name, .load, it.type, it.slot);
     try typer.declareLocal(named, name, .let, current, it.type);
 }
@@ -949,7 +951,10 @@ fn findLoop(typer: *Typer, node: Node.Index, label: ?Token.Index) Allocator.Erro
         try failDeferLeaves(typer, node, "not allowed here");
         return null;
     }
-    if (found != null) return found;
+    if (found) |at| {
+        typer.link(node, .{ .loop = builder.loops.items[at].node });
+        return at;
+    }
 
     if (label) |token| {
         try typer.fail(node, .{
@@ -1183,6 +1188,8 @@ fn bindRest(
     const text = typer.mainTokenText(binder_node);
     if (Module.isDiscard(text)) return typer.failDiscard(binder_node);
     const name = try typer.comp.pool.string(typer.comp.gpa, text);
+    typer.link(binder_node, .{ .local = binder_node });
+    typer.answerType(binder_node, rest);
     const narrowed = try typer.emitOne(binder_node, .union_narrow, rest, lhs);
     try typer.declareLocal(name, binder_node, .let, narrowed, rest);
 }

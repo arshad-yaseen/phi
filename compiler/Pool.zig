@@ -11,6 +11,7 @@ extra: std.ArrayList(u32),
 bytes: std.ArrayList(u8),
 map: std.HashMapUnmanaged(Index, void, IndexContext, load_percentage),
 string_map: std.HashMapUnmanaged(String, void, StringContext, load_percentage),
+args_map: std.HashMapUnmanaged(Args, void, ArgsContext, load_percentage),
 /// Marked and restored. Gathers indexes a walk holds on to, which nests.
 scratch: std.ArrayList(Index),
 /// Small integer constants, so they skip the map. `.poison`, never a value, marks unfilled.
@@ -56,6 +57,12 @@ pub const Index = enum(u32) {
 
 pub const Instance = Handle.Index("instance");
 pub const OptionalInstance = Instance.Optional;
+
+/// An interned argument list, so an instance is keyed by two integers.
+pub const Args = enum(u32) {
+    empty = 0,
+    _,
+};
 
 /// An offset into `bytes`. The text runs to the next zero byte.
 pub const String = enum(u32) {
@@ -257,6 +264,7 @@ pub fn init(pool: *Pool, gpa: Allocator) Allocator.Error!void {
         .bytes = .empty,
         .map = .empty,
         .string_map = .empty,
+        .args_map = .empty,
         .scratch = .empty,
         .small_ints = @splat(.poison),
     };
@@ -265,8 +273,9 @@ pub fn init(pool: *Pool, gpa: Allocator) Allocator.Error!void {
     try pool.items.ensureTotalCapacity(gpa, 256);
     try pool.bytes.ensureTotalCapacity(gpa, 1024);
 
-    // offset zero is the empty string, so `String.empty` needs no lookup
+    // offset zero holds the empty string and the empty list, which need no lookup
     pool.bytes.appendAssumeCapacity(0);
+    try pool.extra.append(gpa, 0);
 
     for (std.enums.values(SimpleType)) |simple| {
         const index = try pool.intern(gpa, .{ .type_simple = simple });
@@ -285,6 +294,7 @@ pub fn deinit(pool: *Pool, gpa: Allocator) void {
     pool.bytes.deinit(gpa);
     pool.map.deinit(gpa);
     pool.string_map.deinit(gpa);
+    pool.args_map.deinit(gpa);
     pool.scratch.deinit(gpa);
     pool.* = undefined;
 }
@@ -639,6 +649,32 @@ pub fn string(pool: *Pool, gpa: Allocator, text: []const u8) Allocator.Error!Str
 
     assert(std.mem.eql(u8, pool.stringText(offset), text));
     return offset;
+}
+
+pub fn internArgs(pool: *Pool, gpa: Allocator, list: []const Index) Allocator.Error!Args {
+    if (list.len == 0) return .empty;
+
+    const gop = try pool.args_map.getOrPutContextAdapted(
+        gpa,
+        list,
+        ArgsAdapter{ .pool = pool },
+        ArgsContext{ .pool = pool },
+    );
+    if (gop.found_existing) return gop.key_ptr.*;
+
+    const start = try pool.addExtra(gpa, &.{@intCast(list.len)}, @ptrCast(list));
+    gop.key_ptr.* = @enumFromInt(start);
+    return gop.key_ptr.*;
+}
+
+pub fn argsOf(pool: *const Pool, args: Args) []const Index {
+    const at = @intFromEnum(args);
+    assert(at < pool.extra.items.len);
+    return @ptrCast(pool.extra.items[at + 1 ..][0..pool.extra.items[at]]);
+}
+
+fn hashArgs(list: []const Index) u64 {
+    return std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(list));
 }
 
 pub fn lookupString(pool: *const Pool, text: []const u8) ?String {
@@ -1241,6 +1277,30 @@ const IndexContext = struct {
 
     pub fn eql(_: IndexContext, a: Index, b: Index) bool {
         return a == b;
+    }
+};
+
+const ArgsContext = struct {
+    pool: *const Pool,
+
+    pub fn hash(context: ArgsContext, args: Args) u64 {
+        return hashArgs(context.pool.argsOf(args));
+    }
+
+    pub fn eql(_: ArgsContext, a: Args, b: Args) bool {
+        return a == b;
+    }
+};
+
+const ArgsAdapter = struct {
+    pool: *const Pool,
+
+    pub fn hash(_: ArgsAdapter, list: []const Index) u64 {
+        return hashArgs(list);
+    }
+
+    pub fn eql(adapter: ArgsAdapter, list: []const Index, args: Args) bool {
+        return std.mem.eql(Index, list, adapter.pool.argsOf(args));
     }
 };
 

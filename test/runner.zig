@@ -11,21 +11,31 @@ const compiler = @import("compiler");
 /// Cases under here compile as the standard library, and are their own std.
 const std_root = "test/std";
 
-/// The target a `.c` golden renders for. Std picks a module per platform, so the
-/// C of a machine that happened to run the tests is no golden at all.
+/// The target a `.c` golden renders for, since std picks a module per platform.
 const c_target: compiler.Target = .x86_64_linux;
+
+/// A case compiles for this machine unless a `.target` file beside it says otherwise.
+fn targetOf(gpa: Allocator, io: std.Io, stem: []const u8) !compiler.Target {
+    const path = try std.fmt.allocPrint(gpa, "{s}.target", .{stem});
+    defer gpa.free(path);
+
+    const text = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64)) catch return .host;
+    defer gpa.free(text);
+
+    const triple = std.mem.trim(u8, text, " \t\r\n");
+    return compiler.Target.parse(triple) orelse
+        std.debug.panic("{s} names no target: '{s}'", .{ path, triple });
+}
 
 /// What one golden asserts of its case.
 const Golden = enum {
-    /// The parse tree. The case must parse clean. Nothing is compiled
-    /// unless another golden asks.
+    /// The parse tree. The case must parse clean, and is compiled only if asked.
     tree,
     /// Rendered diagnostics. The case must fail to compile.
     expected,
     /// The typed IR. The case must compile.
     ir,
-    /// The C the backend emits, for `c_target`. The case must compile, and have
-    /// a `main`.
+    /// The C the backend emits, for `c_target`. The case must compile and have a `main`.
     c,
     /// What the program prints. Compiled with `zig cc`, run, must exit clean.
     out,
@@ -60,6 +70,10 @@ pub fn main(init: std.process.Init) !u8 {
     const arena = init.arena.allocator();
     var cases: std.ArrayList([]const u8) = .empty;
 
+    // shared across cases, so the standard library parses once
+    var sources: compiler.Source.Cache = .init(init.gpa, init.io);
+    defer sources.deinit();
+
     var update = false;
     for (args[1..]) |argument| {
         if (std.mem.eql(u8, argument, "--update")) {
@@ -76,7 +90,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     var failures: u32 = 0;
     for (cases.items) |path| {
-        const passed = try runOne(init.gpa, init.io, path, update, &log.interface);
+        const passed = try runOne(init.gpa, init.io, &sources, path, update, &log.interface);
         if (passed == false) failures += 1;
     }
 
@@ -91,8 +105,7 @@ pub fn main(init: std.process.Init) !u8 {
     return 0;
 }
 
-/// Every case under `path`. A directory holding `main.phi` is one case,
-/// entered there, and its other files are the modules it imports.
+/// Every case under `path`. A directory holding `main.phi` is one case, entered there.
 fn collectCases(
     arena: Allocator,
     io: std.Io,
@@ -131,6 +144,7 @@ fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
 fn runOne(
     gpa: Allocator,
     io: std.Io,
+    sources: *compiler.Source.Cache,
     path: []const u8,
     update: bool,
     log: *Writer,
@@ -170,35 +184,31 @@ fn runOne(
     }
 
     if (goldens.count() == 1 and goldens.contains(.tree)) {
-        return runParse(gpa, io, path, stem, update, log);
+        return runParse(gpa, io, sources, path, stem, update, log);
     }
-    return runCompile(gpa, io, path, stem, goldens, update, log);
+    return runCompile(gpa, io, sources, path, stem, goldens, update, log);
 }
 
 /// A grammar case. Parsed, never compiled, so its names need not resolve.
 fn runParse(
     gpa: Allocator,
     io: std.Io,
+    sources: *compiler.Source.Cache,
     path: []const u8,
     stem: []const u8,
     update: bool,
     log: *Writer,
 ) !bool {
-    var source: compiler.Source = try .load(gpa, io, .cwd(), path);
-    defer source.deinit(gpa);
-
-    var ast = try compiler.AST.parse(gpa, source.bytes);
-    defer ast.deinit(gpa);
-
-    if (ast.errors.len > 0) {
+    const source = try sources.load(path);
+    if (source.tree.errors.len > 0) {
         try log.print("{s}: expected to parse, but\n", .{path});
-        for (ast.errors) |diagnostic| try diagnostic.render(gpa, &source, log, .off);
+        for (source.tree.errors) |diagnostic| try diagnostic.render(source, log, .off);
         return false;
     }
 
     var actual: Writer.Allocating = .init(gpa);
     defer actual.deinit();
-    try compiler.Spell.writeTree(ast, &actual.writer);
+    try compiler.Spell.writeTree(source.tree, &actual.writer);
     return settle(gpa, io, stem, .tree, actual.written(), update, log);
 }
 
@@ -206,6 +216,7 @@ fn runParse(
 fn runCompile(
     gpa: Allocator,
     io: std.Io,
+    sources: *compiler.Source.Cache,
     path: []const u8,
     stem: []const u8,
     goldens: GoldenSet,
@@ -213,12 +224,12 @@ fn runCompile(
     log: *Writer,
 ) !bool {
     var comp: compiler.Compilation = undefined;
-    try compileCase(gpa, io, &comp, path, .host);
+    try compileCase(gpa, io, sources, &comp, path, try targetOf(gpa, io, stem));
     defer comp.deinit();
 
     // the dump has to survive whatever tree recovery left behind
     var sink: Writer.Discarding = .init(&.{});
-    try compiler.Spell.writeTree(comp.moduleAt(.root).tree, &sink.writer);
+    try compiler.Spell.writeTree(comp.moduleAt(.root).tree.*, &sink.writer);
 
     var ok = true;
     if (goldens.contains(.tree)) {
@@ -230,11 +241,13 @@ fn runCompile(
         }
         var actual: Writer.Allocating = .init(gpa);
         defer actual.deinit();
-        try compiler.Spell.writeTree(tree, &actual.writer);
+        try compiler.Spell.writeTree(tree.*, &actual.writer);
         if (try settle(gpa, io, stem, .tree, actual.written(), update, log) == false) ok = false;
     }
 
     if (goldens.contains(.expected)) {
+        // the entry is checked here alone, because no other golden survives a refusal
+        if (comp.hasErrors() == false) _ = try compiler.codegen.C.entryOf(&comp);
         if (comp.hasErrors() == false) {
             try log.print("{s}: expected a diagnostic, got none\n", .{path});
             return false;
@@ -262,7 +275,7 @@ fn runCompile(
     }
 
     if (goldens.contains(.c)) {
-        if (try runEmitC(gpa, io, path, stem, update, log) == false) ok = false;
+        if (try runEmitC(gpa, io, sources, path, stem, update, log) == false) ok = false;
     }
 
     if (goldens.contains(.out) or goldens.contains(.trap)) {
@@ -275,13 +288,14 @@ fn runCompile(
 fn runEmitC(
     gpa: Allocator,
     io: std.Io,
+    sources: *compiler.Source.Cache,
     path: []const u8,
     stem: []const u8,
     update: bool,
     log: *Writer,
 ) !bool {
     var comp: compiler.Compilation = undefined;
-    try compileCase(gpa, io, &comp, path, c_target);
+    try compileCase(gpa, io, sources, &comp, path, c_target);
     defer comp.deinit();
 
     if (comp.hasErrors()) {
@@ -299,18 +313,19 @@ fn runEmitC(
 fn compileCase(
     gpa: Allocator,
     io: std.Io,
+    sources: *compiler.Source.Cache,
     comp: *compiler.Compilation,
     path: []const u8,
     target: compiler.Target,
 ) !void {
-    const source: compiler.Source = try .load(gpa, io, .cwd(), path);
     const in_std = std.mem.startsWith(u8, path, std_root ++ "/");
-    try comp.init(gpa, io, .{
+    try comp.init(gpa, io, sources, .{
         .root_path = path,
         .std_dir = if (in_std) std_root else "lib/std",
         .target = target,
     });
-    try comp.compile(source);
+    errdefer comp.deinit();
+    try comp.compile();
 }
 
 fn emitC(

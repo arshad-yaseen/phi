@@ -48,6 +48,7 @@
 - A bound that names the declaration it bounds is reported rather than stopping
   the compiler.
 - A body with thousands of locals checks in time proportional to their count.
+- A constant in a report reads as written, with no type suffix on its numbers.
 
 ### Command line
 

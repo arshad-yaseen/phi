@@ -9,6 +9,13 @@ b0:
   %6 = load %2 : Box[i64]
   return %6
 
+fn hold(a: Box[i64], b: Box[i64], c: Box[i64]) Box[i64]
+b0:
+  %0 = param a : Box[i64]
+  %1 = param b : Box[i64]
+  %2 = param c : Box[i64]
+  return %0
+
 fn read(box: *Box[i64]) i64
 b0:
   %0 = param box : *Box[i64]

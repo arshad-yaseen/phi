@@ -20,6 +20,8 @@ const Decl = Module.Decl;
 
 gpa: Allocator,
 io: std.Io,
+/// The one loading seam.
+sources: *Source.Cache,
 options: Options,
 arena: std.heap.ArenaAllocator,
 
@@ -32,12 +34,12 @@ decls: std.ArrayList(Decl) = .empty,
 /// A bound per type parameter, `.poison` where there is none to enforce.
 bounds: std.ArrayList(Pool.Index) = .empty,
 instances: std.ArrayList(Instance) = .empty,
-instance_map: ArgsMap(Decl.Index, Pool.Instance) = .empty,
+instance_map: std.AutoHashMapUnmanaged(InstanceKey, Pool.Instance) = .empty,
 /// Fields and parameters, one range per instance.
 rows: std.ArrayList(Row) = .empty,
 layouts: std.AutoHashMapUnmanaged(Pool.Index, Layout) = .empty,
 /// What a call the compiler ran answered, per instance and arguments.
-calls: ArgsMap(Pool.Instance, Pool.Index) = .empty,
+calls: std.AutoHashMapUnmanaged(CallKey, Pool.Index) = .empty,
 
 /// The units in progress, innermost last.
 stack: std.ArrayList(Frame) = .empty,
@@ -60,37 +62,15 @@ pub const Options = struct {
     root_path: []const u8,
     std_dir: ?[]const u8,
     target: Target = .host,
-    loader: Loader = .disk,
 };
 
-/// The one loading seam. A host replaces it to serve unsaved buffers.
-pub const Loader = struct {
-    context: ?*anyopaque,
-    load: *const fn (
-        context: ?*anyopaque,
-        gpa: Allocator,
-        io: std.Io,
-        path: []const u8,
-    ) Source.LoadError!Source,
-
-    pub const disk: Loader = .{ .context = null, .load = loadFromDisk };
-
-    fn loadFromDisk(
-        context: ?*anyopaque,
-        gpa: Allocator,
-        io: std.Io,
-        path: []const u8,
-    ) Source.LoadError!Source {
-        assert(context == null);
-        assert(path.len > 0);
-        return Source.load(gpa, io, .cwd(), path);
-    }
-};
+pub const InstanceKey = struct { decl: Decl.Index, args: Pool.Args };
+pub const CallKey = struct { instance: Pool.Instance, args: Pool.Args };
 
 /// One declaration with one set of type arguments.
 pub const Instance = struct {
     decl: Decl.Index,
-    args: Range,
+    args: Pool.Args,
     /// The struct type, the alias target, or a function's return type.
     type: Pool.Index,
     rows: Range,
@@ -156,16 +136,26 @@ pub const Anchor = union(enum) { node: AST.Node.Index, token: Token.Index };
 
 const ReportKey = struct { module: Module.Index, code: Diagnostic.Code, anchor: Anchor };
 
-pub const Entry = struct {
-    module: Module.Index,
-    unit: ?Unit,
-    diagnostic: Diagnostic,
-};
+/// The unit is what re-running one replaces the reports of.
+pub const Entry = struct { module: Module.Index, unit: ?Unit, diagnostic: Diagnostic };
 
-pub fn init(comp: *Compilation, gpa: Allocator, io: std.Io, options: Options) Allocator.Error!void {
+pub fn init(
+    comp: *Compilation,
+    gpa: Allocator,
+    io: std.Io,
+    sources: *Source.Cache,
+    options: Options,
+) Allocator.Error!void {
     assert(options.root_path.len > 0);
 
-    comp.* = .{ .gpa = gpa, .io = io, .options = options, .arena = .init(gpa), .pool = undefined };
+    comp.* = .{
+        .gpa = gpa,
+        .io = io,
+        .sources = sources,
+        .options = options,
+        .arena = .init(gpa),
+        .pool = undefined,
+    };
     try comp.stack.ensureTotalCapacity(gpa, analyze_max);
     errdefer comp.stack.deinit(gpa);
     try comp.pool.init(gpa);
@@ -197,14 +187,16 @@ pub fn deinit(comp: *Compilation) void {
     comp.* = undefined;
 }
 
-pub fn compile(comp: *Compilation, root_source: Source) Allocator.Error!void {
+pub fn compile(comp: *Compilation) Source.LoadError!void {
     assert(comp.modules.items.len == 0);
+
+    const source = try comp.sources.load(comp.options.root_path);
 
     const in_std = if (comp.options.std_dir) |dir| pathInside(dir, comp.rootDir()) else false;
     const space: Module.Space = if (in_std) .std else .root;
     const key = try comp.fmt("{t}:{s}", .{ space, std.fs.path.stem(comp.options.root_path) });
 
-    const index = try Module.register(comp, key, space, root_source);
+    const index = try Module.register(comp, key, space, source);
     assert(index == .root);
     comp.prelude = try Module.loadModule(comp, .std, Module.prelude_name);
 
@@ -449,7 +441,8 @@ pub fn instantiate(
         .struct_decl, .fn_decl, .extern_fn, .type_alias => {},
         .import, .unit_decl, .let => unreachable,
     }
-    const gop = try comp.instance_map.getOrPut(comp.gpa, decl_index, args);
+    const interned = try comp.pool.internArgs(comp.gpa, args);
+    const gop = try comp.instance_map.getOrPut(comp.gpa, .{ .decl = decl_index, .args = interned });
     if (gop.found_existing) return gop.value_ptr.*;
 
     if (comp.instances.items.len >= std.math.maxInt(u32)) return error.OutOfMemory;
@@ -462,7 +455,7 @@ pub fn instantiate(
 
     try comp.instances.append(comp.gpa, .{
         .decl = decl_index,
-        .args = gop.args,
+        .args = interned,
         .type = .poison,
         .rows = .empty,
         .origin = origin,
@@ -487,9 +480,7 @@ pub fn isGeneric(comp: *const Compilation, decl_index: Decl.Index) bool {
     return false;
 }
 
-/// The bounds of a declaration's own type parameters, copied out because
-/// resolving them can grow the table. Null while they are still being
-/// resolved, where a bound naming its own declaration reads as absent.
+/// Copied out, because resolving a bound can grow the table. Null while they resolve.
 pub fn boundsOf(
     comp: *Compilation,
     decl_index: Decl.Index,
@@ -535,7 +526,7 @@ pub fn instanceType(comp: *const Compilation, index: Pool.Instance) Pool.Index {
 
 /// Invalidated by any other instantiation.
 pub fn instanceArgs(comp: *const Compilation, index: Pool.Instance) []const Pool.Index {
-    return comp.instanceAt(index).args.slice(comp.instance_map.lists.items);
+    return comp.pool.argsOf(comp.instanceAt(index).args);
 }
 
 /// Fields, or signature parameters. Invalidated by any other commit.
@@ -553,7 +544,7 @@ pub fn moduleAt(comp: *const Compilation, index: Module.Index) *Module {
 }
 
 pub fn treeOf(comp: *const Compilation, index: Module.Index) *const AST {
-    return &comp.moduleAt(index).tree;
+    return comp.moduleAt(index).tree;
 }
 
 pub fn rowAt(comp: *const Compilation, index: Row.Index) Row {
@@ -714,7 +705,7 @@ fn withTrail(comp: *Compilation, notes_in: []const Diagnostic.Note) Allocator.Er
     var current = comp.currentInstance();
     while (current.unwrap()) |instance| : (current = comp.instanceAt(instance).parent) {
         const row = comp.instanceAt(instance);
-        depth += @intFromBool(row.args.len > 0);
+        depth += @intFromBool(row.args != .empty);
         if (row.parent.unwrap()) |above| assert(above.int() < instance.int());
     }
     const elided = depth -| shown_max;
@@ -728,7 +719,7 @@ fn withTrail(comp: *Compilation, notes_in: []const Diagnostic.Note) Allocator.Er
     current = comp.currentInstance();
     while (current.unwrap()) |instance| : (current = comp.instanceAt(instance).parent) {
         const row = comp.instanceAt(instance);
-        if (row.args.len == 0) continue;
+        if (row.args == .empty) continue;
         defer position += 1;
         if (position == head and elided > 0) {
             out[at] = .{ .message = try comp.fmt("and {d} more instantiation level{s}", .{
@@ -754,7 +745,7 @@ pub fn noteAt(
     message: []const u8,
 ) Diagnostic.Note {
     const owner = comp.moduleAt(module);
-    return .{ .message = message, .span = owner.tree.nodeSpan(node), .source = &owner.source };
+    return .{ .message = message, .span = owner.tree.nodeSpan(node), .source = owner.source };
 }
 
 pub fn noteOne(
@@ -779,8 +770,7 @@ pub fn renderAll(comp: *Compilation, writer: *Writer, color: Diagnostic.Color) !
     assert(comp.diagnostics.items.len > 0);
     std.sort.insertion(Entry, comp.diagnostics.items, {}, entryBefore);
     for (comp.diagnostics.items) |entry| {
-        const module = comp.moduleAt(entry.module);
-        try entry.diagnostic.render(comp.gpa, &module.source, writer, color);
+        try entry.diagnostic.render(comp.moduleAt(entry.module).source, writer, color);
     }
 }
 
@@ -824,208 +814,4 @@ fn pathInside(outer: []const u8, inner: []const u8) bool {
     if (std.mem.startsWith(u8, inner, trimmed) == false) return false;
     if (inner.len == trimmed.len) return true;
     return inner[trimmed.len] == '/';
-}
-
-/// A map from an id and a list of arguments to a value, the lists kept here.
-fn ArgsMap(comptime Id: type, comptime V: type) type {
-    return struct {
-        map: std.HashMapUnmanaged(Key, V, Context, load_percentage) = .empty,
-        lists: std.ArrayList(Pool.Index) = .empty,
-
-        const Self = @This();
-        const load_percentage = std.hash_map.default_max_load_percentage;
-        const Key = struct { id: Id, args: Range };
-        const Lookup = struct { id: Id, args: []const Pool.Index };
-
-        pub const empty: Self = .{};
-
-        pub const GetOrPut = struct { found_existing: bool, value_ptr: *V, args: Range };
-
-        pub fn deinit(self: *Self, gpa: Allocator) void {
-            self.map.deinit(gpa);
-            self.lists.deinit(gpa);
-        }
-
-        pub fn get(self: *const Self, id: Id, args: []const Pool.Index) ?V {
-            const lookup: Lookup = .{ .id = id, .args = args };
-            return self.map.getAdapted(lookup, Adapter{ .lists = self.lists.items });
-        }
-
-        pub fn getOrPut(
-            self: *Self,
-            gpa: Allocator,
-            id: Id,
-            args: []const Pool.Index,
-        ) Allocator.Error!GetOrPut {
-            // reserved first, so a key never points at arguments that failed to land
-            try self.lists.ensureUnusedCapacity(gpa, args.len);
-            const gop = try self.map.getOrPutContextAdapted(
-                gpa,
-                Lookup{ .id = id, .args = args },
-                Adapter{ .lists = self.lists.items },
-                Context{ .lists = self.lists.items },
-            );
-            if (gop.found_existing == false) {
-                const start: u32 = @intCast(self.lists.items.len);
-                self.lists.appendSliceAssumeCapacity(args);
-                gop.key_ptr.* = .{ .id = id, .args = .since(start, self.lists.items.len) };
-            }
-            return .{
-                .found_existing = gop.found_existing,
-                .value_ptr = gop.value_ptr,
-                .args = gop.key_ptr.args,
-            };
-        }
-
-        fn hash(id: Id, args: []const Pool.Index) u64 {
-            var hasher: std.hash.Wyhash = .init(@intFromEnum(id));
-            hasher.update(std.mem.sliceAsBytes(args));
-            return hasher.final();
-        }
-
-        const Context = struct {
-            lists: []const Pool.Index,
-
-            pub fn hash(context: Context, key: Key) u64 {
-                return Self.hash(key.id, key.args.slice(context.lists));
-            }
-
-            pub fn eql(context: Context, a: Key, b: Key) bool {
-                return a.id == b.id and std.mem.eql(
-                    Pool.Index,
-                    a.args.slice(context.lists),
-                    b.args.slice(context.lists),
-                );
-            }
-        };
-
-        const Adapter = struct {
-            lists: []const Pool.Index,
-
-            pub fn hash(_: Adapter, lookup: Lookup) u64 {
-                return Self.hash(lookup.id, lookup.args);
-            }
-
-            pub fn eql(adapter: Adapter, lookup: Lookup, key: Key) bool {
-                return lookup.id == key.id and
-                    std.mem.eql(Pool.Index, lookup.args, key.args.slice(adapter.lists));
-            }
-        };
-    };
-}
-
-const testing = std.testing;
-
-pub fn testCompile(comp: *Compilation, text: []const u8) !void {
-    return testCompileFor(comp, text, .host);
-}
-
-pub fn testCompileFor(comp: *Compilation, text: []const u8, target: Target) !void {
-    const gpa = testing.allocator;
-    try comp.init(gpa, testing.io, .{
-        .root_path = "test.phi",
-        .std_dir = null,
-        .target = target,
-    });
-    errdefer comp.deinit();
-
-    const buffer = try gpa.alloc(u8, text.len + Source.padding);
-    @memcpy(buffer[0..text.len], text);
-    buffer[text.len] = 0;
-    try comp.compile(.{ .path = "test.phi", .bytes = buffer[0..text.len :0] });
-}
-
-test "instantiation identity is index equality" {
-    var comp: Compilation = undefined;
-    try testCompile(&comp,
-        \\pub type Box[T] = {
-        \\    item: T
-        \\}
-        \\pub type Boxed = Box[i64]
-        \\fn hold(a: Box[i64], b: Boxed, c: Box[u8]) Boxed {
-        \\    return a
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
-
-    const hold = comp.moduleAt(.root).findDecl("hold") orelse return error.TestUnexpectedResult;
-    const instance = try comp.instantiate(hold, &.{}, comp.declAt(hold).origin());
-    const rows = comp.instanceRows(instance);
-    try testing.expectEqual(3, rows.len);
-
-    try testing.expectEqual(rows[0].type, rows[1].type);
-    try testing.expectEqual(rows[1].type, comp.instanceType(instance));
-    try testing.expect(rows[0].type != rows[2].type);
-}
-
-test "a generic alias is the type it names, not a new one" {
-    var comp: Compilation = undefined;
-    // `return b` compiles only because the alias and the union are one type
-    try testCompile(&comp,
-        \\type none
-        \\type Maybe[T] = T | none
-        \\fn pick(a: Maybe[i64], b: i64 | none) Maybe[i64] {
-        \\    _ = a
-        \\    return b
-        \\}
-        \\
-    );
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
-
-    const pick = comp.moduleAt(.root).findDecl("pick") orelse return error.TestUnexpectedResult;
-    const instance = try comp.instantiate(pick, &.{}, comp.declAt(pick).origin());
-    const rows = comp.instanceRows(instance);
-    try testing.expectEqual(2, rows.len);
-    try testing.expectEqual(rows[0].type, rows[1].type);
-    try testing.expectEqual(rows[0].type, comp.instanceType(instance));
-}
-
-test "a call chain compiles at any depth" {
-    const gpa = testing.allocator;
-
-    // far past `analyze_max`, which bodies do not count against
-    const levels = 1000;
-
-    var deep: Writer.Allocating = .init(gpa);
-    defer deep.deinit();
-    for (0..levels) |level| {
-        try deep.writer.print("fn g{d}(n: i64) i64 {{ return g{d}(n) }}\n", .{
-            level, level + 1,
-        });
-    }
-    try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
-
-    var comp: Compilation = undefined;
-    try testCompile(&comp, deep.written());
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
-    try testing.expectEqual(levels + 1, comp.ir.funcs.items.len);
-}
-
-test "the deepest nesting that reaches analysis does not overflow the stack" {
-    const gpa = testing.allocator;
-
-    const levels = analyze_max - 1;
-    const nesting = 100;
-
-    var deep: Writer.Allocating = .init(gpa);
-    defer deep.deinit();
-    for (0..levels) |level| {
-        try deep.writer.print("fn g{d}(n: i64) i64 {{ return ", .{level});
-        var call_buffer: [16]u8 = undefined;
-        const call = try std.fmt.bufPrint(&call_buffer, "g{d}(", .{level + 1});
-        try deep.writer.splatBytesAll(call, nesting);
-        try deep.writer.writeAll("n");
-        try deep.writer.splatBytesAll(")", nesting);
-        try deep.writer.writeAll(" }\n");
-    }
-    try deep.writer.print("fn g{d}(n: i64) i64 {{ return n }}\n", .{levels});
-
-    var comp: Compilation = undefined;
-    try testCompile(&comp, deep.written());
-    defer comp.deinit();
-    try testing.expectEqual(0, comp.diagnostics.items.len);
 }

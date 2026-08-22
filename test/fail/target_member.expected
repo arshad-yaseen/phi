@@ -1,0 +1,8 @@
+error[E0212]: this build targets 'windows', and linux | macos has no member named 'windows'
+ --> test/fail/target_member.phi:5:14
+  |
+5 | let os: Os = @target_os()
+  |              ^^^^^^^^^^^^ no member for this target
+  |
+  = help: declare 'type windows' and list it among the members
+

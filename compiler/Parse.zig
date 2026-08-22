@@ -384,7 +384,23 @@ fn addExtraNode(
 fn hole(self: *Parse) Allocator.Error!Node.Index {
     @branchHint(.cold);
     assert(self.token_index.int() <= self.eof_index.int());
-    return self.addNode(.{ .tag = .err, .main_token = self.token_index, .data = .{ .none = {} } });
+    return self.addNode(.{
+        .tag = .err,
+        .main_token = self.token_index,
+        .data = .{ .opt_node = .none },
+    });
+}
+
+/// Keeps `partial`, so what parsed before the break is still checked.
+fn holeKeeping(self: *Parse, partial: Node.Index) Allocator.Error!Node.Index {
+    @branchHint(.cold);
+    assert(partial.int() < self.nodes.len);
+    assert(self.token_index != .first);
+    return self.addNode(.{
+        .tag = .err,
+        .main_token = self.token_index.before(1),
+        .data = .{ .opt_node = partial.toOptional() },
+    });
 }
 
 fn skip(self: *Parse) Allocator.Error!Node.Index {
@@ -1225,7 +1241,9 @@ fn parseSuffixExpr(self: *Parse) Allocator.Error!Node.Index {
         switch (self.current()) {
             .l_paren => node = try self.parseCall(node),
             .l_bracket => node = try self.parseBracket(node),
-            .dot, .dot_star => node = try self.parseSelector(node) orelse return self.hole(),
+            .dot, .dot_star => {
+                node = try self.parseSelector(node) orelse return self.holeKeeping(node);
+            },
             else => return node,
         }
     }

@@ -12,6 +12,7 @@ const IR = @import("IR.zig");
 const Layout = @import("Layout.zig");
 const Module = @import("Module.zig");
 const Pool = @import("Pool.zig");
+const Source = @import("Source.zig");
 const Token = @import("Token.zig");
 const Aggregate = @import("typer/Aggregate.zig");
 const Builtin = @import("typer/Builtin.zig").Builtin;
@@ -51,7 +52,12 @@ pub const type_depth_max = AST.nest_max;
 /// What `refOf` answers for a value that already reported, so it stays silent.
 pub const broken_ref: Ref = .fromConstant(.poison);
 
-pub const Binding = struct { name: Pool.String, type: Pool.Index, bound: ?Pool.Index };
+pub const Binding = struct {
+    name: Pool.String,
+    type: Pool.Index,
+    bound: ?Pool.Index,
+    node: Node.Index,
+};
 
 pub const Operand = struct { value: Value, initializer: Node.OptionalIndex };
 
@@ -77,7 +83,6 @@ pub const Value = union(enum) {
     }
 };
 
-/// What units stage and stack, shared so the capacity survives across them.
 pub const Scratch = struct {
     rows: std.ArrayList(Compilation.Row) = .empty,
     narrows: std.ArrayList(Narrow.Narrow) = .empty,
@@ -122,7 +127,6 @@ pub const Scratch = struct {
     }
 };
 
-/// One body being lowered, reused across bodies for its capacity.
 pub const Builder = struct {
     instance: Pool.Instance = undefined,
     return_type: Pool.Index = undefined,
@@ -135,7 +139,6 @@ pub const Builder = struct {
     scopes: std.ArrayList(Scope) = .empty,
     defer_nodes: std.ArrayList(Node.Index) = .empty,
     loops: std.ArrayList(LoopFrame) = .empty,
-    /// Scratch for `finishFunc`.
     block_map: std.ArrayList(u32) = .empty,
     frontier: std.ArrayList(u32) = .empty,
     /// Loops below this are outside the `defer` being emitted.
@@ -207,8 +210,6 @@ pub const Builder = struct {
     }
 };
 
-// The units. Each is one memoized answer, run through `Compilation.ensure`.
-
 pub fn typeAlias(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     var typer = context(comp, decl_index);
     const resolved = try typer.aliasTarget(decl_index);
@@ -232,7 +233,8 @@ fn aliasTarget(typer: *Typer, decl_index: Decl.Index) Allocator.Error!Pool.Index
 
 pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     var typer = context(comp, decl_index);
-    const view = typer.tree.viewOf(typer.declNode(decl_index)).var_decl;
+    const decl = comp.declAt(decl_index);
+    const view = typer.tree.viewOf(decl.node).var_decl;
 
     // the annotation first, so a literal can land on what it says
     const annotation: ?Pool.Index = if (view.type_expr.unwrap()) |type_expr|
@@ -247,16 +249,17 @@ pub fn topLevelLet(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!b
 
     const met: Pool.Index = if (value == .constant) value.constant else .poison;
     comp.declPtr(decl_index).answer = .{ .constant = met };
+    typer.answerType(decl.node, met);
     return met != .poison;
 }
 
-/// The bounds of a generic declaration's own type parameters, resolved once.
 pub fn declBounds(comp: *Compilation, decl_index: Decl.Index) Allocator.Error!bool {
     var typer = context(comp, decl_index);
     const decl = comp.declAt(decl_index);
     const params = Resolve.typeParamNodes(comp, decl_index)[1];
     assert(params.len == decl.type_params);
     for (params, 0..) |param, at| {
+        typer.link(param, .{ .local = param });
         const bound = try Resolve.boundOf(&typer, decl_index, param);
         comp.bounds.items[decl.bounds + at] = bound orelse .poison;
     }
@@ -280,6 +283,7 @@ pub fn structRows(comp: *Compilation, instance: Pool.Instance) Allocator.Error!b
         const field = typer.tree.viewOf(member).field;
         const field_type = try Resolve.resolveType(&typer, field.type_expr);
         if (field_type == .poison) clean = false;
+        typer.answerType(member, field_type);
         try typer.stageRow(field.name_token, field_type, member);
     }
     try commitRows(comp, instance, mark);
@@ -299,7 +303,6 @@ pub fn structEmbedding(comp: *Compilation, instance: Pool.Instance) Allocator.Er
     return true;
 }
 
-/// Every struct held by value inside a type, so a cycle among them reports.
 pub fn walkEmbedded(
     comp: *Compilation,
     type_index: Pool.Index,
@@ -365,6 +368,8 @@ pub fn fnSignature(comp: *Compilation, instance: Pool.Instance) Allocator.Error!
 
         const param_type = try Resolve.resolveWrittenType(&typer, param.type_expr);
         if (param_type == .poison) clean = false;
+        typer.answerType(param_node, param_type);
+        typer.link(param_node, .{ .local = param_node });
 
         for (comp.scratch.rows.items[mark..]) |earlier| {
             if (comp.pool.sameText(earlier.name, name_text) == false) continue;
@@ -529,7 +534,7 @@ fn context(comp: *Compilation, decl_index: Decl.Index) Typer {
         .comp = comp,
         .module_index = decl.module,
         .module = module,
-        .tree = &module.tree,
+        .tree = module.tree,
         .bindings = &.{},
         .builder = null,
         .narrows_floor = @intCast(comp.scratch.narrows.items.len),
@@ -566,8 +571,6 @@ pub fn sliceOf(typer: *Typer, child: Pool.Index, mutable: bool) Allocator.Error!
     const comp = typer.comp;
     return comp.pool.intern(comp.gpa, .{ .type_slice = .{ .child = child, .mutable = mutable } });
 }
-
-// Lowering. Instructions, blocks, scopes, and locals of the body being built.
 
 pub fn emit(
     typer: *Typer,
@@ -855,8 +858,6 @@ pub fn localAt(typer: *const Typer, index: Builder.Local.Index) Builder.Local {
     return builder.locals.items[index.int()];
 }
 
-// Statements and blocks.
-
 pub fn checkBlockValue(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     assert(typer.tree.nodeTag(node) == .block);
     const comp = typer.comp;
@@ -919,7 +920,9 @@ fn checkStatement(typer: *Typer, node: Node.Index) Allocator.Error!void {
         .var_decl => try typer.checkVarDecl(node),
         .assign => |assign| try typer.checkAssign(node, assign),
         .defer_stmt => |deferred| try typer.body().defer_nodes.append(typer.comp.gpa, deferred),
-        .err => {},
+        .err => |partial| if (partial.unwrap()) |kept| {
+            _ = try typer.checkExpr(kept, null);
+        },
         else => {
             const value = try typer.checkExpr(node, .void_type);
             if (typer.guardStatement(node)) |lhs| {
@@ -995,6 +998,8 @@ fn checkVarDecl(typer: *Typer, node: Node.Index) Allocator.Error!void {
         }
     }
 
+    typer.answer(node, value);
+    typer.link(node, .{ .local = node });
     if (view.is_mutable) {
         const slot = try typer.emitSlot(node, name, value_type);
         try typer.emitStore(node, slot, refOf(value));
@@ -1043,9 +1048,13 @@ fn checkAssign(typer: *Typer, node: Node.Index, assign: AST.View.Assign) Allocat
     try typer.emitStore(node, place.ref, refOf(met));
 }
 
-// Expressions. The dispatcher, and what every kind of value answers.
-
 pub fn checkExpr(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
+    const value = try typer.checkExprKind(node, hint);
+    typer.answer(node, value);
+    return value;
+}
+
+fn checkExprKind(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.Error!Value {
     if (typer.builder == null) {
         if (runtimeOnly(typer.tree.nodeTag(node))) |what| return typer.needRuntime(node, what);
     }
@@ -1078,7 +1087,10 @@ pub fn checkExpr(typer: *Typer, node: Node.Index, hint: ?Pool.Index) Allocator.E
             const resolved = try Resolve.resolveType(typer, node);
             return if (resolved == .poison) .poison else .{ .named_type = resolved };
         },
-        .err => return .poison,
+        .err => |partial| {
+            if (partial.unwrap()) |kept| _ = try typer.checkExpr(kept, null);
+            return .poison;
+        },
         .root, .import_decl, .struct_decl, .alias_decl, .unit_decl, .fn_decl => unreachable,
         .var_decl, .type_param, .param, .field, .assign, .defer_stmt => unreachable,
         .match_arm, .struct_field_init, .range_expr => unreachable,
@@ -1256,7 +1268,35 @@ pub fn truthOf(typer: *const Typer, bools: Pool.Index, constant: Pool.Index) ?bo
     return null;
 }
 
-// Coercion, the one place a value meets the type it lands on.
+/// What `node` settled as, which is a constant's value or a runtime value's type.
+pub fn answer(typer: *Typer, node: Node.Index, value: Value) void {
+    typer.module.record(node, switch (value) {
+        .constant => |constant| constant,
+        .runtime => |runtime| runtime.type,
+        .named_type => |type_index| type_index,
+        .diverged, .poison, .named_generic, .named_fn, .named_module => return,
+    });
+}
+
+pub fn answerType(typer: *Typer, node: Node.Index, type_index: Pool.Index) void {
+    typer.module.record(node, type_index);
+}
+
+pub fn link(typer: *Typer, node: Node.Index, symbol: Module.Symbol) void {
+    typer.module.bind(node, symbol);
+}
+
+pub fn linkField(
+    typer: *Typer,
+    node: Node.Index,
+    owner: Pool.Instance,
+    row: Compilation.Row.Index,
+) void {
+    typer.link(node, .{ .field = .{
+        .owner = typer.comp.instanceDecl(owner),
+        .node = typer.comp.rowAt(row).node,
+    } });
+}
 
 pub fn coerce(
     typer: *Typer,
@@ -1428,8 +1468,6 @@ fn reportMismatch(
         .help = help,
     });
 }
-
-// Reporting.
 
 pub fn fail(typer: *Typer, node: Node.Index, report: Diagnostic.Report) Allocator.Error!void {
     try typer.comp.reportNode(typer.module_index, node, report);
@@ -1644,4 +1682,71 @@ fn reach(map: []u32, frontier: *std.ArrayList(u32), block: IR.Block.Index) void 
 fn numbered(map: []const u32, block: IR.Block.Index) IR.Block.Index {
     assert(map[block.int()] != block_dead);
     return @enumFromInt(map[block.int()]);
+}
+
+const testing = std.testing;
+
+fn findNode(comp: *const Compilation, tag: Node.Tag, text: []const u8) Node.Index {
+    const tree = comp.treeOf(.root);
+    var raw: u32 = 0;
+    while (raw < tree.nodes.len) : (raw += 1) {
+        const node: Node.Index = .from(raw);
+        if (tree.nodeTag(node) != tag) continue;
+        if (std.mem.eql(u8, tree.tokenSlice(tree.nodeMainToken(node)), text)) return node;
+    }
+    unreachable; // a test names a node its own source holds
+}
+
+test "the checker records what every node settled as, and what every name refers to" {
+    const gpa = testing.allocator;
+
+    var sources: Source.Cache = .init(gpa, testing.io);
+    defer sources.deinit();
+    _ = try sources.overlay("case.phi",
+        \\type Point = {
+        \\    x: i64
+        \\}
+        \\
+        \\fn area(p: Point) i64 {
+        \\    let scaled = p.x * 2
+        \\    return scaled
+        \\}
+        \\
+    );
+
+    var comp: Compilation = undefined;
+    try comp.init(gpa, testing.io, &sources, .{
+        .root_path = "case.phi",
+        .std_dir = null,
+        .target = .host,
+    });
+    defer comp.deinit();
+    try comp.compile();
+    try testing.expectEqual(0, comp.diagnostics.items.len);
+
+    const module = comp.moduleAt(.root);
+    const bound = findNode(&comp, .var_decl, "let");
+    const used = findNode(&comp, .ident, "scaled");
+    const receiver = findNode(&comp, .ident, "p");
+    const read = findNode(&comp, .field_access, ".");
+
+    // the type of an expression is data, not something only lowering ever saw
+    for ([_]Node.Index{ bound, used, read }) |node| {
+        try testing.expectEqualStrings("i64", try comp.typeName(module.answerOf(node)));
+    }
+    try testing.expectEqualStrings("Point", try comp.typeName(module.answerOf(receiver)));
+
+    // a name and its declaration answer the same symbol, from either side
+    const param = findNode(&comp, .param, "p");
+    const point = module.findDecl("Point").?;
+    const field = findNode(&comp, .field, "x");
+    try testing.expectEqual(Module.Symbol{ .local = bound }, module.symbolOf(bound));
+    try testing.expectEqual(Module.Symbol{ .local = bound }, module.symbolOf(used));
+    try testing.expectEqual(Module.Symbol{ .local = param }, module.symbolOf(param));
+    try testing.expectEqual(Module.Symbol{ .local = param }, module.symbolOf(receiver));
+    try testing.expectEqual(Module.Symbol{ .decl = point }, module.symbolOf(findNode(&comp, .ident, "Point")));
+    try testing.expectEqual(
+        Module.Symbol{ .field = .{ .owner = point, .node = field } },
+        module.symbolOf(read),
+    );
 }

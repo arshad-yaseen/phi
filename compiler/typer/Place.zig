@@ -129,8 +129,11 @@ pub fn checkPlace(typer: *Typer, node: Node.Index) Allocator.Error!?Place {
                 return null;
             }
             if (typer.findLocalIndex(text)) |index| {
+                typer.link(node, .{ .local = typer.localAt(index).node });
                 if (typer.localAt(index).type == .poison) return null;
-                return localPlace(typer, node, index, text);
+                const place = localPlace(typer, node, index, text);
+                typer.answerType(node, place.type);
+                return place;
             }
             const value = try typer.checkExpr(node, null);
             return placeOfValue(typer, node, value, text);
@@ -177,6 +180,7 @@ fn placeThroughPointer(
     const found = typer.typeOf(value);
     if (found == .poison) return null;
     const pointer = try Expr.pointerAt(typer, node, found, ".*", Expr.deref_help) orelse return null;
+    typer.answerType(node, pointer.child);
     return .{
         .kind = .address,
         .ref = refOf(value),
@@ -199,7 +203,10 @@ fn placeField(
     const comp = typer.comp;
     const reached = try Expr.reachField(typer, base.type, name_token) orelse return null;
     const row = switch (reached.member) {
-        .field => |found| found,
+        .field => |found| linked: {
+            typer.linkField(node, comp.pool.structOf(reached.owner), found);
+            break :linked found;
+        },
         .method => unreachable,
         .length => return failNotAPlace(
             typer,
@@ -213,6 +220,7 @@ fn placeField(
         ),
     };
     const row_type = comp.rowAt(row).type;
+    typer.answerType(node, row_type);
 
     const through = try placeThrough(typer, base, reached.pointer) orelse return null;
     const field_pointer = try typer.pointerTo(row_type, through.mutable());
@@ -238,6 +246,7 @@ fn placeIndex(
     }
 
     const indexed = try Aggregate.checkIndex(typer, node, view) orelse return null;
+    typer.answerType(node, indexed.elements.child);
     return elementPlace(typer, indexed.elements, indexed.ref);
 }
 
